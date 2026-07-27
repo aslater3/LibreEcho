@@ -17,8 +17,8 @@
 
 <table>
 <tr>
-<td><img src="assets/ui-dashboard.png" alt="LibreEcho Control Centre dashboard preview"></td>
-<td><img src="assets/ui-system.png" alt="LibreEcho Control Centre system and OTA preview"></td>
+<td><img src="assets/ui-dashboard-20260727.png" alt="LibreEcho Control Centre dashboard preview"></td>
+<td><img src="assets/ui-system-20260727.png" alt="LibreEcho Control Centre system and OTA preview"></td>
 </tr>
 </table>
 
