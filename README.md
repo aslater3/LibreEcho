@@ -20,8 +20,8 @@ Use the issue tracker for reproducible bugs and hardware problems. Include the
 device model, OS version, active slot, relevant logs, and the smallest reliable
 reproduction. Do not include Wi-Fi passwords, API tokens, or private keys.
 
-Use Discussions for design questions, setup help, and ideas that are not yet
-actionable bugs.
+Once Discussions are enabled in the repository settings, use them for design
+questions, setup help, and ideas that are not yet actionable bugs.
 
 ## License
 
