@@ -14,6 +14,12 @@ bring-up remain in the component repositories:
 - [Architecture and repository boundaries](docs/repositories.md)
 - [Contributing](CONTRIBUTING.md)
 
+## Releases
+
+Signed stable OTA bundles are published in the [LibreEcho Releases](https://github.com/aslater3/LibreEcho/releases)
+page. The release workflow remains owned by `LibreEcho-Kernel`, while this
+repository is the public product distribution point.
+
 ## Support
 
 Use the issue tracker for reproducible bugs and hardware problems. Include the
