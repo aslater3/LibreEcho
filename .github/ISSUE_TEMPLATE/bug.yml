@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible LibreEcho problem
+title: "[Bug]: "
+labels:
+  - type:bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, API tokens, private keys, or unredacted personal data.
+  - type: input
+    id: component
+    attributes:
+      label: Component
+      description: Which area is affected?
+      placeholder: kernel, UI, OTA, hardware
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OS or component version
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest reliable sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior and logs
+      description: Redact secrets before submitting.
+    validations:
+      required: true

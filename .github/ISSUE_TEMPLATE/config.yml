@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: LibreEcho-Kernel implementation issues
+    url: https://github.com/aslater3/LibreEcho-Kernel/issues
+    about: Use this for kernel, boot, Wi-Fi, image, or OTA implementation bugs.
+  - name: LibreEcho-UI implementation issues
+    url: https://github.com/aslater3/LibreEcho-UI/issues
+    about: Use this for web UI, API, or daemon implementation bugs.

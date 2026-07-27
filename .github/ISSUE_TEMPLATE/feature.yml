@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest a product or component improvement
+title: "[Feature]: "
+labels:
+  - type:feature
+body:
+  - type: input
+    id: component
+    attributes:
+      label: Component
+      placeholder: product, kernel, UI, OTA, hardware
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
