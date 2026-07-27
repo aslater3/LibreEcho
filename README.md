@@ -1,24 +1,58 @@
+<div align="center">
+
 # LibreEcho
 
+### A repairable, private voice assistant for hardware you already own.
+
+[![Kernel checks](https://github.com/aslater3/LibreEcho-Kernel/actions/workflows/ota-release.yml/badge.svg?branch=main)](https://github.com/aslater3/LibreEcho-Kernel/actions/workflows/ota-release.yml)
+[![UI checks](https://github.com/aslater3/LibreEcho-UI/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/aslater3/LibreEcho-UI/actions/workflows/checks.yml)
+[![Latest OTA](https://img.shields.io/github/v/release/aslater3/LibreEcho?display_name=tag&label=latest%20OTA&logo=github)](https://github.com/aslater3/LibreEcho/releases/latest)
+[![Website](https://img.shields.io/badge/site-libreecho.org-16c7d9)](https://libreecho.org/)
+
+[Visit libreecho.org](https://libreecho.org/) | [Download the latest OTA](https://github.com/aslater3/LibreEcho/releases/latest) | [Support the project](https://buymeacoffee.com/libreecho)
+
+</div>
+
+<table>
+<tr>
+<td><img src="assets/ui-dashboard.png" alt="LibreEcho Control Centre dashboard preview"></td>
+<td><img src="assets/ui-system.png" alt="LibreEcho Control Centre system and OTA preview"></td>
+</tr>
+</table>
+
+> The previews above are a product view of the LibreEcho Control Centre. The
+> running interface, API, and test suite live in [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI).
+
 LibreEcho is an open embedded voice-assistant operating system focused on
-privacy, repairability, and local control.
+privacy, repairability, and local control. It turns an Echo 2nd Gen-class
+device into a locally managed system with a signed A/B update path, visible
+system health, and a web control centre that stays on your network.
 
-This repository is the product home for the project. Source code and hardware
-bring-up remain in the component repositories:
+## Start Here
 
-- [LibreEcho-Kernel](https://github.com/aslater3/LibreEcho-Kernel) contains the MT8163 ARM32 kernel, initramfs, image pipeline, hardware support, and signed OTA release workflow.
-- [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) contains the local web control centre, API, service daemons, and UI test suite.
+- **Website:** [libreecho.org](https://libreecho.org/)
+- **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
+- **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
+- **Hardware and OS:** [LibreEcho-Kernel](https://github.com/aslater3/LibreEcho-Kernel)
+- **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
+- **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
-## Documentation
+## What Is Included
 
-- [Architecture and repository boundaries](docs/repositories.md)
-- [Contributing](CONTRIBUTING.md)
+- Local web administration for device, audio, wake word, networking, logs, and system settings.
+- Signed A/B OTA updates with opt-in automatic installation and a manual update action.
+- Linux kernel and initramfs bring-up for the MT8163 ARM32 platform.
+- Clear component boundaries so UI work, hardware work, and product support can evolve independently.
 
-## Releases
+## Repositories
 
-Signed stable OTA bundles are published in the [LibreEcho Releases](https://github.com/aslater3/LibreEcho/releases)
-page. The release workflow remains owned by `LibreEcho-Kernel`, while this
-repository is the public product distribution point.
+| Repository | Owns |
+| --- | --- |
+| [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, documentation, support, roadmap, issues, release notes, and OTA distribution |
+| [`LibreEcho-Kernel`](https://github.com/aslater3/LibreEcho-Kernel) | MT8163 kernel, initramfs, hardware bring-up, image construction, OTA verification, and release workflow |
+| [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
+
+See [the repository boundary guide](docs/repositories.md) for where a change belongs.
 
 ## Support
 
