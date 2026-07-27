@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/libreecho-mark.svg" alt="LibreEcho logo" width="88">
+
 # LibreEcho
 
 ### A repairable, private voice assistant for hardware you already own.
@@ -20,8 +22,8 @@
 </tr>
 </table>
 
-> The previews above are a product view of the LibreEcho Control Centre. The
-> running interface, API, and test suite live in [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI).
+> These are captures of the running LibreEcho Control Centre on the development
+> device. The interface, API, and test suite live in [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI).
 
 LibreEcho is an open embedded voice-assistant operating system focused on
 privacy, repairability, and local control. It turns an Echo 2nd Gen-class
