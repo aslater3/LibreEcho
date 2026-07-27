@@ -5,7 +5,7 @@ product-home repository.
 
 | Repository | Owns |
 | --- | --- |
-| `LibreEcho` | Product documentation, support, roadmap, cross-component issues, and release notes |
+| `LibreEcho` | Product documentation, support, roadmap, cross-component issues, release notes, and signed OTA release assets |
 | `LibreEcho-Kernel` | MT8163 kernel, initramfs, hardware bring-up, image construction, OTA verification, and release workflow |
 | `LibreEcho-UI` | Web control centre, HTTP API, service daemons, and UI tests |
 
