@@ -15,20 +15,17 @@
 
 </div>
 
-<table>
-<tr>
-<td><img src="assets/ui-dashboard-20260727.png" alt="LibreEcho Control Centre dashboard preview"></td>
-<td><img src="assets/ui-system-20260727.png" alt="LibreEcho Control Centre system and OTA preview"></td>
-</tr>
-</table>
-
-> These are captures of the running LibreEcho Control Centre on the development
-> device. The interface, API, and test suite live in [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI).
+The interface, API, and service daemons live in the separate
+[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) repository.
 
 LibreEcho is an open embedded voice-assistant operating system focused on
-privacy, repairability, and local control. It turns an Echo 2nd Gen-class
-device into a locally managed system with a signed A/B update path, visible
-system health, and a web control centre that stays on your network.
+privacy, repairability, and local control. The current development line targets
+the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
+tooling, a native web control centre, and a signed A/B update path.
+
+The Linux 6.1 line is the current mainline development baseline. It is not yet
+presented as a general-purpose upstream Linux port or as a stable public OTA
+release. Hardware fixes and service integration continue on review branches.
 
 ## Start Here
 
@@ -51,7 +48,8 @@ system health, and a web control centre that stays on your network.
 | Repository | Owns |
 | --- | --- |
 | [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, documentation, support, roadmap, issues, release notes, and OTA distribution |
-| [`LibreEcho-Kernel`](https://github.com/aslater3/LibreEcho-Kernel) | MT8163 kernel, initramfs, hardware bring-up, image construction, OTA verification, and release workflow |
+| [`LibreEcho-Kernel`](https://github.com/aslater3/LibreEcho-Kernel) | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; the historical 3.18 tree remains here for compatibility |
+| [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1) | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 
 See [the repository boundary guide](docs/repositories.md) for where a change belongs.
