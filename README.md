@@ -15,15 +15,8 @@
 
 </div>
 
-<table>
-<tr>
-<td><img src="assets/ui-dashboard-20260727.png" alt="LibreEcho Control Centre dashboard preview"></td>
-<td><img src="assets/ui-system-20260727.png" alt="LibreEcho Control Centre system and OTA preview"></td>
-</tr>
-</table>
-
-> These are captures of the running LibreEcho Control Centre on the development
-> device. The interface, API, and test suite live in [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI).
+The interface, API, and service daemons live in the separate
+[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) repository.
 
 LibreEcho is an open embedded voice-assistant operating system focused on
 privacy, repairability, and local control. It turns an Echo 2nd Gen-class
