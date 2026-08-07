@@ -2,7 +2,8 @@
 
 ## Where changes belong
 
-- Kernel, boot, Wi-Fi, hardware, image, or OTA implementation changes belong in [LibreEcho-Kernel](https://github.com/aslater3/LibreEcho-Kernel).
+- Linux 6.1 kernel, device-tree, driver, and kernel-platform changes belong in [LibreEcho-Linux-6.1](https://github.com/aslater3/LibreEcho-Linux-6.1).
+- Initramfs, feature packaging, image construction, OTA, and ARM32 product-tooling changes belong in [LibreEcho-Kernel](https://github.com/aslater3/LibreEcho-Kernel).
 - Web UI, API, and daemon changes belong in [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI).
 - Product documentation, installation guidance, and cross-component planning belong here.
 
