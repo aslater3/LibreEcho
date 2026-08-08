@@ -91,6 +91,14 @@
       "required_evidence": ["path-size-sha256-contract", "read-only-extraction", "no-upload", "no-redistribution"]
     },
     {
+      "id": "mt8163-audio-fpga-firmware",
+      "name": "i2s_to_spi_v34.bin FPGA audio bridge bitstream",
+      "license": "UNDECLARED",
+      "release_status": "blocked",
+      "source": "https://github.com/aslater3/LibreEcho-Linux-6.1",
+      "required_evidence": ["creator-and-generation-provenance", "redistribution-permission", "license-or-source-offer", "sha256-77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6"]
+    },
+    {
       "id": "amonet-installer",
       "name": "Amonet/BROM installer and wrapper inputs",
       "license": "SEE-UPSTREAM",

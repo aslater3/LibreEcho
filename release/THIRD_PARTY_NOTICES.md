@@ -72,6 +72,16 @@ The MT8163 WMT/Wi-Fi firmware files are copied only from the owner's read-only
 included in the public source, boot image, OTA archive, CI artifacts, or GitHub
 Release. The installer must never upload extracted bytes.
 
+## MT8163 audio FPGA bitstream
+
+The kernel audio driver uses `firmware/i2s_to_spi_v34.bin`, a 30,964-byte FPGA
+configuration bitstream tracked separately from the owner-device connectivity
+firmware. Its SHA-256 is
+`77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6`. The
+redistributable source PR carries the exact bytes for reproducible builds, but
+the public release is blocked until creator/generation provenance and
+redistribution permission are recorded.
+
 ## Installer and hardware research
 
 Amonet/BROM tooling and reverse-engineering research are not automatically part
