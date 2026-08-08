@@ -6,7 +6,7 @@
 
 ### A repairable, private voice assistant for hardware you already own.
 
-[![Kernel checks](https://github.com/aslater3/LibreEcho-Kernel/actions/workflows/ota-release.yml/badge.svg?branch=main)](https://github.com/aslater3/LibreEcho-Kernel/actions/workflows/ota-release.yml)
+[![Platform checks](https://github.com/aslater3/LibreEcho-Platform/actions/workflows/ota-release.yml/badge.svg?branch=main)](https://github.com/aslater3/LibreEcho-Platform/actions/workflows/ota-release.yml)
 [![UI checks](https://github.com/aslater3/LibreEcho-UI/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/aslater3/LibreEcho-UI/actions/workflows/checks.yml)
 [![Latest OTA](https://img.shields.io/github/v/release/aslater3/LibreEcho?display_name=tag&label=latest%20OTA&logo=github)](https://github.com/aslater3/LibreEcho/releases/latest)
 [![Website](https://img.shields.io/badge/site-libreecho.org-16c7d9)](https://libreecho.org/)
@@ -32,7 +32,7 @@ release. Hardware fixes and service integration continue on review branches.
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
-- **Hardware and OS:** [LibreEcho-Kernel](https://github.com/aslater3/LibreEcho-Kernel)
+- **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
 - **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
@@ -48,7 +48,7 @@ release. Hardware fixes and service integration continue on review branches.
 | Repository | Owns |
 | --- | --- |
 | [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, documentation, support, roadmap, issues, release notes, and OTA distribution |
-| [`LibreEcho-Kernel`](https://github.com/aslater3/LibreEcho-Kernel) | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; the historical 3.18 tree remains here for compatibility |
+| [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; the historical 3.18 tree remains here for compatibility |
 | [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1) | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 

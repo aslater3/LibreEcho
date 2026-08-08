@@ -115,7 +115,7 @@ def main() -> None:
         "sources": {
             "product": source("https://github.com/aslater3/LibreEcho", args.product_commit),
             "kernel": source("https://github.com/aslater3/LibreEcho-Linux-6.1", args.kernel_commit),
-            "tooling": source("https://github.com/aslater3/LibreEcho-Kernel", args.tooling_commit),
+            "tooling": source("https://github.com/aslater3/LibreEcho-Platform", args.tooling_commit),
             "ui": source("https://github.com/aslater3/LibreEcho-UI", args.ui_commit),
         },
         "artifacts": records,
