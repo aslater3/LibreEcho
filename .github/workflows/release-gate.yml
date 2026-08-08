@@ -39,6 +39,7 @@ jobs:
           import json
           data = json.load(open('release/components.json'))
           blocked = [c['id'] for c in data['components'] if c['release_status'] == 'blocked']
-          assert blocked, 'the release gate must remain fail-closed until component closure is complete'
-          print('blocked_components=' + ','.join(blocked))
+          if blocked:
+              raise SystemExit('blocked_components=' + ','.join(blocked))
+          print('blocked_components=none')
           PY

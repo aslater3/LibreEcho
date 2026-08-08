@@ -48,6 +48,23 @@ def load_candidate(path: Path) -> tuple[dict[str, str], dict[str, object]]:
     return record, json.loads(manifest_path.read_text())
 
 
+def load_components(path: Path) -> list[dict[str, object]]:
+    if not path.is_file() or path.is_symlink():
+        raise SystemExit("ERROR: public component allowlist is unavailable")
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict) or not isinstance(data.get("components"), list):
+        raise SystemExit("ERROR: public component allowlist is malformed")
+    blocked = []
+    for component in data["components"]:
+        if not isinstance(component, dict):
+            blocked.append("<malformed>")
+        elif component.get("release_status") == "blocked":
+            blocked.append(str(component.get("id", "<unknown>")))
+    if blocked:
+        raise SystemExit("ERROR: public component allowlist still contains blocked components: " + ",".join(blocked))
+    return data["components"]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate", type=Path, required=True)
@@ -57,18 +74,21 @@ def main() -> None:
     parser.add_argument("--kernel-commit", required=True)
     parser.add_argument("--tooling-commit", required=True)
     parser.add_argument("--ui-commit", required=True)
+    parser.add_argument("--components", type=Path, help="public component allowlist; defaults to release/components.json")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
     if not RELEASE_ID.fullmatch(args.release_id):
         raise SystemExit("ERROR: release ID must be radar-puffin-vX.Y.Z")
+    load_components(args.components or Path(__file__).resolve().parent.parent / "release/components.json")
     candidate, manifest = load_candidate(args.candidate)
     if candidate.get("status") != "PREPARED_NOT_FLASHED" and manifest.get("status") != "PREPARED_NOT_FLASHED":
         raise SystemExit("ERROR: candidate status is not PREPARED_NOT_FLASHED")
-    if candidate.get("kernel_git_diff_sha256") not in (None, "", "0" * 64, EMPTY_DIFF_SHA256):
-        raise SystemExit("ERROR: candidate kernel source is dirty")
-    if candidate.get("tooling_git_diff_sha256") not in (None, "", "0" * 64, EMPTY_DIFF_SHA256):
-        raise SystemExit("ERROR: candidate tooling source is dirty")
+    for field, label in (("kernel_git_diff_sha256", "kernel"), ("tooling_git_diff_sha256", "tooling")):
+        if field not in candidate:
+            raise SystemExit(f"ERROR: candidate is missing clean-tree attestation: {field}")
+        if candidate[field] not in ("", "0" * 64, EMPTY_DIFF_SHA256):
+            raise SystemExit(f"ERROR: candidate {label} source is dirty")
     connectivity = manifest.get("connectivity", {})
     if connectivity.get("embedded_vendor_file_count") != 0:
         raise SystemExit("ERROR: candidate contains embedded vendor files")
@@ -82,6 +102,8 @@ def main() -> None:
             raise SystemExit(f"ERROR: artifact name is not public-safe: {artifact.name}")
         if RUN_ID.search(artifact.name):
             raise SystemExit(f"ERROR: artifact name contains a private run ID: {artifact.name}")
+        if artifact.stat().st_size < 1:
+            raise SystemExit(f"ERROR: artifact is empty: {artifact}")
 
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
