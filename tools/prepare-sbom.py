@@ -35,9 +35,11 @@ def main() -> None:
     packages = []
     relationships = []
     for component in components:
-        required = {"name", "version", "license", "download_location"}
+        required = {"name", "version", "license", "download_location", "release_status"}
         if set(component) != required and not required.issubset(component):
-            raise SystemExit("ERROR: component requires name, version, license, and download_location")
+            raise SystemExit("ERROR: component requires name, version, license, download_location, and release_status")
+        if component["release_status"] != "cleared":
+            raise SystemExit(f"ERROR: component is not cleared: {component['name']}")
         if any("/home/" in str(v) or "192.168." in str(v) for v in component.values()):
             raise SystemExit("ERROR: private value in component record")
         spdx_id = package_id(component["name"], component["version"])
