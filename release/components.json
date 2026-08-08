@@ -48,7 +48,7 @@
       "name": "AirPlay, mDNS, D-Bus, crypto, and runtime closure",
       "license": "MIXED",
       "release_status": "blocked",
-      "source": "https://github.com/aslater3/LibreEcho-Kernel",
+      "source": "https://github.com/aslater3/LibreEcho-Platform",
       "required_evidence": ["exact-source-or-binary-provenance", "all-runtime-notices", "copyleft-source-offers", "dependency-sbom"]
     },
     {
