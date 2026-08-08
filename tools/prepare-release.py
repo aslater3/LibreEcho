@@ -16,6 +16,7 @@ RELEASE_ID = re.compile(r"^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EMPTY_DIFF_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 REPO = re.compile(r"^https://github\.com/[^/]+/[^/]+$")
+RUN_ID = re.compile(r"(?:^|[-_])20\d{6}T\d{6}Z(?:[-_]|$)")
 
 
 def sha256(path: Path) -> str:
@@ -79,6 +80,8 @@ def main() -> None:
             raise SystemExit(f"ERROR: artifact is not a regular file: {artifact}")
         if not re.fullmatch(r"[A-Za-z0-9._-]+", artifact.name):
             raise SystemExit(f"ERROR: artifact name is not public-safe: {artifact.name}")
+        if RUN_ID.search(artifact.name):
+            raise SystemExit(f"ERROR: artifact name contains a private run ID: {artifact.name}")
 
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
