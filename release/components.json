@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "public_release_requires_all_components_cleared": true,
+    "owner_device_firmware_is_never_redistributed": true,
+    "device_specific_evidence_is_private": true
+  },
+  "components": [
+    {
+      "id": "libreecho",
+      "name": "LibreEcho product source",
+      "license": "MIT",
+      "release_status": "cleared",
+      "source": "https://github.com/aslater3/LibreEcho"
+    },
+    {
+      "id": "linux-6.1",
+      "name": "Linux 6.1 kernel and product drivers",
+      "license": "GPL-2.0-only",
+      "release_status": "cleared-with-corresponding-source",
+      "source": "https://github.com/aslater3/LibreEcho-Linux-6.1",
+      "required_evidence": ["exact-source-commit", "modified-file-notices", "corresponding-source"]
+    },
+    {
+      "id": "aosp-adbd",
+      "name": "AOSP adbd source-built for ARM32",
+      "license": "Apache-2.0",
+      "release_status": "cleared-with-notice",
+      "source": "https://android.googlesource.com/platform/system/core",
+      "required_evidence": ["exact-source-commit", "patches", "NOTICE", "reproducible-build-record"]
+    },
+    {
+      "id": "busybox",
+      "name": "BusyBox runtime",
+      "license": "GPL-2.0-only",
+      "release_status": "blocked",
+      "required_evidence": ["exact-version", "source-archive", "corresponding-source", "license-notice"]
+    },
+    {
+      "id": "wpa-supplicant",
+      "name": "wpa_supplicant runtime",
+      "license": "SEE-UPSTREAM",
+      "release_status": "blocked",
+      "required_evidence": ["exact-version", "source-closure", "license-notices"]
+    },
+    {
+      "id": "airplay-payload",
+      "name": "AirPlay, mDNS, D-Bus, crypto, and runtime closure",
+      "license": "MIXED",
+      "release_status": "blocked",
+      "source": "https://github.com/aslater3/LibreEcho-Kernel",
+      "required_evidence": ["exact-source-or-binary-provenance", "all-runtime-notices", "copyleft-source-offers", "dependency-sbom"]
+    },
+    {
+      "id": "stt-payload",
+      "name": "Sherpa-ONNX streaming STT and model",
+      "license": "Apache-2.0-plus-dependency-closure",
+      "release_status": "blocked",
+      "source": "https://github.com/k2-fsa/sherpa-onnx",
+      "required_evidence": ["exact-model-card", "model-license", "runtime-notices", "dependency-sbom"]
+    },
+    {
+      "id": "tts-payload",
+      "name": "TTS runtime, voices, and eSpeak data",
+      "license": "MIXED",
+      "release_status": "blocked",
+      "source": "https://github.com/k2-fsa/sherpa-onnx",
+      "required_evidence": ["exact-model-cards", "voice-provenance", "model-licenses", "runtime-notices", "dependency-sbom"]
+    },
+    {
+      "id": "wakeword-payload",
+      "name": "openWakeWord runtime and pretrained model",
+      "license": "CC-BY-NC-SA-4.0",
+      "release_status": "blocked",
+      "source": "https://github.com/dscripka/openWakeWord",
+      "required_evidence": ["replace-with-permissive-model", "model-card", "training-data-permission"]
+    },
+    {
+      "id": "assistant-payload",
+      "name": "Assistant runtime and curl/CA certificate notices",
+      "license": "MIXED",
+      "release_status": "blocked",
+      "required_evidence": ["runtime-dependency-sbom", "all-notices", "provider-neutral-documentation"]
+    },
+    {
+      "id": "mt8163-owner-firmware",
+      "name": "MT8163 connectivity firmware extracted from the owner device",
+      "license": "OWNER_DEVICE_LOCAL_ONLY",
+      "release_status": "local-extraction-only",
+      "source": "owner device system_a",
+      "required_evidence": ["path-size-sha256-contract", "read-only-extraction", "no-upload", "no-redistribution"]
+    },
+    {
+      "id": "amonet-installer",
+      "name": "Amonet/BROM installer and wrapper inputs",
+      "license": "SEE-UPSTREAM",
+      "release_status": "blocked",
+      "required_evidence": ["exact-source-provenance", "separate-installer-license", "preserve-system-a-userdata-rollback"]
+    }
+  ]
+}
