@@ -1,0 +1,45 @@
+name: Public release gate
+
+on:
+  pull_request:
+    paths:
+      - 'release/**'
+      - 'tools/prepare-release.py'
+      - '.github/workflows/release-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'release/**'
+      - 'tools/prepare-release.py'
+      - '.github/workflows/release-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate metadata JSON
+        run: |
+          python -m json.tool release/components.json >/dev/null
+          python -m json.tool release/provenance.schema.json >/dev/null
+      - name: Compile release generators
+        run: python -m py_compile tools/prepare-release.py tools/prepare-sbom.py
+      - name: Reject private identifiers in public metadata
+        run: |
+          ! grep -R -nE '/home/|/dev/tty|192\.168\.|10\.[0-9]+\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}' release tools/prepare-release.py
+      - name: Enforce unresolved component gate
+        run: |
+          python - <<'PY'
+          import json
+          data = json.load(open('release/components.json'))
+          blocked = [c['id'] for c in data['components'] if c['release_status'] == 'blocked']
+          if blocked:
+              raise SystemExit('blocked_components=' + ','.join(blocked))
+          print('blocked_components=none')
+          PY
