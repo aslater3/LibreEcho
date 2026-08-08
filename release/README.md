@@ -49,6 +49,12 @@ python3 tools/prepare-release.py \
   --output-dir /tmp/libreecho-release
 ```
 
+Generate the SPDX 2.3 inventory from the same sanitized component and artifact
+records with `tools/prepare-sbom.py`. The component file must contain exact
+versions, SPDX license identifiers, public download locations, and any required
+copyright notices; `NOASSERTION` is not a substitute for a completed license
+review.
+
 The command fails closed when the candidate is dirty, contains embedded vendor
 files, identifies a device, or includes a component that is not cleared.
 Artifact paths are used only to calculate hashes and are never written to the

@@ -28,8 +28,8 @@ jobs:
         run: |
           python -m json.tool release/components.json >/dev/null
           python -m json.tool release/provenance.schema.json >/dev/null
-      - name: Compile release generator
-        run: python -m py_compile tools/prepare-release.py
+      - name: Compile release generators
+        run: python -m py_compile tools/prepare-release.py tools/prepare-sbom.py
       - name: Reject private identifiers in public metadata
         run: |
           ! grep -R -nE '/home/|/dev/tty|192\.168\.|10\.[0-9]+\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}' release tools/prepare-release.py
