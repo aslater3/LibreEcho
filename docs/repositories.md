@@ -1,7 +1,9 @@
 # Repository Boundaries
 
-LibreEcho is intentionally split into two implementation repositories and one
-product-home repository.
+LibreEcho is intentionally split into three public component repositories and
+one product-home repository. Private build/release orchestration combines
+explicit, pinned versions of those components without changing their ownership
+boundaries.
 
 | Repository | Owns |
 | --- | --- |

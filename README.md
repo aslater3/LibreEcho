@@ -23,9 +23,11 @@ privacy, repairability, and local control. The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
 tooling, a native web control centre, and a signed A/B update path.
 
-The Linux 6.1 line is the current mainline development baseline. It is not yet
-presented as a general-purpose upstream Linux port or as a stable public OTA
-release. Hardware fixes and service integration continue on review branches.
+The Linux 6.1 LTS-based line is the current development baseline. A complete
+clean-source image has passed private hardware deployment and runtime
+validation, but the project is not yet presented as a general-purpose upstream
+Linux port or a stable public OTA release. Hardware fixes and service
+integration continue on review branches.
 
 ## Start Here
 
