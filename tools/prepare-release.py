@@ -14,6 +14,7 @@ from pathlib import Path
 
 RELEASE_ID = re.compile(r"^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
+EMPTY_DIFF_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 REPO = re.compile(r"^https://github\.com/[^/]+/[^/]+$")
 
 
@@ -63,9 +64,9 @@ def main() -> None:
     candidate, manifest = load_candidate(args.candidate)
     if candidate.get("status") != "PREPARED_NOT_FLASHED" and manifest.get("status") != "PREPARED_NOT_FLASHED":
         raise SystemExit("ERROR: candidate status is not PREPARED_NOT_FLASHED")
-    if candidate.get("kernel_git_diff_sha256") not in (None, "", "0" * 64):
+    if candidate.get("kernel_git_diff_sha256") not in (None, "", "0" * 64, EMPTY_DIFF_SHA256):
         raise SystemExit("ERROR: candidate kernel source is dirty")
-    if candidate.get("tooling_git_diff_sha256") not in (None, "", "0" * 64):
+    if candidate.get("tooling_git_diff_sha256") not in (None, "", "0" * 64, EMPTY_DIFF_SHA256):
         raise SystemExit("ERROR: candidate tooling source is dirty")
     connectivity = manifest.get("connectivity", {})
     if connectivity.get("embedded_vendor_file_count") != 0:
