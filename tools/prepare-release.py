@@ -52,16 +52,59 @@ def load_components(path: Path) -> list[dict[str, object]]:
     if not path.is_file() or path.is_symlink():
         raise SystemExit("ERROR: public component allowlist is unavailable")
     data = json.loads(path.read_text())
-    if not isinstance(data, dict) or not isinstance(data.get("components"), list):
+    if (not isinstance(data, dict) or data.get("schema_version") != 2 or
+            not isinstance(data.get("components"), list)):
         raise SystemExit("ERROR: public component allowlist is malformed")
-    blocked = []
+    redistributed_scopes = {"source-release", "core-image", "separate-payload"}
+    local_scopes = {"local-extraction-only", "external-user-supplied"}
+    failures = []
+    seen = set()
     for component in data["components"]:
         if not isinstance(component, dict):
-            blocked.append("<malformed>")
-        elif component.get("release_status") == "blocked":
-            blocked.append(str(component.get("id", "<unknown>")))
-    if blocked:
-        raise SystemExit("ERROR: public component allowlist still contains blocked components: " + ",".join(blocked))
+            failures.append("<malformed>: record is not an object")
+            continue
+        component_id = component.get("id")
+        required = {
+            "id", "name", "version", "license", "release_status",
+            "distribution_scope", "download_location", "source_offer", "evidence",
+        }
+        if (not isinstance(component_id, str) or not component_id or
+                component_id in seen or not required.issubset(component)):
+            failures.append(f"{component_id or '<unknown>'}: malformed or duplicate")
+            continue
+        seen.add(component_id)
+        scope = component.get("distribution_scope")
+        status = component.get("release_status")
+        if scope in redistributed_scopes:
+            if status != "cleared":
+                failures.append(f"{component_id}: redistributed component is not cleared")
+            if component.get("license") in {"MIXED", "SEE-UPSTREAM", "UNDECLARED", "NOASSERTION"}:
+                failures.append(f"{component_id}: redistributed component has no SPDX conclusion")
+            if component.get("download_location") == "NOASSERTION":
+                failures.append(f"{component_id}: redistributed component lacks a download location")
+        elif scope in local_scopes:
+            if status != "not-redistributed":
+                failures.append(f"{component_id}: local/external component has unsafe status")
+        else:
+            failures.append(f"{component_id}: unknown distribution scope")
+        evidence = component.get("evidence")
+        if not isinstance(evidence, list) or not evidence or not all(
+                isinstance(item, str) and item.startswith("release/") for item in evidence):
+            failures.append(f"{component_id}: public evidence list is missing")
+        else:
+            repository_root = path.parent.parent
+            for item in evidence:
+                evidence_path = repository_root / item
+                if evidence_path.is_symlink() or not evidence_path.is_file():
+                    failures.append(f"{component_id}: public evidence is unavailable: {item}")
+        for key in ("name", "version", "license", "download_location", "source_offer"):
+            value = component.get(key)
+            if not isinstance(value, str) or not value:
+                failures.append(f"{component_id}: {key} is missing")
+            elif any(marker in value for marker in ("/home/", "192.168.", "/dev/tty")):
+                failures.append(f"{component_id}: {key} contains a private value")
+    if failures:
+        raise SystemExit("ERROR: public component gate failed: " + "; ".join(failures))
     return data["components"]
 
 

@@ -27,7 +27,11 @@ def main() -> None:
     args = parser.parse_args()
     if not RELEASE_ID.fullmatch(args.release_id):
         raise SystemExit("ERROR: invalid release ID")
-    components = json.loads(args.components.read_text())
+    component_data = json.loads(args.components.read_text())
+    if isinstance(component_data, dict):
+        components = component_data.get("components")
+    else:
+        components = component_data
     artifacts = json.loads(args.artifacts.read_text())
     if not isinstance(components, list) or not isinstance(artifacts, list):
         raise SystemExit("ERROR: components and artifacts must be arrays")
@@ -35,11 +39,25 @@ def main() -> None:
     packages = []
     relationships = []
     for component in components:
-        required = {"name", "version", "license", "download_location", "release_status"}
-        if set(component) != required and not required.issubset(component):
-            raise SystemExit("ERROR: component requires name, version, license, download_location, and release_status")
-        if component["release_status"] != "cleared":
-            raise SystemExit(f"ERROR: component is not cleared: {component['name']}")
+        required = {
+            "id", "name", "version", "license", "download_location",
+            "release_status", "distribution_scope",
+        }
+        if not isinstance(component, dict) or not required.issubset(component):
+            raise SystemExit(
+                "ERROR: component requires id, name, version, license, download_location, "
+                "release_status, and distribution_scope"
+            )
+        scope = component["distribution_scope"]
+        status = component["release_status"]
+        if scope in {"local-extraction-only", "external-user-supplied"}:
+            if status != "not-redistributed":
+                raise SystemExit(f"ERROR: non-redistributed component has unsafe status: {component['name']}")
+            continue
+        if scope not in {"source-release", "core-image", "separate-payload"}:
+            raise SystemExit(f"ERROR: unknown component distribution scope: {component['name']}")
+        if status != "cleared":
+            raise SystemExit(f"ERROR: redistributed component is not cleared: {component['name']}")
         if any("/home/" in str(v) or "192.168." in str(v) for v in component.values()):
             raise SystemExit("ERROR: private value in component record")
         spdx_id = package_id(component["name"], component["version"])
