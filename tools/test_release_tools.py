@@ -57,6 +57,31 @@ class ComponentGateTests(unittest.TestCase):
         self.assertIn("audio-capable candidate", (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text())
         self.assertNotIn("therefore excludes it from public artifacts", (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text())
 
+    def test_community_source_offer_hashes_match_catalog_and_closure(self) -> None:
+        expected = {
+            "core-runtime-closure": "fcbcd29d4cf5fbe3b4c511c9a365bcd7adc7bf0eb6454d693fbcd5ddf31bc51f",
+            "airplay-payload": "8678aba5db5359a988f9718552c18f9446763128215ec45e1596159031c9659e",
+            "stt-payload": "5a494d737a3865675fba0ca1996aa062acf08e43fcdf9c149f2f364bef9396ce",
+            "tts-payload": "41fe96ec156379ddae46a6e6816de2673c12e5b4eb88b9b055d4573c148ba33e",
+            "wakeword-payload": "75d4e47bb784d9c21b41f351b16508c1b5a90ad837ee6fbf615c425e09158fc8",
+            "assistant-payload": "2b15821a7b44b02767f3f8c7029d3ba0637599644e2550aa39b273c075bc895d",
+        }
+        data = json.loads((ROOT / "release/components.json").read_text())
+        closure = (
+            ROOT / "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
+        ).read_text()
+        by_id = {component["id"]: component for component in data["components"]}
+        for component_id, digest in expected.items():
+            with self.subTest(component=component_id):
+                self.assertEqual(
+                    by_id[component_id]["version"], f"source-offer-sha256:{digest}"
+                )
+                self.assertIn(digest, closure)
+                self.assertIn(
+                    "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md",
+                    by_id[component_id]["evidence"],
+                )
+
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
         audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")

@@ -122,7 +122,7 @@
     {
       "id": "core-runtime-closure",
       "name": "Wireless tools, regulatory database, TinyALSA, libsodium, glibc, and GCC runtime closure",
-      "version": "source-offer-sha256:73140d22a1ddbf501b4da362c12796baa263a786d90e86e6ab7705871354463b",
+      "version": "source-offer-sha256:fcbcd29d4cf5fbe3b4c511c9a365bcd7adc7bf0eb6454d693fbcd5ddf31bc51f",
       "license": "(GPL-2.0-only AND BSD-3-Clause AND ISC AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
       "release_status": "cleared",
       "distribution_scope": "core-image",
@@ -131,7 +131,8 @@
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
         "release/CORE-RUNTIME-SOURCE-OFFER.md",
-        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md",
+        "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "wireless-tools",
@@ -147,7 +148,7 @@
     {
       "id": "airplay-payload",
       "name": "AirPlay 2, mDNS, D-Bus, crypto, FFmpeg, and runtime closure",
-      "version": "source-offer-sha256:062eba536d790179b63e39540dace6497f49d3ae43e4c7e336d2b1e9917384c7",
+      "version": "source-offer-sha256:8678aba5db5359a988f9718552c18f9446763128215ec45e1596159031c9659e",
       "license": "(GPL-2.0-or-later AND LGPL-2.1-or-later AND BSD-3-Clause AND MIT AND ISC AND Apache-2.0 AND OpenSSL)",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -155,7 +156,8 @@
       "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
-        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md",
+        "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "nqptp-source-archive",
@@ -172,7 +174,7 @@
     {
       "id": "stt-payload",
       "name": "Sherpa-ONNX streaming STT, ONNX Runtime, SpeexDSP, and model",
-      "version": "source-offer-sha256:7c1feabcb785347375a5595b067e09cd618094138c8bd46daa348dcdf8a229de",
+      "version": "source-offer-sha256:5a494d737a3865675fba0ca1996aa062acf08e43fcdf9c149f2f364bef9396ce",
       "license": "(Apache-2.0 AND MIT AND BSD-3-Clause AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -180,7 +182,8 @@
       "source_offer": "https://github.com/k2-fsa/sherpa-onnx",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
-        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md",
+        "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "model-file-hash-contract",
@@ -197,7 +200,7 @@
     {
       "id": "tts-payload",
       "name": "Sherpa-ONNX TTS runtime, Piper voices, and eSpeak data",
-      "version": "source-offer-sha256:9ee10035fb196d01570907818c4b65458bc87529aff9355c247e010298c9e505",
+      "version": "source-offer-sha256:41fe96ec156379ddae46a6e6816de2673c12e5b4eb88b9b055d4573c148ba33e",
       "license": "(Apache-2.0 AND MIT AND GPL-3.0-or-later AND CC-BY-SA-4.0 AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -205,7 +208,8 @@
       "source_offer": "https://github.com/k2-fsa/sherpa-onnx",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
-        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md",
+        "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "northern-male-piper-voice-identity",
@@ -223,7 +227,7 @@
     {
       "id": "wakeword-payload",
       "name": "openWakeWord runtime and pretrained Alexa-compatible model",
-      "version": "0.5.1-payload-hash-in-provenance",
+      "version": "source-offer-sha256:75d4e47bb784d9c21b41f351b16508c1b5a90ad837ee6fbf615c425e09158fc8",
       "license": "(MIT AND CC-BY-NC-SA-4.0 AND BSD-3-Clause)",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -234,7 +238,8 @@
       "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
-        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md",
+        "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
       ],
       "use_restriction": "noncommercial-model-asset",
       "closed_subcomponents": [
@@ -251,7 +256,7 @@
     {
       "id": "assistant-payload",
       "name": "Assistant runtime, curl, and CA certificate closure",
-      "version": "source-offer-sha256:a68715579adfa75319b0590eb71f5873bb4a4ac12ee59652110c40dc9e82ec72",
+      "version": "source-offer-sha256:2b15821a7b44b02767f3f8c7029d3ba0637599644e2550aa39b273c075bc895d",
       "license": "(MIT AND curl AND MPL-2.0)",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -259,7 +264,8 @@
       "source_offer": "https://github.com/aslater3/LibreEcho-UI",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
-        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md",
+        "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "curl-source-archive",
