@@ -31,17 +31,69 @@ class ComponentGateTests(unittest.TestCase):
         for component_id in (
             "core-runtime-closure", "airplay-payload", "stt-payload",
             "tts-payload", "wakeword-payload", "assistant-payload",
-            "mt8163-audio-fpga",
         ):
             self.assertIn(component_id, message)
+        self.assertNotIn("mt8163-audio-fpga: redistributed component is not cleared", message)
 
         data = json.loads((ROOT / "release/components.json").read_text())
         self.assertEqual(len(data["components"]), 17)
         audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
         self.assertEqual(audio["license"], "NOASSERTION")
+        self.assertEqual(audio["release_status"], "documented-good-faith")
         self.assertTrue(audio["included_in_candidate"])
+        self.assertEqual(audio["known_good_size"], 30964)
+        self.assertEqual(audio["known_good_sha256"], "77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6")
         self.assertIn("audio-capable candidate", (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text())
         self.assertNotIn("therefore excludes it from public artifacts", (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text())
+
+    def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            (repository / "release/THIRD_PARTY_NOTICES.md").write_text("notices\n")
+            (repository / "release/FPGA-PROVENANCE.md").write_text("documented\n")
+            catalog = repository / "release/components.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            self.assertEqual(PREPARE_RELEASE.load_components(catalog), [audio])
+
+    def test_documented_good_faith_requires_explicit_hash_contract(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
+        audio.pop("known_good_sha256")
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            (repository / "release/THIRD_PARTY_NOTICES.md").write_text("notices\n")
+            (repository / "release/FPGA-PROVENANCE.md").write_text("documented\n")
+            catalog = repository / "release/components.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            with self.assertRaises(SystemExit) as failure:
+                PREPARE_RELEASE.load_components(catalog)
+        self.assertIn("documented-good-faith component lacks", str(failure.exception))
+
+    def test_sbom_accepts_documented_good_faith_with_noassertion(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            catalog = root / "components.json"
+            artifacts = root / "artifacts.json"
+            output = root / "sbom.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            artifacts.write_text(json.dumps([{"name": "boot.img", "sha256": "1" * 64, "size": 4096}]))
+            result = subprocess.run([
+                sys.executable, str(ROOT / "tools/prepare-sbom.py"),
+                "--release-id", "radar-puffin-v0.1.0",
+                "--created", "2026-08-08T00:00:00Z",
+                "--components", str(catalog),
+                "--artifacts", str(artifacts),
+                "--output", str(output),
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            package = json.loads(output.read_text())["packages"][0]
+            self.assertEqual(package["licenseConcluded"], "NOASSERTION")
 
     def test_explicit_component_checker_fails_closed(self) -> None:
         result = subprocess.run([
@@ -49,6 +101,7 @@ class ComponentGateTests(unittest.TestCase):
         ], text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("public component gate failed", result.stderr)
+        self.assertNotIn("mt8163-audio-fpga: redistributed component is not cleared", result.stderr)
 
     def _catalog_failure(self, mutate) -> str:
         data = json.loads((ROOT / "release/components.json").read_text())

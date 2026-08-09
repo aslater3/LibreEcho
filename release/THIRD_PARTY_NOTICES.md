@@ -35,22 +35,25 @@ complete notices and component inventory.
   source archives, static-link relinkable objects, and build records remain an
   open aggregate release blocker; see `release/CORE-RUNTIME-SOURCE-OFFER.md`.
 
-### MT8163 audio FPGA bridge — included, release-blocked
+### MT8163 audio FPGA bridge — included, documented-good-faith exception
 
 `i2s_to_spi_v34.bin` is required by the known working microphone/audio FPGA
 path and is included in the audio-capable candidate through the kernel's
-`CONFIG_EXTRA_FIRMWARE` path. It is **not cleared for public redistribution**.
-Its observed 30,964-byte identity is recorded to identify the blocked component:
+`CONFIG_EXTRA_FIRMWARE` path. Its provenance and deliberate release decision
+are documented in `release/FPGA-PROVENANCE.md` and Platform `firmware/WHENCE`.
+
+No firmware-specific licence was found. The candidate therefore retains
+`license=NOASSERTION`; the release gate accepts this component only because the
+exact origin, community precedent, known-good size/hash, and explicit
+non-licence finding are recorded. This is not a claim that postmarketOS or the
+Linux package metadata grants a firmware-specific licence.
+
+Known-good identity:
 
 `77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6`
 
-An identical binary appears in an Amazon-device Linux 3.18 source tree, but
-that fact alone does not establish authoritative redistribution permission or
-provide the preferred-form FPGA source/generation record required for a
-copyleft source offer. The candidate therefore retains the working audio path,
-but the public release remains blocked until creator/generation provenance,
-license or source-offer terms, and redistribution permission are established,
-or a redistributable replacement is developed and hardware-validated.
+Any future replacement must match the recorded 30,964-byte size and SHA-256 or
+be treated as a new release decision.
 
 ## Separate feature payloads
 

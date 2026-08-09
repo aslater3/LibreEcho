@@ -216,16 +216,23 @@
       "name": "MT8163 Radar-Puffin audio FPGA bitstream",
       "version": "i2s_to_spi_v34",
       "license": "NOASSERTION",
-      "release_status": "blocked",
+      "release_status": "documented-good-faith",
       "distribution_scope": "core-image",
       "included_in_candidate": true,
-      "download_location": "https://github.com/carlitros900/karnak_3.18.48/commit/5b48c78b249ed9129fe92d30087de25b20152538",
+      "download_location": "https://github.com/external-mirrors/echo-pmos-amazon-biscuit-kernel/tree/3923647bdeca8fdaeb943fb31234dbe361668d28/firmware/i2s_to_spi_v34.bin",
       "source_offer": "NOASSERTION",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/FPGA-PROVENANCE.md"
       ],
       "binary_sha256": "77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6",
-      "blocker": "No authoritative redistribution permission or preferred-form FPGA source/generation record has been established."
+      "known_good_sha256": "77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6",
+      "known_good_size": 30964,
+      "source_origin": "Amazon Fire HD8 8th-generation source package",
+      "provenance_note": "release/FPGA-PROVENANCE.md",
+      "license_finding": "No firmware-specific licence found",
+      "redistribution_basis": "Documented good-faith decision following established community precedent including postmarketOS linux-amazon-biscuit",
+      "blocker": "None; retained as documented-good-faith exception with NOASSERTION and exact hash contract."
     },
     {
       "id": "mt8163-owner-firmware",

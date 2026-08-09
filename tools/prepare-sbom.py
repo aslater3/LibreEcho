@@ -10,6 +10,10 @@ from pathlib import Path
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 RELEASE_ID = re.compile(r"^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$")
+REQUIRED_DOCUMENTED_GOOD_FAITH_FIELDS = {
+    "provenance_note", "source_origin", "known_good_sha256",
+    "known_good_size", "redistribution_basis", "license_finding",
+}
 
 
 def package_id(name: str, version: str) -> str:
@@ -56,8 +60,14 @@ def main() -> None:
             continue
         if scope not in {"source-release", "core-image", "separate-payload"}:
             raise SystemExit(f"ERROR: unknown component distribution scope: {component['name']}")
-        if status != "cleared":
+        documented_good_faith = status == "documented-good-faith"
+        if status not in {"cleared", "documented-good-faith"}:
             raise SystemExit(f"ERROR: redistributed component is not cleared: {component['name']}")
+        if documented_good_faith:
+            if not REQUIRED_DOCUMENTED_GOOD_FAITH_FIELDS.issubset(component):
+                raise SystemExit(f"ERROR: documented-good-faith component lacks provenance fields: {component['name']}")
+            if component.get("license") != "NOASSERTION":
+                raise SystemExit(f"ERROR: documented-good-faith component must retain NOASSERTION: {component['name']}")
         if any("/home/" in str(v) or "192.168." in str(v) for v in component.values()):
             raise SystemExit("ERROR: private value in component record")
         spdx_id = package_id(component["name"], component["version"])

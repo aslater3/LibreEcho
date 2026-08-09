@@ -57,6 +57,11 @@ def load_components(path: Path) -> list[dict[str, object]]:
         raise SystemExit("ERROR: public component allowlist is malformed")
     redistributed_scopes = {"source-release", "core-image", "separate-payload"}
     local_scopes = {"local-extraction-only", "external-user-supplied"}
+    documented_good_faith_status = "documented-good-faith"
+    required_good_faith_fields = {
+        "provenance_note", "source_origin", "known_good_sha256",
+        "known_good_size", "redistribution_basis", "license_finding",
+    }
     failures = []
     seen = set()
     for component in data["components"]:
@@ -76,9 +81,24 @@ def load_components(path: Path) -> list[dict[str, object]]:
         scope = component.get("distribution_scope")
         status = component.get("release_status")
         if scope in redistributed_scopes:
-            if status != "cleared":
+            documented_good_faith = status == documented_good_faith_status
+            if status not in {"cleared", documented_good_faith_status}:
                 failures.append(f"{component_id}: redistributed component is not cleared")
-            if component.get("license") in {"MIXED", "SEE-UPSTREAM", "UNDECLARED", "NOASSERTION"}:
+            if documented_good_faith:
+                if not required_good_faith_fields.issubset(component):
+                    failures.append(f"{component_id}: documented-good-faith component lacks provenance fields")
+                if component.get("license") != "NOASSERTION":
+                    failures.append(f"{component_id}: documented-good-faith component must retain NOASSERTION")
+                if not isinstance(component.get("known_good_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", component["known_good_sha256"]):
+                    failures.append(f"{component_id}: documented-good-faith hash contract is invalid")
+                if not isinstance(component.get("known_good_size"), int) or component["known_good_size"] <= 0:
+                    failures.append(f"{component_id}: documented-good-faith size contract is invalid")
+                if "no firmware-specific licence found" not in str(component.get("license_finding", "")).lower():
+                    failures.append(f"{component_id}: documented-good-faith licence finding is incomplete")
+                if "established community precedent" not in str(component.get("redistribution_basis", "")).lower():
+                    failures.append(f"{component_id}: documented-good-faith basis is incomplete")
+            if component.get("license") in {"MIXED", "SEE-UPSTREAM", "UNDECLARED"} or (
+                    component.get("license") == "NOASSERTION" and not documented_good_faith):
                 failures.append(f"{component_id}: redistributed component has no SPDX conclusion")
             if component.get("download_location") == "NOASSERTION":
                 failures.append(f"{component_id}: redistributed component lacks a download location")
