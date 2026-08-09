@@ -7,7 +7,8 @@ Amonet/BROM wrapper image, calibration data, or local filesystem path.
 
 ## Release boundary
 
-A complete full-feature public release is intended to be composed of:
+A complete `community-noncommercial` public release is intended to be composed
+of:
 
 - a signed `boot.img` and OTA archive produced by the private build pipeline;
 - separately licensed AirPlay, STT, TTS, wakeword, and assistant SquashFS
@@ -19,10 +20,11 @@ A complete full-feature public release is intended to be composed of:
   and
 - SPDX SBOM documents for the exact assembled artifacts.
 
-The catalog currently contains blocked redistributed components. Therefore no
-full-feature public candidate may be called compliant, signed, published, or
-promoted until the strict component gate passes. In particular, the required
-audio FPGA bitstream lacks authoritative redistribution/source provenance.
+The `commercially-unrestricted` scope deliberately excludes the wakeword
+payload. The `community-noncommercial` scope includes all five payloads and is
+cleared only when the CC-BY-NC-SA-4.0 model restriction, attribution,
+ShareAlike terms, and exact source/relink offer are retained. Neither scope is a
+publication or hardware-acceptance claim by itself.
 
 The four MT8163 connectivity firmware files are **owner-device-local inputs**.
 They are never stored in this repository, CI artifacts, OTA archives, or GitHub
@@ -34,7 +36,8 @@ identity/path/hash checks and must never upload them.
 `components.json` is an allowlist, not a list of suggestions. Redistributed
 `source-release`, `core-image`, and `separate-payload` records must have
 `release_status: cleared`, an SPDX expression, a public download location, a
-source offer, and public evidence. Owner-local or user-supplied dependencies
+source offer, and public evidence. A component with `allowed_release_scopes` is
+included only in those named scopes. Owner-local or user-supplied dependencies
 must use `release_status: not-redistributed` and are omitted from redistributed
 SPDX packages.
 
@@ -42,7 +45,8 @@ The wakeword payload is deliberately separate and remains subject to
 CC-BY-NC-SA-4.0, including its noncommercial and ShareAlike conditions. The TTS
 voices remain separate CC-BY-SA-4.0 assets. These restrictions are presented in
 the release notes and embedded legal text; they are not hidden behind the MIT
-license used by LibreEcho-authored product code.
+license used by LibreEcho-authored product code. Do not describe a
+`community-noncommercial` release as permitting unrestricted commercial reuse.
 
 Amonet support remains an external user-supplied integration. LibreEcho does not
 publish upstream Amonet archives, signed vendor boot-chain partitions, wrapper
@@ -63,14 +67,17 @@ python3 tools/prepare-release.py \
   --kernel-commit <40-hex-commit> \
   --tooling-commit <40-hex-commit> \
   --ui-commit <40-hex-commit> \
+  --release-scope community-noncommercial \
   --output-dir /tmp/libreecho-release
 ```
 
 Generate the SPDX 2.3 inventory from the same sanitized component and artifact
-records with `tools/prepare-sbom.py`. Redistributed component records contain
+records with `tools/prepare-sbom.py --release-scope community-noncommercial`.
+Redistributed component records contain
 exact or provenance-bound versions, SPDX license expressions, public download
 locations, source offers, and required notices. `NOASSERTION` is accepted only
-for components explicitly proved absent from every redistributed artifact.
+for non-redistributed dependencies or a separately documented good-faith
+exception with an exact provenance and hash contract.
 
 The command fails closed when the candidate is dirty, contains embedded vendor
 files, identifies a device, or includes a component that is not cleared.

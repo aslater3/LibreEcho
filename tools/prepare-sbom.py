@@ -14,6 +14,7 @@ REQUIRED_DOCUMENTED_GOOD_FAITH_FIELDS = {
     "provenance_note", "source_origin", "known_good_sha256",
     "known_good_size", "redistribution_basis", "license_finding",
 }
+RELEASE_SCOPES = {"commercially-unrestricted", "community-noncommercial"}
 
 
 def package_id(name: str, version: str) -> str:
@@ -25,6 +26,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--created", required=True, help="UTC ISO-8601 timestamp")
+    parser.add_argument(
+        "--release-scope", choices=sorted(RELEASE_SCOPES),
+        default="commercially-unrestricted",
+    )
     parser.add_argument("--components", type=Path, required=True, help="JSON array of public component records")
     parser.add_argument("--artifacts", type=Path, required=True, help="JSON array of {name, sha256, size}")
     parser.add_argument("--output", type=Path, required=True)
@@ -54,12 +59,38 @@ def main() -> None:
             )
         scope = component["distribution_scope"]
         status = component["release_status"]
+        allowed_scopes = component.get("allowed_release_scopes")
+        if allowed_scopes is None:
+            component_release_scopes = RELEASE_SCOPES
+        elif (not isinstance(allowed_scopes, list) or not allowed_scopes or
+              len(allowed_scopes) != len(set(allowed_scopes)) or
+              not all(isinstance(item, str) and item in RELEASE_SCOPES
+                      for item in allowed_scopes)):
+            raise SystemExit(
+                f"ERROR: invalid allowed release scopes: {component['name']}"
+            )
+        else:
+            component_release_scopes = set(allowed_scopes)
+        noncommercial = (
+            "CC-BY-NC-" in str(component.get("license", "")) or
+            component.get("use_restriction") == "noncommercial-model-asset"
+        )
+        if noncommercial and (
+            component.get("use_restriction") != "noncommercial-model-asset" or
+            component_release_scopes != {"community-noncommercial"}
+        ):
+            raise SystemExit(
+                f"ERROR: noncommercial component has unsafe release scopes: "
+                f"{component['name']}"
+            )
         if scope in {"local-extraction-only", "external-user-supplied"}:
             if status != "not-redistributed":
                 raise SystemExit(f"ERROR: non-redistributed component has unsafe status: {component['name']}")
             continue
         if scope not in {"source-release", "core-image", "separate-payload"}:
             raise SystemExit(f"ERROR: unknown component distribution scope: {component['name']}")
+        if args.release_scope not in component_release_scopes:
+            continue
         documented_good_faith = status == "documented-good-faith"
         if status not in {"cleared", "documented-good-faith"}:
             raise SystemExit(f"ERROR: redistributed component is not cleared: {component['name']}")
@@ -102,8 +133,8 @@ def main() -> None:
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": f"LibreEcho {args.release_id} SBOM",
-        "documentNamespace": f"https://libreecho.org/releases/{args.release_id}/sbom",
+        "name": f"LibreEcho {args.release_id} {args.release_scope} SBOM",
+        "documentNamespace": f"https://libreecho.org/releases/{args.release_id}/{args.release_scope}/sbom",
         "creationInfo": {"created": args.created, "creators": ["Organization: LibreEcho"]},
         "packages": packages,
         "files": files,

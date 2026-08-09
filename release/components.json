@@ -225,10 +225,13 @@
       "name": "openWakeWord runtime and pretrained Alexa-compatible model",
       "version": "0.5.1-payload-hash-in-provenance",
       "license": "(MIT AND CC-BY-NC-SA-4.0 AND BSD-3-Clause)",
-      "release_status": "not-redistributed",
-      "distribution_scope": "external-user-supplied",
+      "release_status": "cleared",
+      "distribution_scope": "separate-payload",
+      "allowed_release_scopes": [
+        "community-noncommercial"
+      ],
       "download_location": "https://github.com/dscripka/openWakeWord/tree/v0.5.1",
-      "source_offer": "not-applicable",
+      "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
         "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
@@ -240,9 +243,10 @@
         "flatbuffers-python-source-pin",
         "path-independent-ort-build",
         "serialized-ort-build",
-        "cc-by-nc-sa-attribution-bundle"
+        "cc-by-nc-sa-attribution-bundle",
+        "community-noncommercial-policy-verification"
       ],
-      "blocker": "The tracked CC-BY-NC-SA-4.0 wakeword models remain noncommercial and therefore cannot pass the unrestricted public release gate; replace them with permissively redistributable model assets or publish them only as an explicitly restricted separate payload."
+      "blocker": "Excluded from commercially unrestricted releases; cleared only for an explicitly labelled community-noncommercial release that preserves the model licence, attribution, modification notice, ShareAlike terms, and source/relink offer."
     },
     {
       "id": "assistant-payload",

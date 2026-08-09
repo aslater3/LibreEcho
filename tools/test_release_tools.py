@@ -24,11 +24,17 @@ PREPARE_RELEASE = load_module("prepare_release", ROOT / "tools/prepare-release.p
 
 
 class ComponentGateTests(unittest.TestCase):
-    def test_public_catalog_clears_redistributed_components(self) -> None:
-        loaded = PREPARE_RELEASE.load_components(ROOT / "release/components.json")
+    def test_public_catalog_scopes_noncommercial_wakeword(self) -> None:
+        unrestricted = PREPARE_RELEASE.load_components(
+            ROOT / "release/components.json", "commercially-unrestricted"
+        )
+        community = PREPARE_RELEASE.load_components(
+            ROOT / "release/components.json", "community-noncommercial"
+        )
         data = json.loads((ROOT / "release/components.json").read_text())
-        self.assertEqual(loaded, data["components"])
         self.assertEqual(len(data["components"]), 17)
+        self.assertNotIn("wakeword-payload", {c["id"] for c in unrestricted})
+        self.assertIn("wakeword-payload", {c["id"] for c in community})
         for component_id in (
             "core-runtime-closure", "airplay-payload", "stt-payload",
             "tts-payload", "assistant-payload",
@@ -36,8 +42,12 @@ class ComponentGateTests(unittest.TestCase):
             component = next(c for c in data["components"] if c["id"] == component_id)
             self.assertEqual(component["release_status"], "cleared")
         wakeword = next(c for c in data["components"] if c["id"] == "wakeword-payload")
-        self.assertEqual(wakeword["distribution_scope"], "external-user-supplied")
-        self.assertEqual(wakeword["release_status"], "not-redistributed")
+        self.assertEqual(wakeword["distribution_scope"], "separate-payload")
+        self.assertEqual(wakeword["release_status"], "cleared")
+        self.assertEqual(
+            wakeword["allowed_release_scopes"], ["community-noncommercial"]
+        )
+        self.assertEqual(wakeword["use_restriction"], "noncommercial-model-asset")
         audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
         self.assertEqual(audio["license"], "NOASSERTION")
         self.assertEqual(audio["release_status"], "documented-good-faith")
@@ -102,6 +112,24 @@ class ComponentGateTests(unittest.TestCase):
         ], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("component_gate=cleared", result.stdout)
+        self.assertIn("release_scope=commercially-unrestricted", result.stdout)
+
+        community = subprocess.run([
+            sys.executable, str(ROOT / "tools/check-release-components.py"),
+            "--release-scope", "community-noncommercial",
+        ], text=True, capture_output=True)
+        self.assertEqual(community.returncode, 0, community.stderr)
+        self.assertIn("component_count=17", community.stdout)
+        self.assertIn("release_scope=community-noncommercial", community.stdout)
+
+    def test_restricted_component_requires_valid_release_scopes(self) -> None:
+        def mutate(components):
+            wakeword = next(c for c in components if c["id"] == "wakeword-payload")
+            wakeword["distribution_scope"] = "separate-payload"
+            wakeword["release_status"] = "cleared"
+            wakeword["allowed_release_scopes"] = ["commercially-unrestricted"]
+        message = self._catalog_failure(mutate)
+        self.assertIn("noncommercial component has unsafe release scopes", message)
 
     def _catalog_failure(self, mutate) -> str:
         data = json.loads((ROOT / "release/components.json").read_text())
@@ -186,6 +214,32 @@ class ComponentGateTests(unittest.TestCase):
             ], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("package_count=14", result.stdout)
+
+    def test_sbom_includes_wakeword_only_for_community_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifacts = root / "artifacts.json"
+            output = root / "sbom.json"
+            artifacts.write_text(json.dumps([
+                {"name": "boot.img", "sha256": "1" * 64, "size": 4096}
+            ]))
+            result = subprocess.run([
+                sys.executable, str(ROOT / "tools/prepare-sbom.py"),
+                "--release-id", "radar-puffin-v0.1.0",
+                "--created", "2026-08-08T00:00:00Z",
+                "--release-scope", "community-noncommercial",
+                "--components", str(ROOT / "release/components.json"),
+                "--artifacts", str(artifacts),
+                "--output", str(output),
+            ], text=True, capture_output=True)
+            names = {
+                package["name"] for package in json.loads(output.read_text())["packages"]
+            } if output.exists() else set()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("package_count=15", result.stdout)
+        self.assertIn(
+            "openWakeWord runtime and pretrained Alexa-compatible model", names
+        )
 
 
 if __name__ == "__main__":

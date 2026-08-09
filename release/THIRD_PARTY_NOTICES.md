@@ -57,10 +57,10 @@ be treated as a new release decision.
 
 ## Separate feature payloads
 
-The following SquashFS files are planned independent release assets. None may
-be published while its `release/components.json` record remains `blocked`.
-Each must preserve its own license conditions and pass the exact source-offer
-gate before release.
+The following SquashFS files are independent release assets. Each must be
+cleared for the selected release scope, preserve its own license conditions,
+and pass the exact source-offer gate before release. The wakeword asset is
+allowed only in the explicitly labelled `community-noncommercial` scope.
 
 ### AirPlay 2
 

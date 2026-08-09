@@ -18,6 +18,11 @@ def main() -> None:
         default=root / "release/components.json",
         help="component catalog to enforce",
     )
+    parser.add_argument(
+        "--release-scope",
+        choices=("commercially-unrestricted", "community-noncommercial"),
+        default="commercially-unrestricted",
+    )
     args = parser.parse_args()
     prepare_path = root / "tools/prepare-release.py"
     spec = importlib.util.spec_from_file_location("prepare_release", prepare_path)
@@ -25,8 +30,11 @@ def main() -> None:
         raise SystemExit("ERROR: release component validator is unavailable")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    components = module.load_components(args.components)
-    print(f"component_gate=cleared component_count={len(components)}")
+    components = module.load_components(args.components, args.release_scope)
+    print(
+        f"component_gate=cleared component_count={len(components)} "
+        f"release_scope={args.release_scope}"
+    )
 
 
 if __name__ == "__main__":

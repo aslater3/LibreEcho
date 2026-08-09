@@ -48,7 +48,14 @@ def load_candidate(path: Path) -> tuple[dict[str, str], dict[str, object]]:
     return record, json.loads(manifest_path.read_text())
 
 
-def load_components(path: Path) -> list[dict[str, object]]:
+RELEASE_SCOPES = {"commercially-unrestricted", "community-noncommercial"}
+
+
+def load_components(
+    path: Path, release_scope: str = "commercially-unrestricted"
+) -> list[dict[str, object]]:
+    if release_scope not in RELEASE_SCOPES:
+        raise SystemExit(f"ERROR: unknown release scope: {release_scope}")
     if not path.is_file() or path.is_symlink():
         raise SystemExit("ERROR: public component allowlist is unavailable")
     data = json.loads(path.read_text())
@@ -64,6 +71,7 @@ def load_components(path: Path) -> list[dict[str, object]]:
     }
     failures = []
     seen = set()
+    applicable = []
     for component in data["components"]:
         if not isinstance(component, dict):
             failures.append("<malformed>: record is not an object")
@@ -80,6 +88,28 @@ def load_components(path: Path) -> list[dict[str, object]]:
         seen.add(component_id)
         scope = component.get("distribution_scope")
         status = component.get("release_status")
+        allowed_scopes = component.get("allowed_release_scopes")
+        if allowed_scopes is None:
+            component_release_scopes = RELEASE_SCOPES
+        elif (not isinstance(allowed_scopes, list) or not allowed_scopes or
+              len(allowed_scopes) != len(set(allowed_scopes)) or
+              not all(isinstance(item, str) and item in RELEASE_SCOPES
+                      for item in allowed_scopes)):
+            failures.append(f"{component_id}: invalid allowed release scopes")
+            component_release_scopes = set()
+        else:
+            component_release_scopes = set(allowed_scopes)
+        noncommercial = (
+            "CC-BY-NC-" in str(component.get("license", "")) or
+            component.get("use_restriction") == "noncommercial-model-asset"
+        )
+        if noncommercial:
+            if component.get("use_restriction") != "noncommercial-model-asset":
+                failures.append(f"{component_id}: noncommercial use restriction is missing")
+            if component_release_scopes != {"community-noncommercial"}:
+                failures.append(
+                    f"{component_id}: noncommercial component has unsafe release scopes"
+                )
         if scope in redistributed_scopes:
             documented_good_faith = status == documented_good_faith_status
             if status not in {"cleared", documented_good_faith_status}:
@@ -123,9 +153,11 @@ def load_components(path: Path) -> list[dict[str, object]]:
                 failures.append(f"{component_id}: {key} is missing")
             elif any(marker in value for marker in ("/home/", "192.168.", "/dev/tty")):
                 failures.append(f"{component_id}: {key} contains a private value")
+        if scope in local_scopes or release_scope in component_release_scopes:
+            applicable.append(component)
     if failures:
         raise SystemExit("ERROR: public component gate failed: " + "; ".join(failures))
-    return data["components"]
+    return applicable
 
 
 def main() -> None:
@@ -138,12 +170,19 @@ def main() -> None:
     parser.add_argument("--tooling-commit", required=True)
     parser.add_argument("--ui-commit", required=True)
     parser.add_argument("--components", type=Path, help="public component allowlist; defaults to release/components.json")
+    parser.add_argument(
+        "--release-scope", choices=sorted(RELEASE_SCOPES),
+        default="commercially-unrestricted",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
     if not RELEASE_ID.fullmatch(args.release_id):
         raise SystemExit("ERROR: release ID must be radar-puffin-vX.Y.Z")
-    load_components(args.components or Path(__file__).resolve().parent.parent / "release/components.json")
+    load_components(
+        args.components or Path(__file__).resolve().parent.parent / "release/components.json",
+        args.release_scope,
+    )
     candidate, manifest = load_candidate(args.candidate)
     if candidate.get("status") != "PREPARED_NOT_FLASHED" and manifest.get("status") != "PREPARED_NOT_FLASHED":
         raise SystemExit("ERROR: candidate status is not PREPARED_NOT_FLASHED")
@@ -174,6 +213,7 @@ def main() -> None:
     provenance = {
         "schema_version": 1,
         "release_id": args.release_id,
+        "release_scope": args.release_scope,
         "platform": {"board": "radar_puffin", "architecture": "armv7", "kernel_line": "linux-6.1"},
         "sources": {
             "product": source("https://github.com/aslater3/LibreEcho", args.product_commit),
