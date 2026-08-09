@@ -129,9 +129,14 @@
       "download_location": "https://github.com/aslater3/LibreEcho-Platform",
       "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/CORE-RUNTIME-SOURCE-OFFER.md"
       ],
-      "blocker": "Exact source archives/build records and relinkable-object obligations for every remaining static glibc/LGPL runtime are not yet assembled into one source offer."
+      "closed_subcomponents": [
+        "wireless-tools",
+        "wireless-regdb"
+      ],
+      "blocker": "Exact source archives/build records and relinkable-object obligations for the remaining TinyALSA, libsodium, glibc, and GCC runtime closure are not yet assembled into one independently verified source offer."
     },
     {
       "id": "airplay-payload",

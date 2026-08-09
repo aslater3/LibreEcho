@@ -27,9 +27,13 @@ complete notices and component inventory.
 - **musl 1.2.5** — MIT, rebuilt from the pinned upstream archive.
 - **`wpa_supplicant` 2.10** — BSD-3-Clause; the binary's complete `-L` notice is
   embedded.
-- **wireless-tools, wireless-regdb, TinyALSA, libsodium, glibc, and GCC runtime
-  code** retain their GPL, ISC, BSD, LGPL, and GCC Runtime Library Exception
-  terms. Exact versions and notices are embedded in the core image.
+- **wireless-tools and wireless-regdb** are source-locked and independently
+  checked against the exact core-image overlay bytes. Their GPL/LGPL and ISC
+  terms remain applicable.
+- **TinyALSA, libsodium, glibc, and GCC runtime code** retain their BSD, ISC,
+  LGPL, and GCC Runtime Library Exception terms. Their exact corresponding
+  source archives, static-link relinkable objects, and build records remain an
+  open aggregate release blocker; see `release/CORE-RUNTIME-SOURCE-OFFER.md`.
 
 ### MT8163 audio FPGA bridge — included, release-blocked
 
