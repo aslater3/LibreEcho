@@ -71,8 +71,22 @@ python3 tools/prepare-release.py \
   --output-dir /tmp/libreecho-release
 ```
 
-Generate the SPDX 2.3 inventory from the same sanitized component and artifact
-records with `tools/prepare-sbom.py --release-scope community-noncommercial`.
+Generate the SPDX 2.3 inventory from the same sanitized provenance, component,
+and artifact records. The provenance release ID and scope must match and its
+source commits replace the `provenance:<source>` versions before SPDX package IDs
+are calculated:
+
+```sh
+python3 tools/prepare-sbom.py \
+  --release-id radar-puffin-vX.Y.Z \
+  --created <UTC-ISO-8601> \
+  --release-scope community-noncommercial \
+  --components release/components.json \
+  --provenance /tmp/libreecho-release/radar-puffin-vX.Y.Z-provenance.json \
+  --artifacts /tmp/libreecho-release/artifacts.json \
+  --output /tmp/libreecho-release/radar-puffin-vX.Y.Z.spdx.json
+```
+
 Redistributed component records contain
 exact or provenance-bound versions, SPDX license expressions, public download
 locations, source offers, and required notices. `NOASSERTION` is accepted only

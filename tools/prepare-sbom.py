@@ -4,22 +4,67 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 from pathlib import Path
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
 RELEASE_ID = re.compile(r"^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$")
-REQUIRED_DOCUMENTED_GOOD_FAITH_FIELDS = {
-    "provenance_note", "source_origin", "known_good_sha256",
-    "known_good_size", "redistribution_basis", "license_finding",
-}
 RELEASE_SCOPES = {"commercially-unrestricted", "community-noncommercial"}
 
 
 def package_id(name: str, version: str) -> str:
     digest = hashlib.sha256(f"{name}\0{version}".encode()).hexdigest()[:16]
     return f"SPDXRef-Package-{digest}"
+
+
+def load_component_validator():
+    path = Path(__file__).resolve().with_name("prepare-release.py")
+    spec = importlib.util.spec_from_file_location("prepare_release", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit("ERROR: release component validator is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.load_components
+
+
+def load_provenance(
+    path: Path | None, release_id: str, release_scope: str
+) -> dict[str, str]:
+    if path is None:
+        return {}
+    if not path.is_file() or path.is_symlink():
+        raise SystemExit("ERROR: release provenance is unavailable")
+    data = json.loads(path.read_text())
+    if (not isinstance(data, dict) or data.get("release_id") != release_id or
+            data.get("release_scope") != release_scope or
+            not isinstance(data.get("sources"), dict)):
+        raise SystemExit("ERROR: release provenance identity does not match the SBOM")
+    commits: dict[str, str] = {}
+    for name, source in data["sources"].items():
+        if (not isinstance(name, str) or not isinstance(source, dict) or
+                not isinstance(source.get("commit"), str) or
+                not COMMIT.fullmatch(source["commit"])):
+            raise SystemExit("ERROR: release provenance source commit is malformed")
+        commits[name] = source["commit"]
+    return commits
+
+
+def resolve_version(component: dict[str, object], commits: dict[str, str]) -> str:
+    version = component["version"]
+    if not isinstance(version, str):
+        raise SystemExit(f"ERROR: component version is malformed: {component['name']}")
+    if not version.startswith("provenance:"):
+        return version
+    source_name = version.removeprefix("provenance:")
+    commit = commits.get(source_name)
+    if commit is None:
+        raise SystemExit(
+            f"ERROR: component source version is absent from provenance: {component['name']}"
+        )
+    return commit
 
 
 def main() -> None:
@@ -30,96 +75,62 @@ def main() -> None:
         "--release-scope", choices=sorted(RELEASE_SCOPES),
         default="commercially-unrestricted",
     )
-    parser.add_argument("--components", type=Path, required=True, help="JSON array of public component records")
-    parser.add_argument("--artifacts", type=Path, required=True, help="JSON array of {name, sha256, size}")
+    parser.add_argument("--components", type=Path, required=True,
+                        help="versioned public component catalog")
+    parser.add_argument("--provenance", type=Path,
+                        help="sanitized release provenance used for source commit versions")
+    parser.add_argument("--artifacts", type=Path, required=True,
+                        help="JSON array of {name, sha256, size}")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not RELEASE_ID.fullmatch(args.release_id):
         raise SystemExit("ERROR: invalid release ID")
-    component_data = json.loads(args.components.read_text())
-    if isinstance(component_data, dict):
-        components = component_data.get("components")
-    else:
-        components = component_data
+
+    load_components = load_component_validator()
+    components = load_components(args.components, args.release_scope)
     artifacts = json.loads(args.artifacts.read_text())
-    if not isinstance(components, list) or not isinstance(artifacts, list):
-        raise SystemExit("ERROR: components and artifacts must be arrays")
+    if not isinstance(artifacts, list):
+        raise SystemExit("ERROR: artifacts must be an array")
+    commits = load_provenance(args.provenance, args.release_id, args.release_scope)
 
     packages = []
     relationships = []
     for component in components:
-        required = {
-            "id", "name", "version", "license", "download_location",
-            "release_status", "distribution_scope",
-        }
-        if not isinstance(component, dict) or not required.issubset(component):
-            raise SystemExit(
-                "ERROR: component requires id, name, version, license, download_location, "
-                "release_status, and distribution_scope"
-            )
         scope = component["distribution_scope"]
-        status = component["release_status"]
-        allowed_scopes = component.get("allowed_release_scopes")
-        if allowed_scopes is None:
-            component_release_scopes = RELEASE_SCOPES
-        elif (not isinstance(allowed_scopes, list) or not allowed_scopes or
-              len(allowed_scopes) != len(set(allowed_scopes)) or
-              not all(isinstance(item, str) and item in RELEASE_SCOPES
-                      for item in allowed_scopes)):
-            raise SystemExit(
-                f"ERROR: invalid allowed release scopes: {component['name']}"
-            )
-        else:
-            component_release_scopes = set(allowed_scopes)
-        noncommercial = (
-            "CC-BY-NC-" in str(component.get("license", "")) or
-            component.get("use_restriction") == "noncommercial-model-asset"
-        )
-        if noncommercial and (
-            component.get("use_restriction") != "noncommercial-model-asset" or
-            component_release_scopes != {"community-noncommercial"}
-        ):
-            raise SystemExit(
-                f"ERROR: noncommercial component has unsafe release scopes: "
-                f"{component['name']}"
-            )
         if scope in {"local-extraction-only", "external-user-supplied"}:
-            if status != "not-redistributed":
-                raise SystemExit(f"ERROR: non-redistributed component has unsafe status: {component['name']}")
             continue
-        if scope not in {"source-release", "core-image", "separate-payload"}:
-            raise SystemExit(f"ERROR: unknown component distribution scope: {component['name']}")
-        if args.release_scope not in component_release_scopes:
-            continue
-        documented_good_faith = status == "documented-good-faith"
-        if status not in {"cleared", "documented-good-faith"}:
-            raise SystemExit(f"ERROR: redistributed component is not cleared: {component['name']}")
-        if documented_good_faith:
-            if not REQUIRED_DOCUMENTED_GOOD_FAITH_FIELDS.issubset(component):
-                raise SystemExit(f"ERROR: documented-good-faith component lacks provenance fields: {component['name']}")
-            if component.get("license") != "NOASSERTION":
-                raise SystemExit(f"ERROR: documented-good-faith component must retain NOASSERTION: {component['name']}")
-        if any("/home/" in str(v) or "192.168." in str(v) for v in component.values()):
-            raise SystemExit("ERROR: private value in component record")
-        spdx_id = package_id(component["name"], component["version"])
+        version = resolve_version(component, commits)
+        spdx_id = package_id(str(component["name"]), version)
         packages.append({
             "SPDXID": spdx_id,
             "name": component["name"],
-            "versionInfo": component["version"],
+            "versionInfo": version,
             "downloadLocation": component["download_location"],
             "licenseConcluded": component["license"],
             "licenseDeclared": component["license"],
             "copyrightText": component.get("copyright", "NOASSERTION"),
         })
-        relationships.append({"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": spdx_id})
+        relationships.append({
+            "spdxElementId": "SPDXRef-DOCUMENT",
+            "relationshipType": "DESCRIBES",
+            "relatedSpdxElement": spdx_id,
+        })
 
     files = []
     for artifact in artifacts:
-        if set(artifact) != {"name", "sha256", "size"} or not SHA256.fullmatch(artifact["sha256"]):
+        if (not isinstance(artifact, dict) or
+                set(artifact) != {"name", "sha256", "size"} or
+                not isinstance(artifact["sha256"], str) or
+                not SHA256.fullmatch(artifact["sha256"])):
             raise SystemExit("ERROR: invalid artifact record")
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", artifact["name"]):
+        if not isinstance(artifact["name"], str) or not re.fullmatch(
+            r"[A-Za-z0-9._-]+", artifact["name"]
+        ):
             raise SystemExit("ERROR: unsafe artifact name")
-        file_id = f"SPDXRef-File-{hashlib.sha256(artifact['name'].encode()).hexdigest()[:16]}"
+        file_id = (
+            "SPDXRef-File-" +
+            hashlib.sha256(artifact["name"].encode()).hexdigest()[:16]
+        )
         files.append({
             "SPDXID": file_id,
             "fileName": artifact["name"],
@@ -127,15 +138,25 @@ def main() -> None:
             "licenseConcluded": "NOASSERTION",
             "copyrightText": "NOASSERTION",
         })
-        relationships.append({"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": file_id})
+        relationships.append({
+            "spdxElementId": "SPDXRef-DOCUMENT",
+            "relationshipType": "DESCRIBES",
+            "relatedSpdxElement": file_id,
+        })
 
     document = {
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": f"LibreEcho {args.release_id} {args.release_scope} SBOM",
-        "documentNamespace": f"https://libreecho.org/releases/{args.release_id}/{args.release_scope}/sbom",
-        "creationInfo": {"created": args.created, "creators": ["Organization: LibreEcho"]},
+        "documentNamespace": (
+            f"https://libreecho.org/releases/{args.release_id}/"
+            f"{args.release_scope}/sbom"
+        ),
+        "creationInfo": {
+            "created": args.created,
+            "creators": ["Organization: LibreEcho"],
+        },
         "packages": packages,
         "files": files,
         "relationships": relationships,

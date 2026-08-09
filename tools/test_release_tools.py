@@ -20,6 +20,19 @@ def load_module(name: str, path: Path):
     return module
 
 
+def write_test_provenance(path: Path, release_scope: str) -> None:
+    path.write_text(json.dumps({
+        "release_id": "radar-puffin-v0.1.0",
+        "release_scope": release_scope,
+        "sources": {
+            name: {"repository": f"https://github.com/example/{name}", "commit": digit * 40}
+            for name, digit in {
+                "product": "1", "kernel": "2", "tooling": "3", "ui": "4"
+            }.items()
+        },
+    }))
+
+
 PREPARE_RELEASE = load_module("prepare_release", ROOT / "tools/prepare-release.py")
 PUBLIC_METADATA = load_module(
     "check_public_metadata", ROOT / "tools/check-public-metadata.py"
@@ -138,10 +151,13 @@ class ComponentGateTests(unittest.TestCase):
         data = json.loads((ROOT / "release/components.json").read_text())
         audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            catalog = root / "components.json"
-            artifacts = root / "artifacts.json"
-            output = root / "sbom.json"
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            for name in ("THIRD_PARTY_NOTICES.md", "FPGA-PROVENANCE.md"):
+                (repository / "release" / name).write_text("test\n")
+            catalog = repository / "release/components.json"
+            artifacts = repository / "artifacts.json"
+            output = repository / "sbom.json"
             catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
             artifacts.write_text(json.dumps([{"name": "boot.img", "sha256": "1" * 64, "size": 4096}]))
             result = subprocess.run([
@@ -220,28 +236,24 @@ class ComponentGateTests(unittest.TestCase):
     def test_sbom_omits_local_and_external_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            catalog_data = json.loads((ROOT / "release/components.json").read_text())
-            catalog_data["components"] = [
-                component for component in catalog_data["components"]
-                if component["release_status"] in {"cleared", "not-redistributed"}
-            ]
-            catalog = root / "components.json"
-            catalog.write_text(json.dumps(catalog_data))
             artifacts = root / "artifacts.json"
+            provenance = root / "provenance.json"
             output = root / "sbom.json"
             artifacts.write_text(json.dumps([
                 {"name": "boot.img", "sha256": "1" * 64, "size": 4096}
             ]))
+            write_test_provenance(provenance, "commercially-unrestricted")
             result = subprocess.run([
                 sys.executable, str(ROOT / "tools/prepare-sbom.py"),
                 "--release-id", "radar-puffin-v0.1.0",
                 "--created", "2026-08-08T00:00:00Z",
-                "--components", str(catalog),
+                "--components", str(ROOT / "release/components.json"),
+                "--provenance", str(provenance),
                 "--artifacts", str(artifacts),
                 "--output", str(output),
             ], check=True, text=True, capture_output=True)
             document = json.loads(output.read_text())
-        self.assertIn("package_count=13", result.stdout)
+        self.assertIn("package_count=14", result.stdout)
         names = {package["name"] for package in document["packages"]}
         self.assertNotIn("MT8163 connectivity firmware extracted from the owner device", names)
         self.assertNotIn("Amonet/BROM installer integration", names)
@@ -251,14 +263,17 @@ class ComponentGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifacts = root / "artifacts.json"
+            provenance = root / "provenance.json"
             artifacts.write_text(json.dumps([
                 {"name": "boot.img", "sha256": "1" * 64, "size": 4096}
             ]))
+            write_test_provenance(provenance, "commercially-unrestricted")
             result = subprocess.run([
                 sys.executable, str(ROOT / "tools/prepare-sbom.py"),
                 "--release-id", "radar-puffin-v0.1.0",
                 "--created", "2026-08-08T00:00:00Z",
                 "--components", str(ROOT / "release/components.json"),
+                "--provenance", str(provenance),
                 "--artifacts", str(artifacts),
                 "--output", str(root / "sbom.json"),
             ], text=True, capture_output=True)
@@ -269,16 +284,19 @@ class ComponentGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifacts = root / "artifacts.json"
+            provenance = root / "provenance.json"
             output = root / "sbom.json"
             artifacts.write_text(json.dumps([
                 {"name": "boot.img", "sha256": "1" * 64, "size": 4096}
             ]))
+            write_test_provenance(provenance, "community-noncommercial")
             result = subprocess.run([
                 sys.executable, str(ROOT / "tools/prepare-sbom.py"),
                 "--release-id", "radar-puffin-v0.1.0",
                 "--created", "2026-08-08T00:00:00Z",
                 "--release-scope", "community-noncommercial",
                 "--components", str(ROOT / "release/components.json"),
+                "--provenance", str(provenance),
                 "--artifacts", str(artifacts),
                 "--output", str(output),
             ], text=True, capture_output=True)
@@ -290,6 +308,99 @@ class ComponentGateTests(unittest.TestCase):
         self.assertIn(
             "openWakeWord runtime and pretrained Alexa-compatible model", names
         )
+    def test_component_gate_rejects_unresolved_redistributed_source_offer(self) -> None:
+        catalog = json.loads((ROOT / "release/components.json").read_text())
+        component = next(
+            item for item in catalog["components"] if item["id"] == "mt8163-audio-fpga"
+        )
+        component["release_status"] = "cleared"
+        component["license"] = "MIT"
+        component["download_location"] = "https://example.com/audio-fpga"
+        component["source_offer"] = "NOASSERTION"
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", dir=ROOT / "release"
+        ) as temporary:
+            json.dump(catalog, temporary)
+            temporary.flush()
+            with self.assertRaisesRegex(SystemExit, "source offer is unresolved"):
+                PREPARE_RELEASE.load_components(Path(temporary.name))
+
+    def test_sbom_reuses_the_full_component_gate(self) -> None:
+        catalog = json.loads((ROOT / "release/components.json").read_text())
+        component = next(
+            item for item in catalog["components"] if item["id"] == "mt8163-audio-fpga"
+        )
+        component["release_status"] = "cleared"
+        component["license"] = "NOASSERTION"
+        component["download_location"] = "NOASSERTION"
+        component["source_offer"] = "NOASSERTION"
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", dir=ROOT / "release"
+        ) as catalog_file, tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            catalog_file.write(json.dumps(catalog))
+            catalog_file.flush()
+            artifacts = root / "artifacts.json"
+            artifacts.write_text(json.dumps([
+                {"name": "boot.img", "sha256": "1" * 64, "size": 4096}
+            ]))
+            result = subprocess.run([
+                sys.executable, str(ROOT / "tools/prepare-sbom.py"),
+                "--release-id", "radar-puffin-v0.1.0",
+                "--created", "2026-08-08T00:00:00Z",
+                "--components", catalog_file.name,
+                "--artifacts", str(artifacts),
+                "--output", str(root / "sbom.json"),
+            ], text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("public component gate failed", result.stderr)
+
+    def test_sbom_resolves_source_versions_from_release_provenance(self) -> None:
+        commits = {
+            "product": "1" * 40,
+            "kernel": "2" * 40,
+            "tooling": "3" * 40,
+            "ui": "4" * 40,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifacts = root / "artifacts.json"
+            provenance = root / "provenance.json"
+            output = root / "sbom.json"
+            artifacts.write_text(json.dumps([
+                {"name": "boot.img", "sha256": "1" * 64, "size": 4096}
+            ]))
+            provenance.write_text(json.dumps({
+                "release_id": "radar-puffin-v0.1.0",
+                "release_scope": "community-noncommercial",
+                "sources": {
+                    name: {"repository": f"https://github.com/example/{name}", "commit": commit}
+                    for name, commit in commits.items()
+                },
+            }))
+            result = subprocess.run([
+                sys.executable, str(ROOT / "tools/prepare-sbom.py"),
+                "--release-id", "radar-puffin-v0.1.0",
+                "--created", "2026-08-08T00:00:00Z",
+                "--release-scope", "community-noncommercial",
+                "--components", str(ROOT / "release/components.json"),
+                "--provenance", str(provenance),
+                "--artifacts", str(artifacts),
+                "--output", str(output),
+            ], text=True, capture_output=True)
+            document = json.loads(output.read_text()) if output.exists() else {}
+        self.assertEqual(result.returncode, 0, result.stderr)
+        by_name = {item["name"]: item for item in document["packages"]}
+        self.assertEqual(by_name["LibreEcho product source"]["versionInfo"], commits["product"])
+        self.assertEqual(
+            by_name["Linux 6.1 kernel, MT8163 product drivers, and embedded firmware lineage"]["versionInfo"],
+            commits["kernel"],
+        )
+        self.assertEqual(
+            by_name["LibreEcho Platform and initramfs tooling"]["versionInfo"],
+            commits["tooling"],
+        )
+        self.assertEqual(by_name["LibreEcho UI and service daemons"]["versionInfo"], commits["ui"])
 
 
 if __name__ == "__main__":

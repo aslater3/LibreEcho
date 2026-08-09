@@ -132,6 +132,12 @@ def load_components(
                 failures.append(f"{component_id}: redistributed component has no SPDX conclusion")
             if component.get("download_location") == "NOASSERTION":
                 failures.append(f"{component_id}: redistributed component lacks a download location")
+            source_offer = component.get("source_offer")
+            if (not documented_good_faith and (
+                    not isinstance(source_offer, str) or
+                    not re.fullmatch(r"https://[^\s]+", source_offer) or
+                    source_offer.upper() in {"NOASSERTION", "NONE", "TBD", "TODO", "UNKNOWN"})):
+                failures.append(f"{component_id}: source offer is unresolved")
         elif scope in local_scopes:
             if status != "not-redistributed":
                 failures.append(f"{component_id}: local/external component has unsafe status")

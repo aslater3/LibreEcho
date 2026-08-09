@@ -10,7 +10,7 @@
     {
       "id": "libreecho",
       "name": "LibreEcho product source",
-      "version": "exact-commit-in-provenance",
+      "version": "provenance:product",
       "license": "MIT",
       "release_status": "cleared",
       "distribution_scope": "source-release",
@@ -23,7 +23,7 @@
     {
       "id": "linux-6.1",
       "name": "Linux 6.1 kernel, MT8163 product drivers, and embedded firmware lineage",
-      "version": "exact-commit-in-provenance",
+      "version": "provenance:kernel",
       "license": "GPL-2.0-only",
       "release_status": "cleared",
       "distribution_scope": "core-image",
@@ -36,7 +36,7 @@
     {
       "id": "libreecho-platform",
       "name": "LibreEcho Platform and initramfs tooling",
-      "version": "exact-commit-in-provenance",
+      "version": "provenance:tooling",
       "license": "GPL-2.0-only",
       "release_status": "cleared",
       "distribution_scope": "core-image",
@@ -49,7 +49,7 @@
     {
       "id": "libreecho-ui",
       "name": "LibreEcho UI and service daemons",
-      "version": "exact-commit-in-provenance",
+      "version": "provenance:ui",
       "license": "MIT",
       "release_status": "cleared",
       "distribution_scope": "core-image",
