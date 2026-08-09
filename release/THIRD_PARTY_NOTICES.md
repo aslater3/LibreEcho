@@ -31,20 +31,22 @@ complete notices and component inventory.
   code** retain their GPL, ISC, BSD, LGPL, and GCC Runtime Library Exception
   terms. Exact versions and notices are embedded in the core image.
 
-### MT8163 audio FPGA bridge
+### MT8163 audio FPGA bridge — included, release-blocked
 
 `i2s_to_spi_v34.bin` is required by the known working microphone/audio FPGA
-path, but it is **not cleared for public redistribution**. Its observed
-30,964-byte identity is recorded only to identify the blocked component:
+path and is included in the audio-capable candidate through the kernel's
+`CONFIG_EXTRA_FIRMWARE` path. It is **not cleared for public redistribution**.
+Its observed 30,964-byte identity is recorded to identify the blocked component:
 
 `77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6`
 
 An identical binary appears in an Amazon-device Linux 3.18 source tree, but
 that fact alone does not establish authoritative redistribution permission or
 provide the preferred-form FPGA source/generation record required for a
-copyleft source offer. LibreEcho therefore excludes it from public artifacts.
-A full-feature public image remains blocked until this record is supplied or a
-redistributable replacement is developed and hardware-validated.
+copyleft source offer. The candidate therefore retains the working audio path,
+but the public release remains blocked until creator/generation provenance,
+license or source-offer terms, and redistribution permission are established,
+or a redistributable replacement is developed and hardware-validated.
 
 ## Separate feature payloads
 

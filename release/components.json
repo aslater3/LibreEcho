@@ -211,6 +211,7 @@
       "license": "NOASSERTION",
       "release_status": "blocked",
       "distribution_scope": "core-image",
+      "included_in_candidate": true,
       "download_location": "https://github.com/carlitros900/karnak_3.18.48/commit/5b48c78b249ed9129fe92d30087de25b20152538",
       "source_offer": "NOASSERTION",
       "evidence": [

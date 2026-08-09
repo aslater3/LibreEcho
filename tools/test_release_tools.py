@@ -37,10 +37,11 @@ class ComponentGateTests(unittest.TestCase):
 
         data = json.loads((ROOT / "release/components.json").read_text())
         self.assertEqual(len(data["components"]), 17)
-        self.assertEqual(
-            next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")["license"],
-            "NOASSERTION",
-        )
+        audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
+        self.assertEqual(audio["license"], "NOASSERTION")
+        self.assertTrue(audio["included_in_candidate"])
+        self.assertIn("audio-capable candidate", (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text())
+        self.assertNotIn("therefore excludes it from public artifacts", (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text())
 
     def test_explicit_component_checker_fails_closed(self) -> None:
         result = subprocess.run([
