@@ -3,10 +3,11 @@
   "$id": "https://libreecho.org/schemas/release-provenance-v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "release_id", "platform", "sources", "artifacts", "vendor_firmware"],
+  "required": ["schema_version", "release_id", "release_scope", "platform", "sources", "artifacts", "vendor_firmware"],
   "properties": {
     "schema_version": {"const": 1},
     "release_id": {"type": "string", "pattern": "^radar-puffin-v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "release_scope": {"enum": ["commercially-unrestricted", "community-noncommercial"]},
     "platform": {
       "type": "object", "additionalProperties": false,
       "required": ["board", "architecture", "kernel_line"],

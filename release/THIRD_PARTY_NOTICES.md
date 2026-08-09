@@ -1,96 +1,135 @@
-# LibreEcho third-party notices
+# LibreEcho third-party notices and distribution boundaries
 
-This file records the release boundary. It is not a blanket license for every
-file produced by the private build pipeline. Each component retains its own
-license and redistribution conditions.
+LibreEcho is a mixed-license collective work. Source code, model weights,
+firmware data, and third-party runtimes remain under their respective licenses.
+Nothing in this file relicenses a third-party work.
 
-## LibreEcho
+The machine-readable component catalog is `release/components.json`. Exact
+source commits, payload hashes, and artifact hashes are recorded in the release
+provenance and SPDX 2.3 SBOM. Each separate feature payload also embeds its own
+complete notices and component inventory.
 
-LibreEcho product source is MIT-licensed; see the repository `LICENSE`.
+## Core boot image and OTA
 
-## Linux
+- **Linux 6.1 and MT8163 product drivers** — GPL-2.0-only. Exact corresponding
+  source is released from
+  <https://github.com/aslater3/LibreEcho-Linux-6.1>.
+- **LibreEcho Platform/initramfs tooling** — GPL-2.0-only. Exact corresponding
+  source is released from <https://github.com/aslater3/LibreEcho-Platform>.
+- **LibreEcho UI/services** — MIT. Exact source is released from
+  <https://github.com/aslater3/LibreEcho-UI>.
+- **AOSP `adbd`** — Apache-2.0, source-built at commit
+  `4f247d753a8865cd16292ff0b720b72c28049786`; NOTICE is embedded.
+- **BusyBox 1.37.0** — GPL-2.0-only. The release rebuilds it from the pinned
+  upstream archive and checked-in public configuration; the source archive,
+  configuration, build metadata, and exact shipped-binary hash accompany the
+  candidate.
+- **musl 1.2.5** — MIT, rebuilt from the pinned upstream archive.
+- **`wpa_supplicant` 2.10** — BSD-3-Clause; the binary's complete `-L` notice is
+  embedded.
+- **wireless-tools, wireless-regdb, libsodium, and TinyALSA** are source-locked and
+  independently checked or rebuilt for the exact core-image/OTA outputs. Their
+  GPL/LGPL, ISC, and BSD-3-Clause terms remain applicable.
+- **glibc and GCC runtime code** retain their LGPL and GCC Runtime Library
+  Exception terms. Their exact corresponding
+  source archives, static-link relinkable objects, and build records remain an
+  open aggregate release blocker; see `release/CORE-RUNTIME-SOURCE-OFFER.md`.
 
-The Linux kernel and kernel-side product changes are covered by the Linux
-kernel's GPL-2.0-only terms and their in-tree notices. The corresponding source
-for the exact release commit must accompany any binary release.
+### MT8163 audio FPGA bridge — included, documented-good-faith exception
 
-- Source: <https://github.com/aslater3/LibreEcho-Linux-6.1>
-- Upstream: <https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git>
+`i2s_to_spi_v34.bin` is required by the known working microphone/audio FPGA
+path and is included in the audio-capable candidate through the kernel's
+`CONFIG_EXTRA_FIRMWARE` path. Its provenance and deliberate release decision
+are documented in `release/FPGA-PROVENANCE.md` and Platform `firmware/WHENCE`.
 
-## AOSP adbd
+No firmware-specific licence was found. The candidate therefore retains
+`license=NOASSERTION`; the release gate accepts this component only because the
+exact origin, community precedent, known-good size/hash, and explicit
+non-licence finding are recorded. This is not a claim that postmarketOS or the
+Linux package metadata grants a firmware-specific licence.
 
-The ARM32 `adbd` replacement is built from the pinned AOSP
-`platform/system/core` source with the project compatibility patch. It is
-Apache-2.0 licensed. The exact source commit, patch, and AOSP `NOTICE` must be
-included in the release source/provenance closure.
+Known-good identity:
 
-- Source: <https://android.googlesource.com/platform/system/core>
+`77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6`
 
-## BusyBox and wireless networking
+Any future replacement must match the recorded 30,964-byte size and SHA-256 or
+be treated as a new release decision.
 
-BusyBox and the wireless networking stack are separate third-party components.
-Their exact versions, source archives, license texts, and corresponding-source
-records must be attached to a release. They are not covered by the LibreEcho
-MIT license.
+## Separate feature payloads
 
-## AirPlay runtime
+The following SquashFS files are independent release assets. Each must be
+cleared for the selected release scope, preserve its own license conditions,
+and pass the exact source-offer gate before release. The wakeword asset is
+allowed only in the explicitly labelled `community-noncommercial` scope.
 
-The AirPlay payload includes Shairport Sync, nqptp, Avahi, D-Bus, crypto,
-libplist, and other runtime dependencies. A public release must include the
-exact dependency inventory, license texts, notices, modifications, and
-corresponding-source/source-offer links required by each dependency. Research
-acknowledgements do not substitute for these obligations.
+### AirPlay 2
 
-- Shairport Sync: <https://github.com/mikebrady/shairport-sync>
-- nqptp: <https://github.com/mikebrady/nqptp>
-- Avahi: <https://github.com/lathiat/avahi>
-- D-Bus: <https://www.freedesktop.org/wiki/Software/dbus/>
+The AirPlay payload contains Shairport Sync 5.1, NQPTP 1.2.8, a minimal FFmpeg
+7.1.1 build, TinyALSA, Avahi, D-Bus, OpenSSL and their dynamic dependency
+closure. The payload embeds:
 
-## Speech and models
+- source license files for Shairport Sync, NQPTP, FFmpeg, and TinyALSA;
+- the exact Debian copyright record for every copied runtime package;
+- ALSA data-package copyright records; and
+- a component/source-archive SHA-256 inventory.
 
-The STT/TTS runtimes and their model files are separate release objects. Model
-cards, exact immutable model identities, voice/data provenance, license terms,
-and runtime dependency notices must accompany them.
+Copyleft source is supplied from the pinned upstream archives and exact Debian
+source packages recorded by the payload inventory.
 
-- Sherpa-ONNX: <https://github.com/k2-fsa/sherpa-onnx>
-- ONNX Runtime: <https://github.com/microsoft/onnxruntime>
-- openWakeWord: <https://github.com/dscripka/openWakeWord>
+### Speech to text
 
-The currently audited wakeword model declares `CC-BY-NC-SA-4.0`. It is not
-cleared for an unrestricted public release and must be replaced by a model and
-training data with compatible redistribution terms before enabling wakeword in a
-public full-feature release.
+The STT payload contains sherpa-onnx, ONNX Runtime, SpeexDSP, and the pinned
+Apache-2.0 streaming Zipformer model. Its model notice, runtime notices, source
+commits, and payload hash accompany the asset.
 
-The current TTS voice/model closure is incomplete. Do not infer permission from
-the runtime license or from the existence of a model download; voice identity,
-training data, model card, and redistribution terms must be verified separately.
+### Text to speech
 
-## Device-local connectivity firmware
+The TTS payload contains sherpa-onnx, ONNX Runtime, eSpeak NG data, and two
+Piper voices:
 
-The MT8163 WMT/Wi-Fi firmware files are copied only from the owner's read-only
-`system_a` partition after exact path, size, and SHA-256 checks. They are not
-included in the public source, boot image, OTA archive, CI artifacts, or GitHub
-Release. The installer must never upload extracted bytes.
+- `en_GB-northern_english_male-medium` — CC-BY-SA-4.0, OpenSLR SLR83;
+- `en_GB-southern_english_female-low` — CC-BY-SA-4.0, OpenSLR SLR83.
 
-## MT8163 audio FPGA bitstream
+Both ONNX graphs are unchanged from the pinned Piper revision
+`ea046e8458f6acd997706d6e6066a022b42f6fb1`; LibreEcho adds only descriptive
+metadata. Upstream and resulting hashes, model cards, attribution, and the full
+CC-BY-SA-4.0 legal text are embedded. The prior `alan` model is not distributed
+because its cited per-voice source record says “All Rights Reserved.”
 
-The kernel audio driver uses `firmware/i2s_to_spi_v34.bin`, a 30,964-byte FPGA
-configuration bitstream tracked separately from the owner-device connectivity
-firmware. Its SHA-256 is
-`77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6`. The
-redistributable source PR carries the exact bytes for reproducible builds, but
-the public release is blocked until creator/generation provenance and
-redistribution permission are recorded.
+### Wake word
 
-## Installer and hardware research
+The wakeword models come from openWakeWord v0.5.1 and are licensed
+CC-BY-NC-SA-4.0. They are distributed as a distinct asset only for uses allowed
+by that license. Recipients must preserve attribution, use the models
+noncommercially, indicate modifications, and ShareAlike any adaptations. The
+full legal text and exact model hashes are embedded.
 
-Amonet/BROM tooling and reverse-engineering research are not automatically part
-of the OS release. If an installer is published, it needs its own provenance,
-license, source, and safety review. Do not imply manufacturer affiliation or
-endorsement.
+“Alexa” is a trademark of Amazon.com, Inc. The compatibility identifier does
+not imply Amazon sponsorship or endorsement.
 
-LibreEcho is an independent project for hardware owned or authorised by the
-operator. Firmware modification can cause data loss, device damage, or loss of
-recovery access. Users are responsible for backups and compliance with the
-licenses and laws applicable to their device and region. This project provides
-no manufacturer warranty or endorsement.
+### Assistant
+
+The assistant payload contains LibreEcho's provider-neutral local assistant
+runtime plus curl and Mozilla CA-certificate material. It embeds curl and CA
+certificate notices. Provider credentials are never included in release assets.
+
+## Owner-device connectivity firmware — not redistributed
+
+LibreEcho does not publish MT8163 vendor connectivity firmware. At runtime the
+device imports required files locally and read-only from the owner's
+`system_a`. The importer enforces path, size, and SHA-256 contracts and does not
+upload or copy those bytes into public artifacts.
+
+## Amonet/BROM installer integration — external dependency
+
+Installer support remains available, but LibreEcho does not redistribute
+Amonet archives, signed Amazon boot-chain partitions, or user-specific wrapper
+images. The host-side installer accepts an owner-supplied upstream Amonet input,
+credits the upstream Amonet/mtkclient contributors, preserves `system_a`,
+userdata and rollback by default, and records only LibreEcho-generated release
+artifacts in its SBOM.
+
+## No endorsement
+
+Amazon, Alexa, AirPlay, Apple, Android, MediaTek, and other names are trademarks
+of their respective owners. They identify interoperability targets only.

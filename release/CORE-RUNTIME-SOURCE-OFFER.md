@@ -1,0 +1,43 @@
+# Core runtime source-offer status
+
+This release record describes the core-image runtime closure. It is not a
+license grant and it does not clear the aggregate component until every shipped
+runtime input has a complete corresponding-source and relink path.
+
+## Closed subcomponents in this candidate
+
+- `wireless-tools 30~pre9` is rebuilt from the pinned upstream archive
+  `https://archive.ubuntu.com/ubuntu/pool/main/w/wireless-tools/wireless-tools_30~pre9.orig.tar.gz`,
+  SHA-256
+  `abd9c5c98abf1fdd11892ac2f8a56737544fe101e1be27c6241a564948f34c63`.
+  The Platform builder records the compiler, exported Linux UAPI identity,
+  static ELF contract, binary identity, and complete upstream `COPYING` file.
+- `wireless-regdb 2025.10.07` is materialized from the Ubuntu upstream archive
+  `https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/wireless-regdb/2025.10.07-0ubuntu1~24.04.1/wireless-regdb_2025.10.07.orig.tar.xz`,
+  SHA-256
+  `d4c872a44154604c869f5851f7d21d818d492835d370af7f58de8847973801c3`.
+  The materializer verifies that both `regulatory.db` and
+  `regulatory.db.p7s` exactly match the bytes used by the image overlay before
+  the Build pipeline proceeds.
+- `libsodium 1.0.18` is rebuilt from the pinned upstream archive
+  `https://archive.ubuntu.com/ubuntu/pool/main/libs/libsodium/libsodium_1.0.18.orig.tar.gz`,
+  SHA-256
+  `d59323c6b712a1519a5daf710b68f5e7fde57040845ffec53850911f10a5d4f4`.
+  The OTA verifier links against that generated static archive and its staged
+  headers, not the AirPlay sysroot archive.
+- `TinyALSA e43025bbf702eb7dd8edd48c1eb50530c60f1de8` is rebuilt with the
+  checked-in MT8163 patch from its pinned BSD-3-Clause archive. The builder
+  verifies the archive and patch hashes, static ARM32 outputs, and every
+  shipped utility hash; BSD-3-Clause creates no static relinkable-object
+  obligation.
+
+These checks close provenance for these four inputs; they do not by themselves
+clear the aggregate runtime component.
+
+## Remaining aggregate blocker
+
+The exact source archives, build records, and corresponding-source/relinkable
+object offer for the remaining glibc and GCC runtime
+closure have not yet been assembled and independently verified for the exact
+shipped outputs. The release gate must therefore continue to report
+`core-runtime-closure` as `blocked`.

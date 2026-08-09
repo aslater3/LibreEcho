@@ -48,21 +48,122 @@ def load_candidate(path: Path) -> tuple[dict[str, str], dict[str, object]]:
     return record, json.loads(manifest_path.read_text())
 
 
-def load_components(path: Path) -> list[dict[str, object]]:
+RELEASE_SCOPES = {"commercially-unrestricted", "community-noncommercial"}
+
+
+def load_components(
+    path: Path, release_scope: str = "commercially-unrestricted"
+) -> list[dict[str, object]]:
+    if release_scope not in RELEASE_SCOPES:
+        raise SystemExit(f"ERROR: unknown release scope: {release_scope}")
     if not path.is_file() or path.is_symlink():
         raise SystemExit("ERROR: public component allowlist is unavailable")
     data = json.loads(path.read_text())
-    if not isinstance(data, dict) or not isinstance(data.get("components"), list):
+    if (not isinstance(data, dict) or data.get("schema_version") != 2 or
+            not isinstance(data.get("components"), list)):
         raise SystemExit("ERROR: public component allowlist is malformed")
-    blocked = []
+    redistributed_scopes = {"source-release", "core-image", "separate-payload"}
+    local_scopes = {"local-extraction-only", "external-user-supplied"}
+    documented_good_faith_status = "documented-good-faith"
+    required_good_faith_fields = {
+        "provenance_note", "source_origin", "known_good_sha256",
+        "known_good_size", "redistribution_basis", "license_finding",
+    }
+    failures = []
+    seen = set()
+    applicable = []
     for component in data["components"]:
         if not isinstance(component, dict):
-            blocked.append("<malformed>")
-        elif component.get("release_status") == "blocked":
-            blocked.append(str(component.get("id", "<unknown>")))
-    if blocked:
-        raise SystemExit("ERROR: public component allowlist still contains blocked components: " + ",".join(blocked))
-    return data["components"]
+            failures.append("<malformed>: record is not an object")
+            continue
+        component_id = component.get("id")
+        required = {
+            "id", "name", "version", "license", "release_status",
+            "distribution_scope", "download_location", "source_offer", "evidence",
+        }
+        if (not isinstance(component_id, str) or not component_id or
+                component_id in seen or not required.issubset(component)):
+            failures.append(f"{component_id or '<unknown>'}: malformed or duplicate")
+            continue
+        seen.add(component_id)
+        scope = component.get("distribution_scope")
+        status = component.get("release_status")
+        allowed_scopes = component.get("allowed_release_scopes")
+        if allowed_scopes is None:
+            component_release_scopes = RELEASE_SCOPES
+        elif (not isinstance(allowed_scopes, list) or not allowed_scopes or
+              len(allowed_scopes) != len(set(allowed_scopes)) or
+              not all(isinstance(item, str) and item in RELEASE_SCOPES
+                      for item in allowed_scopes)):
+            failures.append(f"{component_id}: invalid allowed release scopes")
+            component_release_scopes = set()
+        else:
+            component_release_scopes = set(allowed_scopes)
+        noncommercial = (
+            "CC-BY-NC-" in str(component.get("license", "")) or
+            component.get("use_restriction") == "noncommercial-model-asset"
+        )
+        if noncommercial:
+            if component.get("use_restriction") != "noncommercial-model-asset":
+                failures.append(f"{component_id}: noncommercial use restriction is missing")
+            if component_release_scopes != {"community-noncommercial"}:
+                failures.append(
+                    f"{component_id}: noncommercial component has unsafe release scopes"
+                )
+        if scope in redistributed_scopes:
+            documented_good_faith = status == documented_good_faith_status
+            if status not in {"cleared", documented_good_faith_status}:
+                failures.append(f"{component_id}: redistributed component is not cleared")
+            if documented_good_faith:
+                if not required_good_faith_fields.issubset(component):
+                    failures.append(f"{component_id}: documented-good-faith component lacks provenance fields")
+                if component.get("license") != "NOASSERTION":
+                    failures.append(f"{component_id}: documented-good-faith component must retain NOASSERTION")
+                if not isinstance(component.get("known_good_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", component["known_good_sha256"]):
+                    failures.append(f"{component_id}: documented-good-faith hash contract is invalid")
+                if not isinstance(component.get("known_good_size"), int) or component["known_good_size"] <= 0:
+                    failures.append(f"{component_id}: documented-good-faith size contract is invalid")
+                if "no firmware-specific licence found" not in str(component.get("license_finding", "")).lower():
+                    failures.append(f"{component_id}: documented-good-faith licence finding is incomplete")
+                if "established community precedent" not in str(component.get("redistribution_basis", "")).lower():
+                    failures.append(f"{component_id}: documented-good-faith basis is incomplete")
+            if component.get("license") in {"MIXED", "SEE-UPSTREAM", "UNDECLARED"} or (
+                    component.get("license") == "NOASSERTION" and not documented_good_faith):
+                failures.append(f"{component_id}: redistributed component has no SPDX conclusion")
+            if component.get("download_location") == "NOASSERTION":
+                failures.append(f"{component_id}: redistributed component lacks a download location")
+            source_offer = component.get("source_offer")
+            if (not documented_good_faith and (
+                    not isinstance(source_offer, str) or
+                    not re.fullmatch(r"https://[^\s]+", source_offer) or
+                    source_offer.upper() in {"NOASSERTION", "NONE", "TBD", "TODO", "UNKNOWN"})):
+                failures.append(f"{component_id}: source offer is unresolved")
+        elif scope in local_scopes:
+            if status != "not-redistributed":
+                failures.append(f"{component_id}: local/external component has unsafe status")
+        else:
+            failures.append(f"{component_id}: unknown distribution scope")
+        evidence = component.get("evidence")
+        if not isinstance(evidence, list) or not evidence or not all(
+                isinstance(item, str) and item.startswith("release/") for item in evidence):
+            failures.append(f"{component_id}: public evidence list is missing")
+        else:
+            repository_root = path.parent.parent
+            for item in evidence:
+                evidence_path = repository_root / item
+                if evidence_path.is_symlink() or not evidence_path.is_file():
+                    failures.append(f"{component_id}: public evidence is unavailable: {item}")
+        for key in ("name", "version", "license", "download_location", "source_offer"):
+            value = component.get(key)
+            if not isinstance(value, str) or not value:
+                failures.append(f"{component_id}: {key} is missing")
+            elif any(marker in value for marker in ("/home/", "192.168.", "/dev/tty")):
+                failures.append(f"{component_id}: {key} contains a private value")
+        if scope in local_scopes or release_scope in component_release_scopes:
+            applicable.append(component)
+    if failures:
+        raise SystemExit("ERROR: public component gate failed: " + "; ".join(failures))
+    return applicable
 
 
 def main() -> None:
@@ -75,12 +176,19 @@ def main() -> None:
     parser.add_argument("--tooling-commit", required=True)
     parser.add_argument("--ui-commit", required=True)
     parser.add_argument("--components", type=Path, help="public component allowlist; defaults to release/components.json")
+    parser.add_argument(
+        "--release-scope", choices=sorted(RELEASE_SCOPES),
+        default="commercially-unrestricted",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
     if not RELEASE_ID.fullmatch(args.release_id):
         raise SystemExit("ERROR: release ID must be radar-puffin-vX.Y.Z")
-    load_components(args.components or Path(__file__).resolve().parent.parent / "release/components.json")
+    load_components(
+        args.components or Path(__file__).resolve().parent.parent / "release/components.json",
+        args.release_scope,
+    )
     candidate, manifest = load_candidate(args.candidate)
     if candidate.get("status") != "PREPARED_NOT_FLASHED" and manifest.get("status") != "PREPARED_NOT_FLASHED":
         raise SystemExit("ERROR: candidate status is not PREPARED_NOT_FLASHED")
@@ -111,6 +219,7 @@ def main() -> None:
     provenance = {
         "schema_version": 1,
         "release_id": args.release_id,
+        "release_scope": args.release_scope,
         "platform": {"board": "radar_puffin", "architecture": "armv7", "kernel_line": "linux-6.1"},
         "sources": {
             "product": source("https://github.com/aslater3/LibreEcho", args.product_commit),
