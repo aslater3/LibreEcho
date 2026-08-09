@@ -152,7 +152,14 @@
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md"
       ],
-      "blocker": "The complete LGPL/static-link corresponding-source and relinkable-object offer for the exact external sysroot payload is not yet generated and independently verified."
+      "closed_subcomponents": [
+        "nqptp-source-archive",
+        "shairport-sync-source-archive",
+        "ffmpeg-source-archive",
+        "tinyalsa-source-archive",
+        "payload-third-party-notices"
+      ],
+      "blocker": "The exact external ARMHF sysroot dependency inventory, corresponding-source bundle, LGPL relinkable-object offer, and a payload rebuilt from the current candidate have not yet been independently verified."
     },
     {
       "id": "stt-payload",
@@ -166,7 +173,14 @@
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md"
       ],
-      "blocker": "Exact model license, ONNX Runtime build identity, transitive runtime inventory, and immutable source offer are not yet independently closed."
+      "closed_subcomponents": [
+        "model-file-hash-contract",
+        "sherpa-onnx-notice",
+        "onnx-runtime-notice",
+        "speexdsp-notice",
+        "payload-member-verification"
+      ],
+      "blocker": "The model-card/license input still needs immutable upstream identity validation; the exact static Sherpa/ONNX transitive dependency source and relinkable-object bundle, plus a payload rebuilt from the current candidate, have not passed independent verification."
     },
     {
       "id": "tts-payload",
@@ -180,7 +194,15 @@
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md"
       ],
-      "blocker": "Exact voice/runtime hashes, eSpeak data provenance, ShareAlike notices, and complete immutable source offer are not yet independently closed."
+      "closed_subcomponents": [
+        "northern-male-piper-voice-identity",
+        "southern-female-piper-voice-identity",
+        "voice-model-hash-contracts",
+        "cc-by-sa-attribution-and-modification-notice",
+        "ui-and-service-voice-rename",
+        "payload-third-party-notices"
+      ],
+      "blocker": "The exact eSpeak data archive and complete static Sherpa/ONNX/Flite/transitive runtime source and relinkable-object offer are not assembled, and no payload has been rebuilt from the current Platform, Build, and UI candidate commits."
     },
     {
       "id": "wakeword-payload",
@@ -195,7 +217,15 @@
         "release/THIRD_PARTY_NOTICES.md"
       ],
       "use_restriction": "noncommercial-model-asset",
-      "blocker": "The noncommercial model payload remains restricted and its exact runtime/model source and attribution bundle has not passed the release gate."
+      "closed_subcomponents": [
+        "tracked-model-hash-contracts",
+        "onnx-runtime-source-commit-pin",
+        "flatbuffers-python-source-pin",
+        "path-independent-ort-build",
+        "serialized-ort-build",
+        "cc-by-nc-sa-attribution-bundle"
+      ],
+      "blocker": "The tracked CC-BY-NC-SA-4.0 wakeword models remain noncommercial and therefore cannot pass the unrestricted public release gate; replace them with permissively redistributable model assets or publish them only as an explicitly restricted separate payload."
     },
     {
       "id": "assistant-payload",
@@ -209,7 +239,13 @@
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md"
       ],
-      "blocker": "Exact static curl/TLS/CA runtime closure and source-offer records have not passed independent verification."
+      "closed_subcomponents": [
+        "curl-source-archive",
+        "ca-bundle-hash-contract",
+        "ca-copyright-record",
+        "assistant-third-party-notices"
+      ],
+      "blocker": "The exact OpenSSL/sysroot source identity, static ARM32 agent/runtime provenance and relinkable-object offer, plus a payload rebuilt from the current candidate, have not passed independent verification."
     },
     {
       "id": "mt8163-audio-fpga",
