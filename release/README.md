@@ -7,7 +7,7 @@ Amonet/BROM wrapper image, calibration data, or local filesystem path.
 
 ## Release boundary
 
-A public release is composed of:
+A complete full-feature public release is intended to be composed of:
 
 - a signed `boot.img` and OTA archive produced by the private build pipeline;
 - separately licensed AirPlay, STT, TTS, wakeword, and assistant SquashFS
@@ -18,6 +18,11 @@ A public release is composed of:
 - `THIRD_PARTY_NOTICES.md`, embedded payload notices, and exact source offers;
   and
 - SPDX SBOM documents for the exact assembled artifacts.
+
+The catalog currently contains blocked redistributed components. Therefore no
+full-feature public candidate may be called compliant, signed, published, or
+promoted until the strict component gate passes. In particular, the required
+audio FPGA bitstream lacks authoritative redistribution/source provenance.
 
 The four MT8163 connectivity firmware files are **owner-device-local inputs**.
 They are never stored in this repository, CI artifacts, OTA archives, or GitHub

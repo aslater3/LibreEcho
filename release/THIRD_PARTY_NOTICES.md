@@ -20,11 +20,11 @@ complete notices and component inventory.
   <https://github.com/aslater3/LibreEcho-UI>.
 - **AOSP `adbd`** — Apache-2.0, source-built at commit
   `4f247d753a8865cd16292ff0b720b72c28049786`; NOTICE is embedded.
-- **BusyBox 1.37.0-r30** — GPL-2.0-only, Alpine packaging commit
-  `1e823a60eb85606954b3a5af5f8e5bbd1ea680cf`. The public source offer includes
-  the upstream source, Alpine patches/APKBUILD, and complete configuration
-  exported by the exact shipped binary.
-- **musl 1.2.5-r21** — MIT.
+- **BusyBox 1.37.0** — GPL-2.0-only. The release rebuilds it from the pinned
+  upstream archive and checked-in public configuration; the source archive,
+  configuration, build metadata, and exact shipped-binary hash accompany the
+  candidate.
+- **musl 1.2.5** — MIT, rebuilt from the pinned upstream archive.
 - **`wpa_supplicant` 2.10** — BSD-3-Clause; the binary's complete `-L` notice is
   embedded.
 - **wireless-tools, wireless-regdb, TinyALSA, libsodium, glibc, and GCC runtime
@@ -33,22 +33,25 @@ complete notices and component inventory.
 
 ### MT8163 audio FPGA bridge
 
-`i2s_to_spi_v34.bin` is retained because it is required by the working audio
-path. The release records its exact 30,964-byte identity:
+`i2s_to_spi_v34.bin` is required by the known working microphone/audio FPGA
+path, but it is **not cleared for public redistribution**. Its observed
+30,964-byte identity is recorded only to identify the blocked component:
 
 `77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6`
 
-The identical file is independently published in the Amazon-device Linux 3.18
-kernel source lineage at commit
-`5b48c78b249ed9129fe92d30087de25b20152538`, distributed with that kernel's
-GPL-2.0 `COPYING`. Credit belongs to the Amazon/MediaTek device-kernel
-contributors. LibreEcho preserves the bytes unchanged and claims no original
-authorship.
+An identical binary appears in an Amazon-device Linux 3.18 source tree, but
+that fact alone does not establish authoritative redistribution permission or
+provide the preferred-form FPGA source/generation record required for a
+copyleft source offer. LibreEcho therefore excludes it from public artifacts.
+A full-feature public image remains blocked until this record is supplied or a
+redistributable replacement is developed and hardware-validated.
 
 ## Separate feature payloads
 
-The following SquashFS files are independent release assets. Users may install
-all of them, but each preserves its own license conditions.
+The following SquashFS files are planned independent release assets. None may
+be published while its `release/components.json` record remains `blocked`.
+Each must preserve its own license conditions and pass the exact source-offer
+gate before release.
 
 ### AirPlay 2
 
