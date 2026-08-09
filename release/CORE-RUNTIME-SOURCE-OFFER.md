@@ -19,14 +19,20 @@ runtime input has a complete corresponding-source and relink path.
   The materializer verifies that both `regulatory.db` and
   `regulatory.db.p7s` exactly match the bytes used by the image overlay before
   the Build pipeline proceeds.
+- `libsodium 1.0.18` is rebuilt from the pinned upstream archive
+  `https://archive.ubuntu.com/ubuntu/pool/main/libs/libsodium/libsodium_1.0.18.orig.tar.gz`,
+  SHA-256
+  `d59323c6b712a1519a5daf710b68f5e7fde57040845ffec53850911f10a5d4f4`.
+  The OTA verifier links against that generated static archive and its staged
+  headers, not the AirPlay sysroot archive.
 
-These checks close provenance for those two inputs; they do not by themselves
+These checks close provenance for those three inputs; they do not by themselves
 clear the aggregate runtime component.
 
 ## Remaining aggregate blocker
 
 The exact source archives, build records, and corresponding-source/relinkable
-object offer for the remaining TinyALSA, libsodium, glibc, and GCC runtime
+object offer for the remaining TinyALSA, glibc, and GCC runtime
 closure have not yet been assembled and independently verified for the exact
 shipped outputs. The release gate must therefore continue to report
 `core-runtime-closure` as `blocked`.
