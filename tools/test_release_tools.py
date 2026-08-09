@@ -21,6 +21,31 @@ def load_module(name: str, path: Path):
 
 
 PREPARE_RELEASE = load_module("prepare_release", ROOT / "tools/prepare-release.py")
+PUBLIC_METADATA = load_module(
+    "check_public_metadata", ROOT / "tools/check-public-metadata.py"
+)
+
+
+class PublicMetadataTests(unittest.TestCase):
+    def test_versioned_source_url_is_not_an_ipv4_false_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "source.md").write_text(
+                "https://launchpad.net/source/2025.10.07-0ubuntu1~24.04.1/archive.tar.xz"
+            )
+            self.assertEqual(PUBLIC_METADATA.violations(root), [])
+
+    def test_private_identifiers_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "private.md").write_text(
+                "/home/operator/build 192.168.10.42 AA:BB:CC:DD:EE:FF"
+            )
+            failures = PUBLIC_METADATA.violations(root)
+            self.assertEqual(len(failures), 3)
+            self.assertTrue(any("private marker" in item for item in failures))
+            self.assertTrue(any("private IPv4" in item for item in failures))
+            self.assertTrue(any("MAC address" in item for item in failures))
 
 
 class ComponentGateTests(unittest.TestCase):
