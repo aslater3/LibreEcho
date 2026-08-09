@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
 
 
 def main() -> None:
