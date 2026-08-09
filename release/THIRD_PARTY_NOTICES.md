@@ -27,11 +27,11 @@ complete notices and component inventory.
 - **musl 1.2.5** — MIT, rebuilt from the pinned upstream archive.
 - **`wpa_supplicant` 2.10** — BSD-3-Clause; the binary's complete `-L` notice is
   embedded.
-- **wireless-tools, wireless-regdb, and libsodium** are source-locked and
+- **wireless-tools, wireless-regdb, libsodium, and TinyALSA** are source-locked and
   independently checked or rebuilt for the exact core-image/OTA outputs. Their
-  GPL/LGPL and ISC terms remain applicable.
-- **TinyALSA, glibc, and GCC runtime code** retain their BSD, LGPL, and GCC
-  Runtime Library Exception terms. Their exact corresponding
+  GPL/LGPL, ISC, and BSD-3-Clause terms remain applicable.
+- **glibc and GCC runtime code** retain their LGPL and GCC Runtime Library
+  Exception terms. Their exact corresponding
   source archives, static-link relinkable objects, and build records remain an
   open aggregate release blocker; see `release/CORE-RUNTIME-SOURCE-OFFER.md`.
 

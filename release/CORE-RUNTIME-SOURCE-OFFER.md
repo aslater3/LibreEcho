@@ -25,14 +25,19 @@ runtime input has a complete corresponding-source and relink path.
   `d59323c6b712a1519a5daf710b68f5e7fde57040845ffec53850911f10a5d4f4`.
   The OTA verifier links against that generated static archive and its staged
   headers, not the AirPlay sysroot archive.
+- `TinyALSA e43025bbf702eb7dd8edd48c1eb50530c60f1de8` is rebuilt with the
+  checked-in MT8163 patch from its pinned BSD-3-Clause archive. The builder
+  verifies the archive and patch hashes, static ARM32 outputs, and every
+  shipped utility hash; BSD-3-Clause creates no static relinkable-object
+  obligation.
 
-These checks close provenance for those three inputs; they do not by themselves
+These checks close provenance for these four inputs; they do not by themselves
 clear the aggregate runtime component.
 
 ## Remaining aggregate blocker
 
 The exact source archives, build records, and corresponding-source/relinkable
-object offer for the remaining TinyALSA, glibc, and GCC runtime
+object offer for the remaining glibc and GCC runtime
 closure have not yet been assembled and independently verified for the exact
 shipped outputs. The release gate must therefore continue to report
 `core-runtime-closure` as `blocked`.

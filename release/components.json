@@ -135,9 +135,10 @@
       "closed_subcomponents": [
         "wireless-tools",
         "wireless-regdb",
-        "libsodium"
+        "libsodium",
+        "tinyalsa"
       ],
-      "blocker": "Exact source archives/build records and relinkable-object obligations for the remaining TinyALSA, glibc, and GCC runtime closure are not yet assembled into one independently verified source offer."
+      "blocker": "Exact source archives/build records and relinkable-object obligations for the remaining glibc and GCC runtime closure are not yet assembled into one independently verified source offer."
     },
     {
       "id": "airplay-payload",
