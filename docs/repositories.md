@@ -8,7 +8,7 @@ boundaries.
 | Repository | Owns |
 | --- | --- |
 | `LibreEcho` | Product documentation, support, roadmap, cross-component issues, release notes, and signed OTA release assets |
-| `LibreEcho-Kernel` | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; historical 3.18 compatibility remains here |
+| `LibreEcho-Platform` | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; historical 3.18 compatibility remains here |
 | `LibreEcho-Linux-6.1` | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
 | `LibreEcho-UI` | Web control centre, HTTP API, service daemons, and UI tests |
 

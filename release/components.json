@@ -1,0 +1,249 @@
+{
+  "schema_version": 2,
+  "policy": {
+    "public_release_requires_all_redistributed_components_cleared": true,
+    "separate_payload_licenses_are_preserved": true,
+    "owner_device_firmware_is_never_redistributed": true,
+    "device_specific_evidence_is_private": true
+  },
+  "components": [
+    {
+      "id": "libreecho",
+      "name": "LibreEcho product source",
+      "version": "exact-commit-in-provenance",
+      "license": "MIT",
+      "release_status": "cleared",
+      "distribution_scope": "source-release",
+      "download_location": "https://github.com/aslater3/LibreEcho",
+      "source_offer": "https://github.com/aslater3/LibreEcho",
+      "evidence": [
+        "release/README.md"
+      ]
+    },
+    {
+      "id": "linux-6.1",
+      "name": "Linux 6.1 kernel, MT8163 product drivers, and embedded firmware lineage",
+      "version": "exact-commit-in-provenance",
+      "license": "GPL-2.0-only",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/aslater3/LibreEcho-Linux-6.1",
+      "source_offer": "https://github.com/aslater3/LibreEcho-Linux-6.1",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ]
+    },
+    {
+      "id": "libreecho-platform",
+      "name": "LibreEcho Platform and initramfs tooling",
+      "version": "exact-commit-in-provenance",
+      "license": "GPL-2.0-only",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/aslater3/LibreEcho-Platform",
+      "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ]
+    },
+    {
+      "id": "libreecho-ui",
+      "name": "LibreEcho UI and service daemons",
+      "version": "exact-commit-in-provenance",
+      "license": "MIT",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/aslater3/LibreEcho-UI",
+      "source_offer": "https://github.com/aslater3/LibreEcho-UI",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ]
+    },
+    {
+      "id": "aosp-adbd",
+      "name": "AOSP adbd source-built for ARM32",
+      "version": "4f247d753a8865cd16292ff0b720b72c28049786",
+      "license": "Apache-2.0",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://android.googlesource.com/platform/system/core/+/4f247d753a8865cd16292ff0b720b72c28049786",
+      "source_offer": "https://android.googlesource.com/platform/system/core/+archive/4f247d753a8865cd16292ff0b720b72c28049786.tar.gz",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ]
+    },
+    {
+      "id": "busybox",
+      "name": "BusyBox runtime",
+      "version": "1.37.0",
+      "license": "GPL-2.0-only",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://busybox.net/downloads/busybox-1.37.0.tar.bz2",
+      "source_offer": "https://busybox.net/downloads/busybox-1.37.0.tar.bz2",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "binary_sha256": "ec56032d578692e631efe31ee482407f6ed88cd1e55ed04fb3c690a10cf2c7bc",
+      "source_archive_sha256": "3311dff32e746499f4df0d5df04d7eb396382d7e108bb9250e7b519b837043a4",
+      "config": "tools/mt8163-arm32/busybox/busybox-1.37.0.config"
+    },
+    {
+      "id": "musl",
+      "name": "musl C library loader",
+      "version": "1.2.5",
+      "license": "MIT",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://musl.libc.org/releases/musl-1.2.5.tar.gz",
+      "source_offer": "https://musl.libc.org/releases/musl-1.2.5.tar.gz",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "binary_sha256": "ac0d414137783ad74ba2243e171b2d7d41a523187949290e724fdfae81a23d85",
+      "source_archive_sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+    },
+    {
+      "id": "wpa-supplicant",
+      "name": "wpa_supplicant runtime",
+      "version": "2.10",
+      "license": "BSD-3-Clause",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://w1.fi/releases/wpa_supplicant-2.10.tar.gz",
+      "source_offer": "https://w1.fi/releases/wpa_supplicant-2.10.tar.gz",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "binary_sha256": "af08df400c4e631c66096eddaf8deadb185744740677ce097fb0865e0126b538",
+      "source_archive_sha256": "20df7ae5154b3830355f8ab4269123a87affdea59fe74fe9292a91d0d7e17b2f",
+      "config": "tools/mt8163-arm32/wpa-supplicant/wpa_supplicant-2.10.config"
+    },
+    {
+      "id": "core-runtime-closure",
+      "name": "Wireless tools, regulatory database, TinyALSA, libsodium, glibc, and GCC runtime closure",
+      "version": "versions-recorded-in-embedded-component-inventory",
+      "license": "(GPL-2.0-only AND BSD-3-Clause AND ISC AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
+      "release_status": "blocked",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/aslater3/LibreEcho-Platform",
+      "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "blocker": "Exact source archives/build records and relinkable-object obligations for every remaining static glibc/LGPL runtime are not yet assembled into one source offer."
+    },
+    {
+      "id": "airplay-payload",
+      "name": "AirPlay 2, mDNS, D-Bus, crypto, FFmpeg, and runtime closure",
+      "version": "payload-hash-in-provenance",
+      "license": "(GPL-2.0-or-later AND LGPL-2.1-or-later AND BSD-3-Clause AND MIT AND ISC AND Apache-2.0 AND OpenSSL)",
+      "release_status": "blocked",
+      "distribution_scope": "separate-payload",
+      "download_location": "https://github.com/aslater3/LibreEcho-Platform",
+      "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "blocker": "The complete LGPL/static-link corresponding-source and relinkable-object offer for the exact external sysroot payload is not yet generated and independently verified."
+    },
+    {
+      "id": "stt-payload",
+      "name": "Sherpa-ONNX streaming STT, ONNX Runtime, SpeexDSP, and model",
+      "version": "payload-hash-in-provenance",
+      "license": "(Apache-2.0 AND MIT AND BSD-3-Clause AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
+      "release_status": "blocked",
+      "distribution_scope": "separate-payload",
+      "download_location": "https://github.com/k2-fsa/sherpa-onnx",
+      "source_offer": "https://github.com/k2-fsa/sherpa-onnx",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "blocker": "Exact model license, ONNX Runtime build identity, transitive runtime inventory, and immutable source offer are not yet independently closed."
+    },
+    {
+      "id": "tts-payload",
+      "name": "Sherpa-ONNX TTS runtime, Piper voices, and eSpeak data",
+      "version": "payload-hash-in-provenance",
+      "license": "(Apache-2.0 AND MIT AND GPL-3.0-or-later AND CC-BY-SA-4.0 AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
+      "release_status": "blocked",
+      "distribution_scope": "separate-payload",
+      "download_location": "https://huggingface.co/rhasspy/piper-voices/tree/ea046e8458f6acd997706d6e6066a022b42f6fb1",
+      "source_offer": "https://github.com/k2-fsa/sherpa-onnx",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "blocker": "Exact voice/runtime hashes, eSpeak data provenance, ShareAlike notices, and complete immutable source offer are not yet independently closed."
+    },
+    {
+      "id": "wakeword-payload",
+      "name": "openWakeWord runtime and pretrained Alexa-compatible model",
+      "version": "0.5.1-payload-hash-in-provenance",
+      "license": "(MIT AND CC-BY-NC-SA-4.0 AND BSD-3-Clause)",
+      "release_status": "blocked",
+      "distribution_scope": "separate-payload",
+      "download_location": "https://github.com/dscripka/openWakeWord/tree/v0.5.1",
+      "source_offer": "https://github.com/dscripka/openWakeWord/archive/refs/tags/v0.5.1.tar.gz",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "use_restriction": "noncommercial-model-asset",
+      "blocker": "The noncommercial model payload remains restricted and its exact runtime/model source and attribution bundle has not passed the release gate."
+    },
+    {
+      "id": "assistant-payload",
+      "name": "Assistant runtime, curl, and CA certificate closure",
+      "version": "payload-hash-in-provenance",
+      "license": "(MIT AND curl AND MPL-2.0)",
+      "release_status": "blocked",
+      "distribution_scope": "separate-payload",
+      "download_location": "https://github.com/aslater3/LibreEcho-UI",
+      "source_offer": "https://github.com/aslater3/LibreEcho-UI",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "blocker": "Exact static curl/TLS/CA runtime closure and source-offer records have not passed independent verification."
+    },
+    {
+      "id": "mt8163-audio-fpga",
+      "name": "MT8163 Radar-Puffin audio FPGA bitstream",
+      "version": "i2s_to_spi_v34",
+      "license": "NOASSERTION",
+      "release_status": "blocked",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/carlitros900/karnak_3.18.48/commit/5b48c78b249ed9129fe92d30087de25b20152538",
+      "source_offer": "NOASSERTION",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md"
+      ],
+      "binary_sha256": "77a558bacdaaf9e343f02f2d74f27a5f2bb2dc8b6d66cc2499b60ed14ef62fe6",
+      "blocker": "No authoritative redistribution permission or preferred-form FPGA source/generation record has been established."
+    },
+    {
+      "id": "mt8163-owner-firmware",
+      "name": "MT8163 connectivity firmware extracted from the owner device",
+      "version": "owner-device-local",
+      "license": "NOASSERTION",
+      "release_status": "not-redistributed",
+      "distribution_scope": "local-extraction-only",
+      "download_location": "NOASSERTION",
+      "source_offer": "owner-device-system-a",
+      "evidence": [
+        "release/README.md"
+      ]
+    },
+    {
+      "id": "amonet-installer",
+      "name": "Amonet/BROM installer integration",
+      "version": "external-user-supplied",
+      "license": "NOASSERTION",
+      "release_status": "not-redistributed",
+      "distribution_scope": "external-user-supplied",
+      "download_location": "https://github.com/amonet-kamakiri/amonet",
+      "source_offer": "https://github.com/amonet-kamakiri/amonet",
+      "evidence": [
+        "release/README.md"
+      ]
+    }
+  ]
+}

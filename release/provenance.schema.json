@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://libreecho.org/schemas/release-provenance-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "release_id", "platform", "sources", "artifacts", "vendor_firmware"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_id": {"type": "string", "pattern": "^radar-puffin-v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "platform": {
+      "type": "object", "additionalProperties": false,
+      "required": ["board", "architecture", "kernel_line"],
+      "properties": {
+        "board": {"const": "radar_puffin"},
+        "architecture": {"const": "armv7"},
+        "kernel_line": {"const": "linux-6.1"}
+      }
+    },
+    "sources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["product", "kernel", "tooling", "ui"],
+      "properties": {
+        "product": {"type": "object", "$ref": "#/$defs/source"},
+        "kernel": {"type": "object", "$ref": "#/$defs/source"},
+        "tooling": {"type": "object", "$ref": "#/$defs/source"},
+        "ui": {"type": "object", "$ref": "#/$defs/source"}
+      }
+    },
+    "artifacts": {
+      "type": "array", "minItems": 1,
+      "items": {"type": "object", "additionalProperties": false, "required": ["name", "sha256", "size"], "properties": {"name": {"type": "string", "pattern": "^[a-zA-Z0-9._-]+$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "size": {"type": "integer", "minimum": 1}}}
+    },
+    "vendor_firmware": {
+      "type": "object", "additionalProperties": false,
+      "required": ["delivery", "embedded_file_count", "redistributed"],
+      "properties": {
+        "delivery": {"const": "owner-device-local-extraction"},
+        "embedded_file_count": {"const": 0},
+        "redistributed": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+$"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    }
+  }
+}

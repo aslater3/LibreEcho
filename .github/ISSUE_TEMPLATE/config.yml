@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
-  - name: LibreEcho-Kernel implementation issues
-    url: https://github.com/aslater3/LibreEcho-Kernel/issues
+  - name: LibreEcho-Platform implementation issues
+    url: https://github.com/aslater3/LibreEcho-Platform/issues
     about: Use this for kernel, boot, Wi-Fi, image, or OTA implementation bugs.
   - name: LibreEcho-UI implementation issues
     url: https://github.com/aslater3/LibreEcho-UI/issues
