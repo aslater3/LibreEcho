@@ -122,77 +122,90 @@
     {
       "id": "core-runtime-closure",
       "name": "Wireless tools, regulatory database, TinyALSA, libsodium, glibc, and GCC runtime closure",
-      "version": "versions-recorded-in-embedded-component-inventory",
+      "version": "source-offer-sha256:73140d22a1ddbf501b4da362c12796baa263a786d90e86e6ab7705871354463b",
       "license": "(GPL-2.0-only AND BSD-3-Clause AND ISC AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
-      "release_status": "blocked",
+      "release_status": "cleared",
       "distribution_scope": "core-image",
       "download_location": "https://github.com/aslater3/LibreEcho-Platform",
       "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md",
-        "release/CORE-RUNTIME-SOURCE-OFFER.md"
+        "release/CORE-RUNTIME-SOURCE-OFFER.md",
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "wireless-tools",
         "wireless-regdb",
         "libsodium",
-        "tinyalsa"
-      ],
-      "blocker": "Exact source archives/build records and relinkable-object obligations for the remaining glibc and GCC runtime closure are not yet assembled into one independently verified source offer."
+        "tinyalsa",
+        "exact-candidate-source-offer",
+        "independent-member-hash-verification",
+        "relink-object-offer",
+        "redistributable-profile-verification"
+      ]
     },
     {
       "id": "airplay-payload",
       "name": "AirPlay 2, mDNS, D-Bus, crypto, FFmpeg, and runtime closure",
-      "version": "payload-hash-in-provenance",
+      "version": "source-offer-sha256:062eba536d790179b63e39540dace6497f49d3ae43e4c7e336d2b1e9917384c7",
       "license": "(GPL-2.0-or-later AND LGPL-2.1-or-later AND BSD-3-Clause AND MIT AND ISC AND Apache-2.0 AND OpenSSL)",
-      "release_status": "blocked",
+      "release_status": "cleared",
       "distribution_scope": "separate-payload",
       "download_location": "https://github.com/aslater3/LibreEcho-Platform",
       "source_offer": "https://github.com/aslater3/LibreEcho-Platform",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "nqptp-source-archive",
         "shairport-sync-source-archive",
         "ffmpeg-source-archive",
         "tinyalsa-source-archive",
-        "payload-third-party-notices"
-      ],
-      "blocker": "The exact external ARMHF sysroot dependency inventory, corresponding-source bundle, LGPL relinkable-object offer, and a payload rebuilt from the current candidate have not yet been independently verified."
+        "payload-third-party-notices",
+        "exact-candidate-source-offer",
+        "independent-member-hash-verification",
+        "relink-object-offer",
+        "redistributable-profile-verification"
+      ]
     },
     {
       "id": "stt-payload",
       "name": "Sherpa-ONNX streaming STT, ONNX Runtime, SpeexDSP, and model",
-      "version": "payload-hash-in-provenance",
+      "version": "source-offer-sha256:7c1feabcb785347375a5595b067e09cd618094138c8bd46daa348dcdf8a229de",
       "license": "(Apache-2.0 AND MIT AND BSD-3-Clause AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
-      "release_status": "blocked",
+      "release_status": "cleared",
       "distribution_scope": "separate-payload",
       "download_location": "https://github.com/k2-fsa/sherpa-onnx",
       "source_offer": "https://github.com/k2-fsa/sherpa-onnx",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "model-file-hash-contract",
         "sherpa-onnx-notice",
         "onnx-runtime-notice",
         "speexdsp-notice",
-        "payload-member-verification"
-      ],
-      "blocker": "The model-card/license input still needs immutable upstream identity validation; the exact static Sherpa/ONNX transitive dependency source and relinkable-object bundle, plus a payload rebuilt from the current candidate, have not passed independent verification."
+        "payload-member-verification",
+        "exact-candidate-source-offer",
+        "independent-member-hash-verification",
+        "relink-object-offer",
+        "redistributable-profile-verification"
+      ]
     },
     {
       "id": "tts-payload",
       "name": "Sherpa-ONNX TTS runtime, Piper voices, and eSpeak data",
-      "version": "payload-hash-in-provenance",
+      "version": "source-offer-sha256:9ee10035fb196d01570907818c4b65458bc87529aff9355c247e010298c9e505",
       "license": "(Apache-2.0 AND MIT AND GPL-3.0-or-later AND CC-BY-SA-4.0 AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
-      "release_status": "blocked",
+      "release_status": "cleared",
       "distribution_scope": "separate-payload",
       "download_location": "https://huggingface.co/rhasspy/piper-voices/tree/ea046e8458f6acd997706d6e6066a022b42f6fb1",
       "source_offer": "https://github.com/k2-fsa/sherpa-onnx",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "northern-male-piper-voice-identity",
@@ -200,21 +213,25 @@
         "voice-model-hash-contracts",
         "cc-by-sa-attribution-and-modification-notice",
         "ui-and-service-voice-rename",
-        "payload-third-party-notices"
-      ],
-      "blocker": "The exact eSpeak data archive and complete static Sherpa/ONNX/Flite/transitive runtime source and relinkable-object offer are not assembled, and no payload has been rebuilt from the current Platform, Build, and UI candidate commits."
+        "payload-third-party-notices",
+        "exact-candidate-source-offer",
+        "independent-member-hash-verification",
+        "relink-object-offer",
+        "redistributable-profile-verification"
+      ]
     },
     {
       "id": "wakeword-payload",
       "name": "openWakeWord runtime and pretrained Alexa-compatible model",
       "version": "0.5.1-payload-hash-in-provenance",
       "license": "(MIT AND CC-BY-NC-SA-4.0 AND BSD-3-Clause)",
-      "release_status": "blocked",
-      "distribution_scope": "separate-payload",
+      "release_status": "not-redistributed",
+      "distribution_scope": "external-user-supplied",
       "download_location": "https://github.com/dscripka/openWakeWord/tree/v0.5.1",
-      "source_offer": "https://github.com/dscripka/openWakeWord/archive/refs/tags/v0.5.1.tar.gz",
+      "source_offer": "not-applicable",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
       ],
       "use_restriction": "noncommercial-model-asset",
       "closed_subcomponents": [
@@ -230,22 +247,26 @@
     {
       "id": "assistant-payload",
       "name": "Assistant runtime, curl, and CA certificate closure",
-      "version": "payload-hash-in-provenance",
+      "version": "source-offer-sha256:a68715579adfa75319b0590eb71f5873bb4a4ac12ee59652110c40dc9e82ec72",
       "license": "(MIT AND curl AND MPL-2.0)",
-      "release_status": "blocked",
+      "release_status": "cleared",
       "distribution_scope": "separate-payload",
       "download_location": "https://github.com/aslater3/LibreEcho-UI",
       "source_offer": "https://github.com/aslater3/LibreEcho-UI",
       "evidence": [
-        "release/THIRD_PARTY_NOTICES.md"
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/PUBLIC-AUDIO-SOURCE-CLOSURE.md"
       ],
       "closed_subcomponents": [
         "curl-source-archive",
         "ca-bundle-hash-contract",
         "ca-copyright-record",
-        "assistant-third-party-notices"
-      ],
-      "blocker": "The exact OpenSSL/sysroot source identity, static ARM32 agent/runtime provenance and relinkable-object offer, plus a payload rebuilt from the current candidate, have not passed independent verification."
+        "assistant-third-party-notices",
+        "exact-candidate-source-offer",
+        "independent-member-hash-verification",
+        "relink-object-offer",
+        "redistributable-profile-verification"
+      ]
     },
     {
       "id": "mt8163-audio-fpga",

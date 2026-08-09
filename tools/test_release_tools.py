@@ -24,19 +24,20 @@ PREPARE_RELEASE = load_module("prepare_release", ROOT / "tools/prepare-release.p
 
 
 class ComponentGateTests(unittest.TestCase):
-    def test_public_catalog_fails_closed_on_unresolved_components(self) -> None:
-        with self.assertRaises(SystemExit) as failure:
-            PREPARE_RELEASE.load_components(ROOT / "release/components.json")
-        message = str(failure.exception)
+    def test_public_catalog_clears_redistributed_components(self) -> None:
+        loaded = PREPARE_RELEASE.load_components(ROOT / "release/components.json")
+        data = json.loads((ROOT / "release/components.json").read_text())
+        self.assertEqual(loaded, data["components"])
+        self.assertEqual(len(data["components"]), 17)
         for component_id in (
             "core-runtime-closure", "airplay-payload", "stt-payload",
-            "tts-payload", "wakeword-payload", "assistant-payload",
+            "tts-payload", "assistant-payload",
         ):
-            self.assertIn(component_id, message)
-        self.assertNotIn("mt8163-audio-fpga: redistributed component is not cleared", message)
-
-        data = json.loads((ROOT / "release/components.json").read_text())
-        self.assertEqual(len(data["components"]), 17)
+            component = next(c for c in data["components"] if c["id"] == component_id)
+            self.assertEqual(component["release_status"], "cleared")
+        wakeword = next(c for c in data["components"] if c["id"] == "wakeword-payload")
+        self.assertEqual(wakeword["distribution_scope"], "external-user-supplied")
+        self.assertEqual(wakeword["release_status"], "not-redistributed")
         audio = next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga")
         self.assertEqual(audio["license"], "NOASSERTION")
         self.assertEqual(audio["release_status"], "documented-good-faith")
@@ -95,13 +96,12 @@ class ComponentGateTests(unittest.TestCase):
             package = json.loads(output.read_text())["packages"][0]
             self.assertEqual(package["licenseConcluded"], "NOASSERTION")
 
-    def test_explicit_component_checker_fails_closed(self) -> None:
+    def test_explicit_component_checker_accepts_cleared_catalog(self) -> None:
         result = subprocess.run([
             sys.executable, str(ROOT / "tools/check-release-components.py")
         ], text=True, capture_output=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("public component gate failed", result.stderr)
-        self.assertNotIn("mt8163-audio-fpga: redistributed component is not cleared", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("component_gate=cleared", result.stdout)
 
     def _catalog_failure(self, mutate) -> str:
         data = json.loads((ROOT / "release/components.json").read_text())
@@ -163,13 +163,13 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(output),
             ], check=True, text=True, capture_output=True)
             document = json.loads(output.read_text())
-        self.assertIn("package_count=8", result.stdout)
+        self.assertIn("package_count=13", result.stdout)
         names = {package["name"] for package in document["packages"]}
         self.assertNotIn("MT8163 connectivity firmware extracted from the owner device", names)
         self.assertNotIn("Amonet/BROM installer integration", names)
         self.assertEqual(len(document["files"]), 1)
 
-    def test_sbom_rejects_full_catalog_while_components_are_blocked(self) -> None:
+    def test_sbom_accepts_full_cleared_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifacts = root / "artifacts.json"
@@ -184,8 +184,8 @@ class ComponentGateTests(unittest.TestCase):
                 "--artifacts", str(artifacts),
                 "--output", str(root / "sbom.json"),
             ], text=True, capture_output=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("redistributed component is not cleared", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("package_count=14", result.stdout)
 
 
 if __name__ == "__main__":
