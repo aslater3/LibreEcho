@@ -43,7 +43,8 @@ reuse.
 
 ## Source identities
 
-- Product: `c0f3dc3ad89c3a739c0c477b3f98e26acc9a4d70`
+- Final Product commit: see the sanitized release provenance asset generated
+  from the catalog-attesting release candidate.
 - Linux 6.1 kernel: `a6c4b01faae9b937f9067d4d14ee0917f662577c`
 - Platform/tooling: `583cfbcc400767eb01187bf123abe6ad0dca824c`
 - Web UI/services: `021001d035c6044b7f78841434ac3e58c48c5708`

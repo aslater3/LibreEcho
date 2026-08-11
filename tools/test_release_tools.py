@@ -128,6 +128,15 @@ class ComponentGateTests(unittest.TestCase):
             "No device was flashed", "owner-device-local",
         ):
             self.assertIn(required, notes)
+        normalized_notes = " ".join(notes.split())
+        self.assertIn(
+            "Final Product commit: see the sanitized release provenance asset",
+            normalized_notes,
+        )
+        self.assertNotIn(
+            "Product: `c0f3dc3ad89c3a739c0c477b3f98e26acc9a4d70`",
+            notes,
+        )
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
