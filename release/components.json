@@ -122,7 +122,7 @@
     {
       "id": "core-runtime-closure",
       "name": "Wireless tools, regulatory database, TinyALSA, libsodium, glibc, and GCC runtime closure",
-      "version": "source-offer-sha256:fcbcd29d4cf5fbe3b4c511c9a365bcd7adc7bf0eb6454d693fbcd5ddf31bc51f",
+      "version": "source-offer-sha256:3e4f611fa07044c1e8e0060b7a1d9cc356493dfb42b963a82eccb9e9ff125952",
       "license": "(GPL-2.0-only AND BSD-3-Clause AND ISC AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
       "release_status": "cleared",
       "distribution_scope": "core-image",
@@ -148,7 +148,7 @@
     {
       "id": "airplay-payload",
       "name": "AirPlay 2, mDNS, D-Bus, crypto, FFmpeg, and runtime closure",
-      "version": "source-offer-sha256:8678aba5db5359a988f9718552c18f9446763128215ec45e1596159031c9659e",
+      "version": "source-offer-sha256:f159ecdb4e0381433c78c4e80a360bc6c3eb45e4c0c7f4caadbbe355c37a6031",
       "license": "(GPL-2.0-or-later AND LGPL-2.1-or-later AND BSD-3-Clause AND MIT AND ISC AND Apache-2.0 AND OpenSSL)",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -174,7 +174,7 @@
     {
       "id": "stt-payload",
       "name": "Sherpa-ONNX streaming STT, ONNX Runtime, SpeexDSP, and model",
-      "version": "source-offer-sha256:5a494d737a3865675fba0ca1996aa062acf08e43fcdf9c149f2f364bef9396ce",
+      "version": "source-offer-sha256:e5ccaaed9380493bde952f5435ef6612d60b116c6c6e18bb6f00110d95742d03",
       "license": "(Apache-2.0 AND MIT AND BSD-3-Clause AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -200,7 +200,7 @@
     {
       "id": "tts-payload",
       "name": "Sherpa-ONNX TTS runtime, Piper voices, and eSpeak data",
-      "version": "source-offer-sha256:41fe96ec156379ddae46a6e6816de2673c12e5b4eb88b9b055d4573c148ba33e",
+      "version": "source-offer-sha256:22be3e3cfc0446991a0a9c85c08c39d77212d44684322f6af1d9fa30761e9447",
       "license": "(Apache-2.0 AND MIT AND GPL-3.0-or-later AND CC-BY-SA-4.0 AND LGPL-2.1-or-later AND (GPL-3.0-or-later WITH GCC-exception-3.1))",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -227,7 +227,7 @@
     {
       "id": "wakeword-payload",
       "name": "openWakeWord runtime and pretrained Alexa-compatible model",
-      "version": "source-offer-sha256:75d4e47bb784d9c21b41f351b16508c1b5a90ad837ee6fbf615c425e09158fc8",
+      "version": "source-offer-sha256:8be7517a3f2feff5effe36f259ec2c35e3ffeded779fbfc4386f0c5bcb9833ac",
       "license": "(MIT AND CC-BY-NC-SA-4.0 AND BSD-3-Clause)",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
@@ -256,7 +256,7 @@
     {
       "id": "assistant-payload",
       "name": "Assistant runtime, curl, and CA certificate closure",
-      "version": "source-offer-sha256:2b15821a7b44b02767f3f8c7029d3ba0637599644e2550aa39b273c075bc895d",
+      "version": "source-offer-sha256:85ee50f6befa873345b7444510c988e3625987fb4032170099d7c64f27541027",
       "license": "(MIT AND curl AND MPL-2.0)",
       "release_status": "cleared",
       "distribution_scope": "separate-payload",
