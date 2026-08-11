@@ -21,11 +21,13 @@ def violations(root: Path) -> list[str]:
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
+        relative = path.relative_to(root)
+        for match in RUN_ID.finditer(str(relative)):
+            failures.append(f"{relative}: private run ID {match.group(0)}")
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        relative = path.relative_to(root)
         for marker in ("/home/", "/dev/tty"):
             if marker in text:
                 failures.append(f"{relative}: private marker {marker!r}")
