@@ -97,12 +97,12 @@ class ComponentGateTests(unittest.TestCase):
 
     def test_community_source_offer_hashes_match_catalog_and_closure(self) -> None:
         expected = {
-            "core-runtime-closure": "fcbcd29d4cf5fbe3b4c511c9a365bcd7adc7bf0eb6454d693fbcd5ddf31bc51f",
-            "airplay-payload": "8678aba5db5359a988f9718552c18f9446763128215ec45e1596159031c9659e",
-            "stt-payload": "5a494d737a3865675fba0ca1996aa062acf08e43fcdf9c149f2f364bef9396ce",
-            "tts-payload": "41fe96ec156379ddae46a6e6816de2673c12e5b4eb88b9b055d4573c148ba33e",
-            "wakeword-payload": "75d4e47bb784d9c21b41f351b16508c1b5a90ad837ee6fbf615c425e09158fc8",
-            "assistant-payload": "2b15821a7b44b02767f3f8c7029d3ba0637599644e2550aa39b273c075bc895d",
+            "core-runtime-closure": "3e4f611fa07044c1e8e0060b7a1d9cc356493dfb42b963a82eccb9e9ff125952",
+            "airplay-payload": "f159ecdb4e0381433c78c4e80a360bc6c3eb45e4c0c7f4caadbbe355c37a6031",
+            "stt-payload": "e5ccaaed9380493bde952f5435ef6612d60b116c6c6e18bb6f00110d95742d03",
+            "tts-payload": "22be3e3cfc0446991a0a9c85c08c39d77212d44684322f6af1d9fa30761e9447",
+            "wakeword-payload": "8be7517a3f2feff5effe36f259ec2c35e3ffeded779fbfc4386f0c5bcb9833ac",
+            "assistant-payload": "85ee50f6befa873345b7444510c988e3625987fb4032170099d7c64f27541027",
         }
         data = json.loads((ROOT / "release/components.json").read_text())
         closure = (
@@ -119,6 +119,15 @@ class ComponentGateTests(unittest.TestCase):
                     "release/COMMUNITY-NONCOMMERCIAL-SOURCE-CLOSURE.md",
                     by_id[component_id]["evidence"],
                 )
+
+    def test_v010_release_notes_state_and_legal_boundary(self) -> None:
+        notes = (ROOT / "release/radar-puffin-v0.1.0.md").read_text()
+        for required in (
+            "PREPARED_NOT_FLASHED", "prerelease", "CC-BY-NC-SA-4.0",
+            "noncommercial", "ShareAlike",
+            "No device was flashed", "owner-device-local",
+        ):
+            self.assertIn(required, notes)
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
