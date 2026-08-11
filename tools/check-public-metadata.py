@@ -10,7 +10,7 @@ from pathlib import Path
 
 IPV4 = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])")
 MAC = re.compile(r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f])")
-RUN_ID = re.compile(r"(?<![0-9A-Za-z])20[0-9]{6}T[0-9]{6}Z(?:[-_]|$)")
+RUN_ID = re.compile(r"(?<![0-9A-Za-z])20[0-9]{6}T[0-9]{6}Z(?![0-9A-Za-z])")
 PRIVATE_NETWORKS = tuple(
     ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )

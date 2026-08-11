@@ -68,17 +68,23 @@ class PublicMetadataTests(unittest.TestCase):
                 "20260811T214603Z_clean-ota",
                 "20260811T214603Z-",
                 "20260811T214603Z_",
+                "20260811T214603Z",
             ):
                 (root / f"{run_id}.json").write_text("sanitized")
+            nested = root / "20260811T214603Z" / "metadata.json"
+            nested.parent.mkdir()
+            nested.write_text("sanitized")
             failures = PUBLIC_METADATA.violations(root)
             for run_id in (
                 "20260811T214603Z-a6c4b01faae9-clean-ota",
                 "20260811T214603Z_clean-ota",
                 "20260811T214603Z-",
                 "20260811T214603Z_",
+                "20260811T214603Z",
             ):
                 with self.subTest(run_id=run_id):
                     self.assertTrue(any(f"{run_id}.json" in item for item in failures))
+            self.assertTrue(any("20260811T214603Z/metadata.json" in item for item in failures))
 
 
 class ComponentGateTests(unittest.TestCase):
