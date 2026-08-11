@@ -60,6 +60,15 @@ class PublicMetadataTests(unittest.TestCase):
             self.assertTrue(any("private IPv4" in item for item in failures))
             self.assertTrue(any("MAC address" in item for item in failures))
 
+    def test_run_ids_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "run.md").write_text(
+                "internal candidate 20260811T214603Z-a6c4b01faae9-clean-ota"
+            )
+            failures = PUBLIC_METADATA.violations(root)
+            self.assertTrue(any("private run ID" in item for item in failures))
+
 
 class ComponentGateTests(unittest.TestCase):
     def test_public_catalog_scopes_noncommercial_wakeword(self) -> None:

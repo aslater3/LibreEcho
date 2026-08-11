@@ -5,21 +5,12 @@ identities for LibreEcho's five-feature `community-noncommercial` profile. It is
 host-build evidence, not publication, legal advice, flashing, boot, playback,
 capture, wakeword-inference, or hardware-runtime acceptance.
 
-## Hash-derivation probe
+## Hash-derivation evidence
 
-The source-offer hashes were derived from this immutable no-publish probe:
-
-- Run ID: `20260811T214603Z-a6c4b01faae9-clean-ota-production-dev-community-nc-ssh0-ui021001d035c6-71f0be364c08`
-- Status: `PREPARED_NOT_FLASHED`
-- Published current: `false`
-- Feature policy: `community-noncommercial`
-- Linux source: `a6c4b01faae9b937f9067d4d14ee0917f662577c`
-- Platform source: `583cfbcc400767eb01187bf123abe6ad0dca824c`
-- UI source: `021001d035c6044b7f78841434ac3e58c48c5708`
-- Build source: `d2ff4c406c3948a2b52f089e1f972baa3399803c`
-- Product policy source used by the probe: `c0f3dc3ad89c3a739c0c477b3f98e26acc9a4d70`
-- Boot SHA-256: `c73a8cac2a981545b562ef3a4711f2f9622f3ec94432fbc21cedbf6ba3aee9b9`
-- Source-offer index SHA-256: `ed49a1bda6bb677fc2d39c4a1bba5c66ee9143193eea54a284ecb833d8b142e8`
+The source-offer hashes were derived from an immutable no-publish probe. The
+probe status and exact source/artifact hashes are retained in private build
+evidence; this public record contains only sanitized repository and artifact
+identities.
 
 A final release candidate must be rebuilt after this catalog record is committed,
 attest that later Product commit, and reproduce the six archive hashes below.

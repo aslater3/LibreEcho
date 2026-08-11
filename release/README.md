@@ -97,7 +97,8 @@ The command fails closed when the candidate is dirty, contains embedded vendor
 files, identifies a device, or includes a component that is not cleared.
 Artifact paths are used only to calculate hashes and are never written to the
 output. Rename private run-generated artifacts to stable public-safe filenames
-before invoking the generator; run IDs are rejected in public artifact names.
+before invoking the generator; run IDs are rejected in public artifact names and
+release metadata.
 
 Do not use a generated per-run `manifest.json` as a public release manifest.
 It contains host paths and operational fields by design.

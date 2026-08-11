@@ -6,7 +6,7 @@ capture, FPGA-runtime, or device-runtime claim.
 
 ## Candidate identity
 
-- Run ID: `20260809T155059Z-19efd9685e22-clean-ota-production-redistrib-ssh0-ui50b9dedb9eed-44be97e50ff0`
+This record is bound to the sanitized source and artifact identities below.
 - Linux source: `19efd9685e22f96cf1cb70551eae4c0075692e5c`
 - Platform source: `304806a69bc9df87b12e95e98252a011b26934d8`
 - UI source: `50b9dedb9eedb21b0ea45b805421138a061db253`
