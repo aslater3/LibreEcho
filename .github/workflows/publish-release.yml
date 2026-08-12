@@ -35,6 +35,7 @@ jobs:
           for key in ('version','source_run_id','source_run_attempt'):
               if key not in data: raise SystemExit(f'missing candidate field: {key}')
               print(f'{key}={data[key]}')
+          print(f"channel={data.get('channel','stable')}")
           PY
       - name: Download exact Build staging artifact
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
@@ -53,7 +54,7 @@ jobs:
           test -f "public-release/public-release/libreecho-${VERSION}-SHA256SUMS" || test -f "public-release/libreecho-${VERSION}-SHA256SUMS"
           dir=public-release/public-release
           test -d "$dir" || dir=public-release
-          mapfile -t assets < <(find "$dir" -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t assets < <(find "$dir" -maxdepth 1 -type f -printf '%f\n' ! -name '.assets' | sort)
           test "${#assets[@]}" -ge 3
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-boot.img"
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
@@ -62,6 +63,21 @@ jobs:
           if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
             echo 'unexpected compliance asset in public release' >&2; exit 1
           fi
+          assets=("${assets[@]}")
+          assets=("${assets[@]}")
+          for alias in stable dev; do
+            asset="libreecho-${VERSION}.ota.tar"
+            if [ -f "$dir/$asset" ]; then
+              if [ "${{ steps.candidate.outputs.channel }}" = "$alias" ]; then
+                cp "$dir/$asset" "$dir/libreecho-radar-puffin-${alias}.ota.tar"
+                assets+=("libreecho-radar-puffin-${alias}.ota.tar")
+              fi
+            fi
+          done
+          printf '%s\n' "${assets[@]}" | sort -u >"$dir/.assets"
+          mapfile -t assets <"$dir/.assets"
+          (cd "$dir" && find . -maxdepth 1 -type f ! -name '*-SHA256SUMS' ! -name '.assets' -printf '%f\0' | sort -z | xargs -0 sha256sum >"libreecho-${VERSION}-SHA256SUMS")
+          mapfile -t assets < <(find "$dir" -maxdepth 1 -type f -printf '%f\n' ! -name '.assets' | sort)
           tag="$VERSION"
           release_id="$(gh release view "$tag" --json databaseId --jq .databaseId 2>/dev/null || true)"
           if [ -z "$release_id" ]; then
