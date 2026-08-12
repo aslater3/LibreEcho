@@ -63,3 +63,9 @@ host image contract were independently verified before publication.
 Do not flash a raw or renamed artifact outside the reviewed LibreEcho deployment
 flow. Preserve a confirmed rollback slot and owner data, and treat successful
 host verification as distinct from device runtime acceptance.
+
+## Candidate
+
+Build candidate staged by run `31619476482` attempt `1`.
+
+The merge workflow publishes only the bounded `public-release/` artifact from that exact run.
