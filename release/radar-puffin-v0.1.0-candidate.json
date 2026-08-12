@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "version": "radar-puffin-v0.1.0",
+  "channel": "dev",
+  "build_repo": "aslater3/LibreEcho-Build",
+  "source_run_id": 31619476482,
+  "source_run_attempt": 1,
+  "release_notes": "release/radar-puffin-v0.1.0.md"
+}
