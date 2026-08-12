@@ -16,15 +16,15 @@ A complete `community-noncommercial` release has two layers:
   manifests; and
 - a checksum file covering those user-facing artifacts.
 
-**Request-based compliance materials** are retained privately and furnished to
-recipients on request:
+**Compliance materials** are retained privately and furnished to recipients on
+request:
 
 - the corresponding-source and relink offers for the exact candidate;
 - `THIRD_PARTY_NOTICES.md` and embedded payload notices;
 - the generic release provenance; and
 - the SPDX SBOM for the exact assembled artifacts.
 
-The private request-based materials are part of the release-closure record even
+The request-based materials are part of the release-closure record even
 though they are not normal public download assets. The `community-noncommercial`
 scope includes all five payloads and is cleared only when the CC-BY-NC-SA-4.0
 model restriction, attribution, ShareAlike terms, and exact source/relink offer
@@ -65,8 +65,8 @@ output is copied into this repository or attached to a release:
 ```sh
 python3 tools/prepare-release.py \
   --candidate /private/run/CURRENT.candidate \
-  --artifact boot.img \
   --artifact ota.tar \
+  --artifact initial-install.tar \
   --release-id radar-puffin-vX.Y.Z \
   --product-commit <40-hex-commit> \
   --kernel-commit <40-hex-commit> \

@@ -163,9 +163,8 @@ class ComponentGateTests(unittest.TestCase):
         self.assertNotIn("PREPARED_NOT_FLASHED", notes)
         boundary = (ROOT / "release/README.md").read_text()
         self.assertIn("Normal public downloads", boundary)
-        self.assertIn("Request-based compliance materials", boundary)
-        self.assertIn("furnished to", boundary)
-        self.assertIn("recipients on request", boundary)
+        self.assertIn("Compliance materials", boundary)
+        self.assertIn("furnished to recipients on", boundary)
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
