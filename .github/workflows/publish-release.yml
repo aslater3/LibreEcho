@@ -5,8 +5,6 @@ on:
     branches: [main]
     paths:
       - 'release/*-candidate.json'
-      - 'release/*.md'
-      - 'CHANGELOG.md'
 
 permissions:
   actions: read
@@ -27,7 +25,9 @@ jobs:
           BUILD_TOKEN: ${{ secrets.LIBREECHO_BUILD_READ_TOKEN }}
         run: |
           set -euo pipefail
-          candidate="$(git ls-tree -r --name-only HEAD release | grep -- '-candidate\.json$' | sort | tail -1)"
+          mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'release/*-candidate.json')
+          test "${#changed[@]}" -eq 1
+          candidate="${changed[0]}"
           test -n "$candidate"
           python3 - "$candidate" >>"$GITHUB_OUTPUT" <<'PY'
           import json, sys
@@ -50,19 +50,22 @@ jobs:
           VERSION: ${{ steps.candidate.outputs.version }}
         run: |
           set -euo pipefail
-          test -f "public-release/public-release/${VERSION}-SHA256SUMS" || test -f "public-release/${VERSION}-SHA256SUMS"
+          test -f "public-release/public-release/libreecho-${VERSION}-SHA256SUMS" || test -f "public-release/libreecho-${VERSION}-SHA256SUMS"
           dir=public-release/public-release
           test -d "$dir" || dir=public-release
           mapfile -t assets < <(find "$dir" -maxdepth 1 -type f -printf '%f\n' | sort)
-          test "${#assets[@]}" -gt 0
-          printf '%s\n' "${assets[@]}" | grep -q -- '-SHA256SUMS$'
+          test "${#assets[@]}" -ge 3
+          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-boot.img"
+          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
+          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-SHA256SUMS"
+          (cd "$dir" && sha256sum -c "libreecho-${VERSION}-SHA256SUMS")
           if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
             echo 'unexpected compliance asset in public release' >&2; exit 1
           fi
           tag="$VERSION"
           release_id="$(gh release view "$tag" --json databaseId --jq .databaseId 2>/dev/null || true)"
           if [ -z "$release_id" ]; then
-            gh release create "$tag" --title "LibreEcho $VERSION" --notes-file "release/${VERSION}.md" --prerelease
+            gh release create "$tag" --target "$GITHUB_SHA" --title "LibreEcho $VERSION" --notes-file "release/${VERSION}.md" --prerelease
             release_id="$(gh release view "$tag" --json databaseId --jq .databaseId)"
           fi
           gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.assets[].id' |
