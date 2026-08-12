@@ -70,7 +70,7 @@ jobs:
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
           printf '%s\n' "${assets[@]}" | grep -qx "$sums"
           printf '%s\n' "${assets[@]}" | grep -qx "$ota"
-          grep -Eq "^[0-9a-fA-F]{64}[[:space:]]+${ota}$" "$dir/$sums"
+          awk -v ota="$ota" '$2 == ota && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ { found=1 } END { exit !found }' "$dir/$sums"
           (cd "$dir" && sha256sum -c "$sums")
           if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
             echo 'unexpected compliance asset in public release' >&2; exit 1
