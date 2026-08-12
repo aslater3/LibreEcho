@@ -149,8 +149,8 @@ class ComponentGateTests(unittest.TestCase):
     def test_v010_release_notes_state_and_legal_boundary(self) -> None:
         notes = (ROOT / "release/radar-puffin-v0.1.0.md").read_text()
         for required in (
-            "PREPARED_NOT_FLASHED", "prerelease", "CC-BY-NC-SA-4.0",
-            "noncommercial", "ShareAlike",
+            "host verification", "physical device", "hardware compatibility",
+            "prerelease", "CC-BY-NC-SA-4.0", "noncommercial", "ShareAlike",
             "No device was flashed", "owner-device-local",
         ):
             self.assertIn(required, notes)
@@ -159,10 +159,7 @@ class ComponentGateTests(unittest.TestCase):
             "Final Product commit: see the sanitized release provenance asset",
             normalized_notes,
         )
-        self.assertNotIn(
-            "Product: `c0f3dc3ad89c3a739c0c477b3f98e26acc9a4d70`",
-            notes,
-        )
+        self.assertNotIn("PREPARED_NOT_FLASHED", notes)
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())

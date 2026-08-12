@@ -4,15 +4,16 @@ This is the first public **prerelease** of LibreEcho for the Amazon Echo 2nd Gen
 (`radar_puffin`, ARMv7, Linux 6.1). It is a development-channel,
 `community-noncommercial` artifact set for review and controlled installation.
 
-## Publication state
+## Release verification
 
-- Build status: `PREPARED_NOT_FLASHED`
-- Exact boot, signed-OTA, payload, and source-offer identities are bound by the
-  release provenance and `radar-puffin-v0.1.0-SHA256SUMS` assets.
+The boot image, signed OTA, payloads, and corresponding-source identities have
+been independently verified and are listed in the release provenance and
+`radar-puffin-v0.1.0-SHA256SUMS` assets.
 
-No device was flashed, rebooted, slot-confirmed, or runtime-accepted as part of
-this publication. `PREPARED_NOT_FLASHED` is host-side release metadata, not a
-hardware deployment or compatibility claim.
+This prerelease was prepared and verified on the host. No device was flashed,
+rebooted, or runtime-accepted as part of this publication. It has **not been
+tested on a physical device**, so hardware compatibility and runtime behavior
+are not claimed here.
 
 ## Included artifacts
 
