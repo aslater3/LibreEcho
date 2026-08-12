@@ -149,8 +149,9 @@ class ComponentGateTests(unittest.TestCase):
     def test_v010_release_notes_state_and_legal_boundary(self) -> None:
         notes = (ROOT / "release/radar-puffin-v0.1.0.md").read_text()
         for required in (
-            "host verification", "physical device", "hardware compatibility",
-            "prerelease", "CC-BY-NC-SA-4.0", "noncommercial", "ShareAlike",
+            "OTA:", "Initial install:", "Checksums:",
+            "both downloaded archives", "available by request", "not part of the normal", "prerelease",
+            "CC-BY-NC-SA-4.0", "noncommercial", "ShareAlike",
             "No device was flashed", "owner-device-local",
         ):
             self.assertIn(required, notes)
@@ -160,6 +161,10 @@ class ComponentGateTests(unittest.TestCase):
             normalized_notes,
         )
         self.assertNotIn("PREPARED_NOT_FLASHED", notes)
+        boundary = (ROOT / "release/README.md").read_text()
+        self.assertIn("Normal public downloads", boundary)
+        self.assertIn("Compliance materials", boundary)
+        self.assertIn("furnished to recipients on", boundary)
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
