@@ -21,7 +21,8 @@ are not claimed here.
 - **Initial install:** download the initial-install bundle for a manual first
   installation. It contains the boot image, feature payloads, manifests, and
   OTA public key.
-- **Checksums:** verify the two archives and OTA with `SHA256SUMS` before use.
+- **Checksums:** use `SHA256SUMS` to verify both downloaded archives before
+  use.
 
 The corresponding-source offers, SBOM, notices, and detailed provenance are
 kept privately and are available by request. They are not part of the normal
