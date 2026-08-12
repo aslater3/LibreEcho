@@ -51,30 +51,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.candidate.outputs.version }}
+          CANDIDATE_CHANNEL: ${{ steps.candidate.outputs.channel }}
         run: |
           set -euo pipefail
-          test -f "public-release/public-release/libreecho-${VERSION}-SHA256SUMS" || test -f "public-release/libreecho-${VERSION}-SHA256SUMS"
+          case "$CANDIDATE_CHANNEL" in
+            stable|dev) ;;
+            *) echo "invalid candidate channel: $CANDIDATE_CHANNEL" >&2; exit 1 ;;
+          esac
           dir=public-release/public-release
           test -d "$dir" || dir=public-release
+          sums="libreecho-${VERSION}-SHA256SUMS"
+          test -f "$dir/$sums"
+          ota="libreecho-${VERSION}.ota.tar"
+          test -f "$dir/$ota"
           mapfile -t assets < <(find "$dir" -maxdepth 1 -type f ! -name '.assets' -printf '%f\n' | sort)
-          test "${#assets[@]}" -ge 3
-          test -f "$dir/libreecho-${VERSION}.ota.tar"
+          test "${#assets[@]}" -ge 4
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-boot.img"
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
-          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-SHA256SUMS"
-          (cd "$dir" && sha256sum -c "libreecho-${VERSION}-SHA256SUMS")
+          printf '%s\n' "${assets[@]}" | grep -qx "$sums"
+          printf '%s\n' "${assets[@]}" | grep -qx "$ota"
+          grep -Fqx "  $ota" "$dir/$sums"
+          (cd "$dir" && sha256sum -c "$sums")
           if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
             echo 'unexpected compliance asset in public release' >&2; exit 1
           fi
-          assets=("${assets[@]}")
-          assets=("${assets[@]}")
           for alias in stable dev; do
-            asset="libreecho-${VERSION}.ota.tar"
-            if [ -f "$dir/$asset" ]; then
-              if [ "${{ steps.candidate.outputs.channel }}" = "$alias" ]; then
-                cp "$dir/$asset" "$dir/libreecho-radar-puffin-${alias}.ota.tar"
-                assets+=("libreecho-radar-puffin-${alias}.ota.tar")
-              fi
+            if [ "$CANDIDATE_CHANNEL" = "$alias" ]; then
+              cp "$dir/$ota" "$dir/libreecho-radar-puffin-${alias}.ota.tar"
+              assets+=("libreecho-radar-puffin-${alias}.ota.tar")
             fi
           done
           printf '%s\n' "${assets[@]}" | sort -u >"$dir/.assets"
