@@ -15,14 +15,17 @@ rebooted, or runtime-accepted as part of this publication. It has **not been
 tested on a physical device**, so hardware compatibility and runtime behavior
 are not claimed here.
 
-## Included artifacts
+## Downloads
 
-- the verified ARM32 `boot.img` and locally signed OTA archive;
-- separate AirPlay, assistant, streaming STT, TTS, and wakeword SquashFS
-  payloads with manifests;
-- sanitized source provenance, SPDX 2.3 SBOM, notices, and checksums; and
-- six exact corresponding-source/relink offers plus sidecar manifests and a
-  source-offer index.
+- **OTA:** use the signed `.ota.tar` with the device OTA flow.
+- **Initial install:** download the initial-install bundle for a manual first
+  installation. It contains the boot image, feature payloads, manifests, and
+  OTA public key.
+- **Checksums:** verify the two archives and OTA with `SHA256SUMS` before use.
+
+The corresponding-source offers, SBOM, notices, and detailed provenance are
+kept privately and are available by request. They are not part of the normal
+user download set.
 
 The release excludes credentials, signing keys, device identifiers,
 calibration data, Amonet/vendor boot-chain material, and MT8163 connectivity
