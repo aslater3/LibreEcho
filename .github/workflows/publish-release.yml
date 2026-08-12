@@ -1,0 +1,79 @@
+name: Publish merged release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'release/*-candidate.json'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: public-release
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Read merged candidate
+        id: candidate
+        env:
+          BUILD_TOKEN: ${{ secrets.LIBREECHO_BUILD_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'release/*-candidate.json')
+          test "${#changed[@]}" -eq 1
+          candidate="${changed[0]}"
+          test -n "$candidate"
+          python3 - "$candidate" >>"$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          data=json.load(open(sys.argv[1], encoding='utf-8'))
+          for key in ('version','source_run_id','source_run_attempt'):
+              if key not in data: raise SystemExit(f'missing candidate field: {key}')
+              print(f'{key}={data[key]}')
+          PY
+      - name: Download exact Build staging artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          repository: aslater3/LibreEcho-Build
+          run-id: ${{ steps.candidate.outputs.source_run_id }}
+          github-token: ${{ secrets.LIBREECHO_BUILD_READ_TOKEN }}
+          name: community-noncommercial-candidate-${{ steps.candidate.outputs.source_run_id }}-${{ steps.candidate.outputs.source_run_attempt }}
+          path: public-release
+      - name: Publish bounded assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -f "public-release/public-release/libreecho-${VERSION}-SHA256SUMS" || test -f "public-release/libreecho-${VERSION}-SHA256SUMS"
+          dir=public-release/public-release
+          test -d "$dir" || dir=public-release
+          mapfile -t assets < <(find "$dir" -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#assets[@]}" -ge 3
+          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-boot.img"
+          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
+          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-SHA256SUMS"
+          (cd "$dir" && sha256sum -c "libreecho-${VERSION}-SHA256SUMS")
+          if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
+            echo 'unexpected compliance asset in public release' >&2; exit 1
+          fi
+          tag="$VERSION"
+          release_id="$(gh release view "$tag" --json databaseId --jq .databaseId 2>/dev/null || true)"
+          if [ -z "$release_id" ]; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title "LibreEcho $VERSION" --notes-file "release/${VERSION}.md" --prerelease
+            release_id="$(gh release view "$tag" --json databaseId --jq .databaseId)"
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.assets[].id' |
+            while read -r id; do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}" >/dev/null; done
+          for asset in "${assets[@]}"; do
+            gh release upload "$tag" "$dir/$asset" --clobber
+          done
+          actual="$(gh release view "$tag" --json assets --jq '.assets | map(.name) | sort | join("\n")')"
+          expected="$(printf '%s\n' "${assets[@]}" | sort)"
+          test "$actual" = "$expected"
+          echo "release_publish=PASS assets=${#assets[@]} tag=$tag"
