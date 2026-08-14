@@ -23,8 +23,9 @@ The channel alias for this development release is
 ## Scope and licensing
 
 This release is `community-noncommercial`. LibreEcho-authored code remains
-open source under its stated licenses. The bundled wakeword and voice assets
-retain their upstream licensing and noncommercial/ShareAlike restrictions.
+open source under its stated licenses. The wakeword model retains its CC-BY-NC-SA-4.0 noncommercial and ShareAlike
+restrictions. The TTS voices retain their separate CC-BY-SA-4.0 ShareAlike
+license without the wakeword model's noncommercial restriction.
 Corresponding-source, relink, provenance, notices, and SBOM materials are
 retained privately and furnished on request rather than attached as normal
 public download assets.
