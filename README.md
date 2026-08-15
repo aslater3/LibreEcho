@@ -16,7 +16,9 @@
 </div>
 
 The interface, API, and service daemons live in the separate
-[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) repository.
+[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) repository. That
+repository is currently private pending a public-safety and licence review;
+the public website does not present it as a logged-out source download.
 
 LibreEcho is an open embedded voice-assistant operating system focused on
 privacy, repairability, and local control. The current development line targets
@@ -36,6 +38,7 @@ integration continue on review branches.
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
+- **Security:** [read the security policy](SECURITY.md) or [submit a private advisory](https://github.com/aslater3/LibreEcho/security/advisories/new)
 - **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
 ## What Is Included
@@ -61,6 +64,10 @@ See [the repository boundary guide](docs/repositories.md) for where a change bel
 Use the issue tracker for reproducible bugs and hardware problems. Include the
 device model, OS version, active slot, relevant logs, and the smallest reliable
 reproduction. Do not include Wi-Fi passwords, API tokens, or private keys.
+
+Security vulnerabilities must not be filed publicly. Read
+[SECURITY.md](SECURITY.md) for the supported release scope, private reporting
+route, redaction requirements and release-withdrawal guidance.
 
 Once Discussions are enabled in the repository settings, use them for design
 questions, setup help, and ideas that are not yet actionable bugs.
