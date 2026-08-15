@@ -6,11 +6,14 @@ security vulnerabilities.
 
 ## Supported scope
 
-The currently supported public scope is the `radar-puffin v0.1.0` development
-release and the Linux 6.1 development line for the documented Echo Gen 2 target.
-The Developer Preview and Open Beta gates are separate release decisions; Open
-Beta has not launched. A fix may be developed on a later review branch before it
-is backported to a public release.
+The currently supported public scope includes the `radar-puffin v0.11.0`
+development release, the earlier `radar-puffin v0.1.0` development release, and
+the Linux 6.1 development line for the documented Echo Gen 2 target. For
+v0.11.0, use the signed OTA and initial-install artifacts published in its GitHub
+Release record; verify the matching `libreecho-radar-puffin-v0.11.0-SHA256SUMS`
+file before use. The Developer Preview and Open Beta gates are separate release
+decisions; Open Beta has not launched. A fix may be developed on a later review
+branch before it is backported to a public release.
 
 Security reports are especially important for:
 
