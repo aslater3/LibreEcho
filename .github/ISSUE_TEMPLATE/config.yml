@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Private security vulnerability report
+    url: https://github.com/aslater3/LibreEcho/security/advisories/new
+    about: Never disclose credentials or exploit details in a public issue; use the private advisory route.
   - name: LibreEcho-Platform implementation issues
     url: https://github.com/aslater3/LibreEcho-Platform/issues
     about: Use this for kernel, boot, Wi-Fi, image, or OTA implementation bugs.

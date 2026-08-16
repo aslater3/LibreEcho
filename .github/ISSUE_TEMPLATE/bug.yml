@@ -8,6 +8,7 @@ body:
     attributes:
       value: |
         Do not include passwords, API tokens, private keys, or unredacted personal data.
+        For a security vulnerability, use the [private security advisory route](https://github.com/aslater3/LibreEcho/security/advisories/new) instead of this public form.
   - type: input
     id: component
     attributes:
