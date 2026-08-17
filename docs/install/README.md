@@ -7,9 +7,10 @@
 ## Safety first
 
 - Unplug the Echo before opening it. Never solder or probe a powered board.
-- Use a data-capable USB cable for installation.
-- Do not guess the BROM short point. A wrong short can permanently damage the
-  board.
+- The eMMC and BROM short point are underneath the heat spreader. The heat
+  spreader must be removed to access the marked point.
+- Remove and refit the heat spreader carefully. Do not damage the thermal pad or
+  allow metal tools to slip across the board.
 - Use an insulated probe or purpose-built pogo jig for the short.
 - Never short the UART point, USB `D+`/`D-`, a capacitor, inductor, crystal,
   battery contact, or another test pad.
@@ -64,12 +65,18 @@ an old issue comment for a first install.
 1. Disconnect power and USB.
 2. Photograph the enclosure, screws, and flex-cable routing.
 3. Remove the cover with a plastic tool.
-4. Release flex-cable latches before disconnecting cables; never pull on the
+4. Remove the heat spreader to expose the eMMC and the marked BROM short point.
+   Keep the thermal pad clean and intact.
+5. Photograph the heat-spreader position.
+6. Release flex-cable latches before disconnecting cables; never pull on the
    orange flex cable.
-5. Place the board on an insulating, static-safe surface.
-6. Check that the board matches the photographs. Stop if it does not.
+7. Place the board on an insulating, static-safe surface.
+8. Check that the board matches the photographs. Stop if it does not.
 
 ## 3. Enter BROM mode
+
+The eMMC and BROM short point are underneath the heat spreader. Remove the heat
+spreader first; the marked point cannot be accessed while it is fitted.
 
 Use the short point shown in the annotated photo. Keep the board unpowered until
 the installation instructions tell you to connect power.
