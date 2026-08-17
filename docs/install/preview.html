@@ -1,0 +1,329 @@
+<!doctype html><meta charset="utf-8"><title>LibreEcho installation guide preview</title><style>body{font:16px/1.55 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#202124}img{max-width:100%;height:auto}code,pre{background:#f3f4f6;padding:.15rem .3rem}pre{padding:1rem;overflow:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}blockquote{border-left:4px solid #16c7d9;padding-left:1rem;background:#f4fbfc}</style><h1>LibreEcho installation guide (preview)</h1>
+<blockquote>
+<p><strong>Status: draft for review.</strong> This guide describes the physical preparation and
+first-install workflow for the LibreEcho development hardware target: the
+Amazon Echo 2nd generation (<code>radar_puffin</code>, MT8163). It is intentionally aimed
+at a first-time hobbyist, but the procedure still involves exposed mains-derived
+hardware, a fine-pitch PCB, soldering, and a boot-ROM recovery step.</p>
+<p>Do not publish this page until the release-specific installer instructions,
+board-revision notes, and the exact BROM short point have been checked against
+the hardware revision being supported.</p>
+</blockquote>
+<h2>What you are going to do</h2>
+<p>At a high level, installation has six parts:</p>
+<ol>
+<li>Prepare a clean, static-safe work area.</li>
+<li>Open the Echo and identify the board revision.</li>
+<li>Add a temporary or permanent UART connection using soldered wires or pogo pins.</li>
+<li>Enter the MediaTek boot-ROM (BROM) mode using the board's approved short point.</li>
+<li>Run the <strong>official initial-install bundle</strong> for the matching release.</li>
+<li>Reassemble, boot LibreEcho, and complete first-boot checks.</li>
+</ol>
+<p>This is not an OTA update guide. OTA updates are for a device that already has a
+working LibreEcho installation. A first installation uses the initial-install
+bundle published with the release.</p>
+<h2>Before you start</h2>
+<h3>Read these warnings</h3>
+<ul>
+<li><strong>Unplug the Echo before opening it.</strong> Do not work on a powered board.</li>
+<li>Remove the battery connector if your board revision exposes one. Never solder
+  or probe a powered board.</li>
+<li>Use a <strong>3.3 V USB-to-TTL serial adapter</strong>. Do not connect a 5 V UART adapter.</li>
+<li>The UART connection is for receiving logs. The annotated board photo identifies
+  the RX point used by the current setup; do not assume every similarly shaped pad
+  is UART.</li>
+<li>Never connect the adapter's <code>TX</code>, <code>VCC</code>, or <code>5V</code> wires unless a release-specific
+  hardware note explicitly tells you to. For the normal installation log, connect
+  <strong>GND and RX only</strong>.</li>
+<li>A BROM short is not a UART connection. Do not short the UART pad, USB data pads,
+  a random test pad, or a power rail.</li>
+<li>A shorting mistake can permanently damage the board. If the correct short point
+  is not clearly identified for your board revision, stop and ask for a verified
+  board photo rather than guessing.</li>
+<li>Keep one UART reader open during a boot attempt. Two programs reading the same
+  serial device produce confusing or incomplete logs.</li>
+</ul>
+<h2>Required equipment</h2>
+<h3>Essential</h3>
+<ul>
+<li>Amazon Echo 2nd generation compatible with the supported <code>radar_puffin</code> board.</li>
+<li>Linux computer with a free USB port. A native USB-A port is preferable to a hub.</li>
+<li>Data-capable USB cable for the Echo's board connector or installation jig.</li>
+<li>3.3 V USB-to-TTL UART adapter with a selectable baud rate.</li>
+<li>Fine-tip soldering iron with temperature control.</li>
+<li>Fine solder and flux suitable for electronics work.</li>
+<li>Fine wire, preferably enamelled wire or 30–34 AWG wire-wrap wire.</li>
+<li>Fine tweezers and a plastic spudger.</li>
+<li>Small Phillips/Torx drivers matching the enclosure screws.</li>
+<li>Bright bench light and magnification (head-mounted magnifier or microscope).</li>
+<li>ESD mat and wrist strap, or at minimum a grounded, static-safe work surface.</li>
+<li>Digital multimeter with continuity and resistance modes.</li>
+<li>Heat-shrink tubing, Kapton tape, or removable insulating tape.</li>
+<li>A known-good release download and its published SHA-256 checksum file.</li>
+</ul>
+<h3>Recommended for a repeatable build</h3>
+<ul>
+<li>Spring-loaded <strong>pogo pins</strong> (fine-point, gold-plated; choose spacing after
+  measuring the pads).</li>
+<li>A small 3D-printed, acrylic, or hand-built pogo-pin jig.</li>
+<li>Logic-level serial adapter with a 3.3 V I/O setting and no automatic 5 V output.</li>
+<li>Current-limited bench supply for electronics work. Do not use it as a substitute
+  for the Echo's normal power system unless the project supplies a board-specific
+  power procedure.</li>
+<li>Silicone wire, strain relief, and a small connector if making a permanent UART
+  harness.</li>
+<li>USB extension cable so the computer can remain away from the open enclosure.</li>
+<li>Camera or phone to record connector orientation and screw locations.</li>
+</ul>
+<h2>Download the release</h2>
+<ol>
+<li>Open the <a href="https://github.com/aslater3/LibreEcho/releases/latest">latest LibreEcho release</a>.</li>
+<li>Confirm that the release supports your exact Echo model and board revision.</li>
+<li>Download the <strong>initial-install bundle</strong> and the matching SHA-256 checksum file.</li>
+<li>Verify the checksum before extracting or running anything:</li>
+</ol>
+<p><code>sh
+   sha256sum --check libreecho-*-SHA256SUMS</code></p>
+<ol>
+<li>Read the <code>README</code> included in the initial-install bundle. The bundle's
+   release-specific installer and preflight checks take precedence over examples
+   in this page.</li>
+</ol>
+<p>Do not download a random <code>boot.img</code>, raw <code>zImage</code>, vendor partition image, or
+an installer from an old issue comment. Do not use an OTA archive for a blank or
+recovered device.</p>
+<h2>Open the Echo safely</h2>
+<ol>
+<li>Disconnect the Echo from its power supply and all USB cables.</li>
+<li>Photograph the enclosure, speaker, button, and flex-cable orientations before
+   removing anything.</li>
+<li>Remove the outer cover with a plastic tool. Avoid metal tools near flex cables
+   and exposed contacts.</li>
+<li>Remove the screws and lift the board only far enough to reach the required pads.</li>
+<li>Do not pull on the orange flex cable. Release its connector latch before
+   disconnecting it.</li>
+<li>Place the board component-side up on an insulating, static-safe surface.</li>
+<li>Identify the PCB markings and record the board revision in your notes.</li>
+</ol>
+<p>If the board layout does not match the photographs in this guide, stop. The
+silkscreen reference designators are useful clues, but they are not a substitute
+for a board-revision-specific pinout.</p>
+<h2>UART: soldered wires or pogo pins</h2>
+<p>UART is the best way to see what the board is doing. It is not required for every
+OTA update, but it is strongly recommended for first installation and recovery.
+The current documented setup uses <strong>receive-only UART</strong>: the computer reads the
+Echo's boot messages through the board's UART RX signal.</p>
+<h3>Option A: solder temporary wires</h3>
+<ol>
+<li>Work with the board completely unpowered.</li>
+<li>Apply a small amount of flux to the identified UART RX pad and a nearby ground
+   point approved for the board revision.</li>
+<li>Tin the end of a 30–34 AWG wire, then touch it to the pad only long enough to
+   make a clean joint.</li>
+<li>Inspect under magnification. There must be no solder bridge to adjacent pads.</li>
+<li>Add Kapton tape for strain relief. The wire must not pull on the pad when the
+   board is moved.</li>
+<li>Label the wire <strong>RX</strong> at the other end. Add a separate <strong>GND</strong> wire.</li>
+<li>Leave the UART adapter's TX and VCC disconnected unless the release notes
+   explicitly require them.</li>
+</ol>
+<p>A fragile pad can lift from the PCB. If you are not comfortable soldering to
+small surface-mount pads, use pogo pins or have an electronics technician fit the
+harness.</p>
+<h3>Option B: use pogo pins</h3>
+<p>Pogo pins are preferable when you want a reversible connection or expect to work
+on more than one device.</p>
+<ol>
+<li>Measure the pad diameter and centre-to-centre spacing with calipers.</li>
+<li>Build a jig that holds the pins perpendicular to the board and cannot slide.</li>
+<li>Use separate pins for RX and GND. Do not let the jig contact neighbouring
+   components or exposed power pads.</li>
+<li>Add a keyed connector or a clear colour code so RX cannot be confused with TX
+   or VCC.</li>
+<li>Test the jig with the board unpowered: continuity should exist only from the
+   intended pad to its jig contact.</li>
+<li>Add an insulating stop so the pins cannot be pushed hard enough to damage the
+   pad or flex cable.</li>
+</ol>
+<h3>Current annotated UART reference</h3>
+<p>The photo below is the present field reference for the RX location. The annotation
+says <code>UART - You only need RX</code>. Treat it as a visual aid, not a universal pinout:</p>
+<p><img alt="Annotated UART RX location" src="assets/uart-rx-board.jpg" /></p>
+<p><strong>Connection summary:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Echo board connection</th>
+<th>USB-to-TTL adapter</th>
+<th>Required?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Annotated UART receive point shown in the approved photo</td>
+<td>Adapter RX input</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Ground</td>
+<td>Adapter GND</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Any other UART point</td>
+<td>Adapter TX output</td>
+<td>No, leave disconnected initially</td>
+</tr>
+<tr>
+<td>Any VCC/3V3/5V point</td>
+<td>Adapter power</td>
+<td><strong>Never connect for this guide</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Connect the adapter's <strong>RX input</strong> to the single UART point identified by the
+approved board photo. Do not infer TX/RX direction from a pad label alone: the
+board annotation and release-specific pinout take precedence. This is why the
+adapter's TX and VCC remain disconnected for the initial setup.</p>
+<h2>Configure the UART terminal</h2>
+<p>The project uses <strong>921600 baud, 8 data bits, no parity, 1 stop bit (8N1)</strong> for
+this target. Start the reader before requesting a reboot or entering BROM mode.</p>
+<p>On Linux, identify the adapter:</p>
+<p><code>sh
+ls /dev/ttyUSB* /dev/ttyACM* 2&gt;/dev/null</code></p>
+<p>A simple raw capture is reliable for a first install:</p>
+<p><code>sh
+stty -F /dev/ttyUSB0 921600 cs8 -cstopb -parenb -ixon -ixoff -crtscts raw -echo
+cat /dev/ttyUSB0 | tee libreecho-uart.log</code></p>
+<p>Replace <code>/dev/ttyUSB0</code> with the actual device. Stop the capture with <code>Ctrl-C</code>
+after the install attempt. If the output is unreadable, stop and correct the
+baud, ground, adapter voltage, and pad identification before interpreting it as
+a boot failure.</p>
+<h2>Entering BROM mode: the shorting procedure</h2>
+<p>The shorting step is used only when the supported installer needs the MediaTek
+boot-ROM connection. It is a brief, controlled contact between the <strong>verified
+BROM short point</strong> and ground while the device is unpowered and being connected.</p>
+<blockquote>
+<p><strong>Important:</strong> The two annotated photos currently supplied with this guide show
+UART/USB locations, not a verified BROM short point. They must not be used to
+choose the short. Add a board-revision-specific BROM photograph or diagram before
+publishing this section as a complete beginner procedure.</p>
+</blockquote>
+<p>Once the correct point has been verified for the exact board revision:</p>
+<ol>
+<li>Close the release installer and any old <code>fastboot</code> process.</li>
+<li>Start the single UART capture so you can see the boot-ROM handoff.</li>
+<li>Disconnect Echo power and USB. Leave the UART wires attached, but keep them
+   clear of the shorting tool.</li>
+<li>Connect the USB data cable to the computer, but do not yet rely on the board
+   being powered. Follow the release bundle's exact connection order.</li>
+<li>Use an insulated probe or a purpose-made jig to touch <strong>only</strong> the verified
+   BROM short point to the verified ground point.</li>
+<li>Apply/connect the board's normal power as specified by the release installer,
+   keeping the short in place only for the documented entry window.</li>
+<li>Watch for the MediaTek USB/BROM device to appear in the installer's preflight
+   or in <code>lsusb</code>.</li>
+<li>Remove the short immediately after enumeration. Do not leave it fitted while
+   the installer writes anything.</li>
+<li>Run the bundle's preflight again, with the target device selected explicitly.</li>
+<li>If the device does not enumerate, disconnect power, remove the probe, and
+    retry only after checking orientation and the board-revision note.</li>
+</ol>
+<p>Never drag a probe across the board. Never short a capacitor, inductor, crystal,
+USB pad, battery contact, or a point selected from a different Echo model. Do not
+use a metal screwdriver with a large exposed shaft. A pogo jig with a hard stop
+is safer and more repeatable than hand-held tweezers.</p>
+<h2>Run the initial installer</h2>
+<p>The initial installer is intentionally gated. Use the exact command and options
+printed by the release bundle, not a guessed fastboot command.</p>
+<p>The safe sequence is:</p>
+<ol>
+<li>Confirm the bundle checksum passed.</li>
+<li>Confirm the device model and board revision.</li>
+<li>Confirm the installer sees the intended USB/BROM device.</li>
+<li>Confirm the installer is using the initial-install bundle, not an OTA file.</li>
+<li>Run its read-only preflight.</li>
+<li>Review the partitions and actions it proposes.</li>
+<li>Start the write only when you understand and accept those actions.</li>
+<li>Do not disconnect USB, touch the board, or interrupt power during a write.</li>
+<li>Preserve the installer output and UART log.</li>
+<li>Wait for the installer to report completion and follow its exact reboot step.</li>
+</ol>
+<p>The installer must preserve the device's recovery path and must not be replaced by
+an ad-hoc script that writes arbitrary partitions. If preflight fails, stop and
+save the output; do not improvise with <code>dd</code>, raw partition names, or a different
+image.</p>
+<h2>First boot and first-boot checks</h2>
+<p>After the installer reports success:</p>
+<ol>
+<li>Remove the shorting tool and confirm no loose wire can touch the board.</li>
+<li>Reconnect the board's normal flex cables carefully.</li>
+<li>Close the enclosure enough to prevent accidental contact, but keep UART
+   accessible for the first boot if practical.</li>
+<li>Power the Echo and watch the complete boot on UART.</li>
+<li>Confirm that the kernel banner identifies the expected LibreEcho image.</li>
+<li>Confirm the expected USB/ADB or network control transport appears.</li>
+<li>Open the LibreEcho web control centre from the address shown by the release
+   notes or device status.</li>
+<li>Complete the setup wizard and change any default credentials immediately.</li>
+<li>Test only the functions claimed by that release. A booting kernel is not proof
+   that Wi-Fi, Bluetooth, microphones, speakers, wake word, or AirPlay work.</li>
+<li>Keep the previous confirmed slot as rollback until runtime acceptance passes.</li>
+</ol>
+<p>For a first install, record at least: release version, image checksum, board
+revision, UART log, installer output, active slot, and any visible errors. Do not
+post serial numbers, MAC addresses, Wi-Fi passwords, tokens, or private logs in a
+public issue.</p>
+<h2>Troubleshooting</h2>
+<h3>No serial device appears on the computer</h3>
+<ul>
+<li>Try another USB port and a known-good data cable.</li>
+<li>Check that the adapter is 3.3 V logic, not 5 V.</li>
+<li>Check permissions for <code>/dev/ttyUSB0</code> or <code>/dev/ttyACM0</code>.</li>
+<li>Disconnect and reconnect the adapter, then check <code>dmesg</code>.</li>
+<li>Do not change UART pins while the board is powered.</li>
+</ul>
+<h3>UART output is blank or unreadable</h3>
+<ul>
+<li>Verify board ground is connected to adapter ground.</li>
+<li>Verify the adapter's <strong>RX input</strong> is connected to the board's TX/RX field point
+  shown in the approved diagram.</li>
+<li>Confirm 921600 8N1.</li>
+<li>Confirm no second terminal program has the port open.</li>
+<li>Capture raw bytes before applying filters; garbled text is not evidence of a
+  kernel panic.</li>
+</ul>
+<h3>BROM is not detected</h3>
+<ul>
+<li>Stop the installer and remove power.</li>
+<li>Confirm the short point and ground point match the exact board revision.</li>
+<li>Confirm the short is applied only during the documented power/USB sequence.</li>
+<li>Confirm the UART/USB pads in the annotated photos were not used as the short.</li>
+<li>Try a different USB cable/port without a hub.</li>
+<li>If the device is already in fastboot, use the release's fastboot path instead of
+  repeating BROM entry.</li>
+</ul>
+<h3>The installer stops or reports a write failure</h3>
+<ul>
+<li>Do not unplug immediately unless the installer explicitly says it is safe.</li>
+<li>Save the terminal output and UART capture.</li>
+<li>Do not retry a different partition or raw image.</li>
+<li>Ask for help with the release version, exact error, board revision, and the last
+  UART lines, after redacting serials and private identifiers.</li>
+</ul>
+<h2>Appendix: annotated USB pads</h2>
+<p>The second supplied image labels the exposed USB differential/data and ground pads.
+It is useful when building a jig or checking a board-level USB connection:</p>
+<p><img alt="Annotated USB D+, D-, and GND pads" src="assets/usb-dplus-dminus-gnd.jpg" /></p>
+<p>These pads are <strong>not</strong> UART and are <strong>not</strong> the BROM short point. USB <code>D+</code> and
+<code>D-</code> are differential data signals; do not connect them to a TTL UART adapter.</p>
+<h2>What still needs to be added before publication</h2>
+<ul>
+<li>Exact supported hardware revision(s), with a clear photo of the board label.</li>
+<li>A verified BROM short-point photograph/diagram for each supported revision.</li>
+<li>The release-specific initial-install command or a link to the bundle README.</li>
+<li>A verified enclosure teardown photo sequence.</li>
+<li>Expected first-boot UART markers and a short, release-specific acceptance list.</li>
+<li>A maintainer decision on whether the page belongs in this repository only or is
+  also mirrored on the public documentation site.</li>
+</ul>
