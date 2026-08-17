@@ -22,6 +22,7 @@
 - Data-capable USB cable
 - Fine-tip temperature-controlled soldering iron
 - Fine solder, flux, 30–34 AWG wire, and Kapton tape
+- Fine-point pogo pins and a stable pogo-pin jig, if not soldering
 - Fine tweezers, plastic spudger, and small screwdrivers
 - Magnification and good lighting
 - ESD mat/wrist strap or static-safe work surface
@@ -86,9 +87,27 @@ the installation instructions tell you to connect power.
 Never leave the short in place while writing. If BROM does not appear, remove
 power before checking the probe and board orientation.
 
-## 4. Run the installer
+## 4. Connect USB
 
-Use the installation command supplied with the download:
+The USB connection is made on the **amplifier/tweeter board** at the annotated
+`D+`, `D-`, and `GND` pads. These pads must be connected to a USB cable either by
+soldering wires or with a stable pogo-pin jig.
+
+![USB D+, D-, and GND pads](assets/usb-dplus-dminus-gnd.jpg)
+
+- Soldering: connect USB `D+`, `D-`, and `GND` to the matching wires in a
+  data-capable USB cable.
+- Pogo pins: use a jig that holds three separate contacts firmly on `D+`, `D-`,
+  and `GND`. Check continuity and USB polarity before applying power.
+- Do not connect these pads to a TTL UART adapter.
+
+USB is the required connection for flashing. The installer should detect the
+Echo over this USB connection.
+
+## 5. Run the installer
+
+The automated installer is still being developed. Until it is released, follow
+the installation instructions supplied with the download:
 
 1. Confirm the checksum passed.
 2. Confirm the installer sees the Echo over USB.
@@ -99,7 +118,7 @@ Use the installation command supplied with the download:
 If installation fails, note the error message and do not try a different image or
 partition.
 
-## 5. First boot
+## 6. First boot
 
 1. Remove the shorting tool.
 2. Reconnect the flex cables and close the enclosure.
@@ -134,16 +153,6 @@ cat /dev/ttyUSB0
 
 Replace `/dev/ttyUSB0` with the actual adapter device. UART is for observing and
 debugging only; it is not part of the normal installation process.
-
-## Appendix: USB pads
-
-The annotated USB pads are on the **amplifier/tweeter board**. They are labelled
-`D+`, `D-`, and `GND`:
-
-![USB D+, D-, and GND pads](assets/usb-dplus-dminus-gnd.jpg)
-
-These are USB differential/data pads, not UART. Do not connect them to a TTL UART
-adapter.
 
 ## Troubleshooting
 
