@@ -7,10 +7,8 @@
 ## Safety first
 
 - Unplug the Echo before opening it. Never solder or probe a powered board.
-- The eMMC and BROM short point are underneath the heat spreader. The heat
-  spreader must be removed to access the marked point.
-- Remove and refit the heat spreader carefully. Do not damage the thermal pad or
-  allow metal tools to slip across the board.
+- The eMMC and BROM short point are underneath the heat spreader. Remove it
+  carefully and protect the thermal pad.
 - Use an insulated probe or purpose-built pogo jig for the short.
 - Never short the UART point, USB `D+`/`D-`, a capacitor, inductor, crystal,
   battery contact, or another test pad.
@@ -65,51 +63,47 @@ an old issue comment for a first install.
 1. Disconnect power and USB.
 2. Photograph the enclosure, screws, and flex-cable routing.
 3. Remove the cover with a plastic tool.
-4. Remove the heat spreader to expose the eMMC and the marked BROM short point.
-   Keep the thermal pad clean and intact.
+4. Remove the heat spreader to expose the eMMC and BROM short area. Keep the
+   thermal pad clean and intact.
 5. Photograph the heat-spreader position.
 6. Release flex-cable latches before disconnecting cables; never pull on the
    orange flex cable.
 7. Place the board on an insulating, static-safe surface.
 8. Check that the board matches the photographs. Stop if it does not.
 
-## 3. Enter BROM mode
+## 3. Connect USB
 
-The eMMC and BROM short point are underneath the heat spreader. Remove the heat
-spreader first; the marked point cannot be accessed while it is fitted.
-
-Use the short point shown in the annotated photo. Keep the board unpowered until
-the installation instructions tell you to connect power.
-
-![Short point to ground](assets/echo2-short-to-ground.jpg)
-
-1. Disconnect power and USB, leaving the board accessible.
-2. Use an insulated probe or purpose-built pogo jig.
-3. Touch the marked short point to the marked ground point only.
-4. Connect power and USB as instructed by the installer.
-5. Wait for the MediaTek BROM device to appear.
-6. Remove the short immediately after it appears.
-7. Continue with the installer.
-
-Never leave the short in place while writing. If BROM does not appear, remove
-power before checking the probe and board orientation.
-
-## 4. Connect USB
-
-The USB connection is made on the **amplifier/tweeter board** at the annotated
-`D+`, `D-`, and `GND` pads. These pads must be connected to a USB cable either by
-soldering wires or with a stable pogo-pin jig.
+USB must be connected before attempting BROM or flashing. The USB connection is
+made on the **amplifier/tweeter board** at the annotated `D+`, `D-`, and `GND`
+pads. Connect these pads to a data-capable USB cable by soldering or with a
+stable three-contact pogo-pin jig.
 
 ![USB D+, D-, and GND pads](assets/usb-dplus-dminus-gnd.jpg)
 
-- Soldering: connect USB `D+`, `D-`, and `GND` to the matching wires in a
+- **Soldering:** connect USB `D+`, `D-`, and `GND` to the matching wires in a
   data-capable USB cable.
-- Pogo pins: use a jig that holds three separate contacts firmly on `D+`, `D-`,
-  and `GND`. Check continuity and USB polarity before applying power.
+- **Pogo pins:** use a jig that holds three separate contacts firmly on `D+`,
+  `D-`, and `GND`. Check continuity and USB polarity before applying power.
 - Do not connect these pads to a TTL UART adapter.
 
-USB is the required connection for flashing. The installer should detect the
-Echo over this USB connection.
+## 4. Enter BROM mode
+
+The eMMC and BROM short point are underneath the heat spreader. The short is
+made on the small resistor area connected to the eMMC data lines, at the marked
+location in the photo. You are touching the marked resistors/eMMC data-line
+contacts to the marked ground point—not a generic test pad.
+
+![Short point to ground](assets/echo2-short-to-ground.jpg)
+
+1. Keep the board unpowered.
+2. Use an insulated probe or purpose-built pogo jig.
+3. Touch the marked resistor/eMMC data-line contacts to the marked ground point.
+4. Connect USB and power as instructed by the installation instructions.
+5. Wait for the MediaTek BROM device to appear over USB.
+6. Remove the short immediately after it appears.
+
+Never leave the short in place while writing. If BROM does not appear, remove
+power before checking the probe and board orientation.
 
 ## 5. Run the installer
 
@@ -138,7 +132,7 @@ partition.
 ## Optional developer UART
 
 The UART point is on the **back of the CPU/SoC board, directly beneath `C7`**.
-The annotated USB pads in the other photo are on the **amplifier/tweeter board**.
+The annotated USB pads are on the **amplifier/tweeter board**.
 
 ![UART point beneath C7](assets/uart-rx-board.jpg)
 
@@ -166,7 +160,8 @@ debugging only; it is not part of the normal installation process.
 ### BROM is not detected
 
 - Remove power and the probe.
-- Confirm the short point and ground point.
+- Confirm the USB `D+`, `D-`, and `GND` connections.
+- Confirm the short is on the marked resistor/eMMC data-line contacts and ground.
 - Repeat the installation instructions' power/USB order.
 - Try another USB cable or USB port without a hub.
 
