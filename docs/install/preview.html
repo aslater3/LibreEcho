@@ -1,8 +1,8 @@
-<!doctype html><meta charset="utf-8"><title>LibreEcho installation guide preview</title><style>body{font:16px/1.55 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#202124}img{max-width:100%;height:auto}code,pre{background:#f3f4f6;padding:.15rem .3rem}pre{padding:1rem;overflow:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}blockquote{border-left:4px solid #16c7d9;padding-left:1rem;background:#f4fbfc}</style><h1>LibreEcho installation guide</h1>
+<!doctype html><meta charset="utf-8"><title>LibreEcho installation guide</title><style>body{font:16px/1.55 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#202124}img{max-width:100%;height:auto}code,pre{background:#f3f4f6;padding:.15rem .3rem}pre{padding:1rem;overflow:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem .6rem}blockquote{border-left:4px solid #16c7d9;padding-left:1rem;background:#f4fbfc}</style><h1>LibreEcho installation guide</h1>
 <blockquote>
-<p><strong>Beginner guide — draft for review.</strong> For Amazon Echo 2nd generation
-(<code>radar_puffin</code>, MT8163). This procedure involves opening the device,
-soldering, exposed electronics, and entering MediaTek BROM mode.</p>
+<p>For Amazon Echo 2nd generation (<code>radar_puffin</code>, MT8163). This procedure
+involves opening the device, soldering, exposed electronics, and entering
+MediaTek BROM mode.</p>
 </blockquote>
 <h2>Safety first</h2>
 <ul>
@@ -37,8 +37,7 @@ soldering, exposed electronics, and entering MediaTek BROM mode.</p>
 <p><code>sh
    sha256sum --check libreecho-*-SHA256SUMS</code></p>
 <ol>
-<li>Read the bundle's own <code>README</code>. Its release-specific installer and preflight
-   instructions take precedence over this guide.</li>
+<li>Read the installation instructions included with the download.</li>
 </ol>
 <p>Do not use an OTA archive, random <code>boot.img</code>, raw <code>zImage</code>, or an installer from
 an old issue comment for a first install.</p>
@@ -93,37 +92,34 @@ cat /dev/ttyUSB0 | tee libreecho-uart.log</code></p>
 <p>Replace <code>/dev/ttyUSB0</code> with the actual device. If the output is blank or garbled,
 check ground, adapter voltage, baud rate, and the pad location before continuing.</p>
 <h2>5. Enter BROM mode</h2>
-<p>Only perform this step using the <strong>verified short point for your exact board
-revision</strong> and the connection order in the release bundle.</p>
+<p>Use the short point shown in the annotated photo below. Perform the procedure
+with the board unpowered until the release installer tells you to connect power.</p>
+<p><img alt="Short point to ground" src="assets/echo2-short-to-ground.jpg" /></p>
 <ol>
-<li>Close old installer and fastboot processes.</li>
 <li>Start the single UART capture.</li>
 <li>Disconnect power and USB, leaving the UART connected.</li>
-<li>Prepare an insulated probe or purpose-built pogo jig.</li>
-<li>Touch the verified BROM short point to the verified ground point only.</li>
-<li>Apply/connect power and USB as specified by the installer.</li>
-<li>Wait for the MediaTek BROM device to enumerate.</li>
-<li>Remove the short immediately after enumeration.</li>
-<li>Run the installer's read-only preflight and select the intended device.</li>
+<li>Use an insulated probe or purpose-built pogo jig.</li>
+<li>Touch the marked short point to the marked ground point only.</li>
+<li>Connect power and USB as instructed by the installer.</li>
+<li>Wait for the MediaTek BROM device to appear.</li>
+<li>Remove the short immediately after it appears.</li>
+<li>Continue with the installer.</li>
 </ol>
 <p>Never short the UART point, USB <code>D+</code>/<code>D-</code>, a capacitor, inductor, crystal,
-battery contact, or random test pad. Never leave the short in place while writing.
-If BROM does not appear, remove power and check the board revision and probe
-orientation—do not drag the probe across the board.</p>
-<h2>6. Run the initial installer</h2>
-<p>Use the exact command supplied with the release bundle:</p>
+battery contact, or another test pad. Never leave the short in place while
+writing. If BROM does not appear, remove power before checking the probe and
+board orientation.</p>
+<h2>6. Run the installer</h2>
+<p>Use the installation command supplied with the download:</p>
 <ol>
 <li>Confirm the checksum passed.</li>
-<li>Confirm the model and board revision.</li>
-<li>Confirm the installer sees the intended BROM device.</li>
-<li>Run preflight and review the proposed partitions/actions.</li>
-<li>Start the write only after reviewing the preflight.</li>
-<li>Do not interrupt USB or power during the write.</li>
-<li>Save the installer output and UART log.</li>
-<li>Follow the bundle's exact reboot instructions.</li>
+<li>Confirm the installer sees the Echo.</li>
+<li>Follow the on-screen instructions.</li>
+<li>Do not interrupt USB or power during installation.</li>
+<li>Follow the installer's reboot instructions.</li>
 </ol>
-<p>Do not substitute <code>dd</code>, raw partition writes, arbitrary images, or an old script.
-If preflight or writing fails, stop and preserve the output.</p>
+<p>If installation fails, save the error message and do not try a different image or
+partition.</p>
 <h2>7. First boot</h2>
 <ol>
 <li>Remove the shorting tool and secure loose wires.</li>
@@ -133,12 +129,10 @@ If preflight or writing fails, stop and preserve the output.</p>
 <li>Confirm the expected LibreEcho kernel banner and control transport.</li>
 <li>Open the LibreEcho web control centre and complete setup.</li>
 <li>Change default credentials immediately.</li>
-<li>Test only the features claimed by the release.</li>
-<li>Keep the previous confirmed slot as rollback until acceptance passes.</li>
+<li>Test the features listed for your release.</li>
 </ol>
-<p>Record the release, image checksum, board revision, installer output, UART log,
-active slot, and visible errors. Redact serial numbers, MAC addresses, Wi-Fi
-passwords, tokens, and private logs before asking for help.</p>
+<p>If you need help, include the release version and the error message. Remove
+serial numbers, MAC addresses, Wi-Fi passwords, tokens, and private logs.</p>
 <h2>Troubleshooting</h2>
 <h3>UART is blank or unreadable</h3>
 <ul>
@@ -157,15 +151,11 @@ passwords, tokens, and private logs before asking for help.</p>
 <li>Do not use the UART or USB pads as the short point.</li>
 </ul>
 <h3>Installer reports a write failure</h3>
-<p>Stop. Save the installer output and UART log. Do not try a different partition or
-image. Ask for help with the release, board revision, exact error, and final UART
-lines, with private identifiers removed.</p>
+<p>Stop and note the error message. Do not try a different partition or image. Ask
+for help with the release version, board revision, and error message.</p>
 <h2>Appendix: USB pads</h2>
 <p>The annotated USB pads are on the <strong>amplifier/tweeter board</strong>. They are labelled
 <code>D+</code>, <code>D-</code>, and <code>GND</code>:</p>
 <p><img alt="USB D+, D-, and GND pads" src="assets/usb-dplus-dminus-gnd.jpg" /></p>
-<p>These are USB differential/data pads, not UART and not the BROM short point. Do
-not connect them to a TTL UART adapter.</p>
-<h2>Before publication</h2>
-<p>This guide still needs a verified BROM short-point photograph/diagram and the
-release-specific installer link or command for each supported board revision.</p>
+<p>These are USB differential/data pads, not UART or the BROM short point. Do not
+connect them to a TTL UART adapter.</p>
