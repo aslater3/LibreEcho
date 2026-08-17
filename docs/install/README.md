@@ -113,8 +113,8 @@ Echo over this USB connection.
 
 ## 5. Run the installer
 
-The automated installer is still being developed. Until it is released, follow
-the installation instructions supplied with the download:
+A fully automated installer is planned but is not ready yet. Until it is
+released, follow the manual installation instructions supplied with the download:
 
 1. Confirm the checksum passed.
 2. Confirm the installer sees the Echo over USB.
@@ -137,7 +137,7 @@ partition.
 
 ## Optional developer UART
 
-The UART point is on the **back of the LED-ring board, directly beneath `C7`**.
+The UART point is on the **back of the CPU/SoC board, directly beneath `C7`**.
 The annotated USB pads in the other photo are on the **amplifier/tweeter board**.
 
 ![UART point beneath C7](assets/uart-rx-board.jpg)
