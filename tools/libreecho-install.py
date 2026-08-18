@@ -673,7 +673,13 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
     if ota_asset.exists():
         _safe_regular(ota_asset)
         expected.add(ota_asset.name)
-    records = _checksums(checksums, expected)
+    records = _checksums(checksums, None)
+    dev_alias = [name for name in records if name.endswith("-dev.ota.tar")]
+    if len(dev_alias) > 1:
+        raise InstallerError("multiple dev OTA aliases in checksum inventory")
+    expected.update(dev_alias)
+    if set(records) != expected:
+        raise InstallerError("checksum inventory mismatch")
     for name, digest in records.items():
         candidate = release_dir / name
         _safe_regular(candidate)

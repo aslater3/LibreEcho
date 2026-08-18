@@ -1,5 +1,13 @@
 # Changelog
 
+## radar-puffin-v0.13.6
+
+See release/radar-puffin-v0.13.6.md.
+
+## radar-puffin-v0.13.5
+
+See release/radar-puffin-v0.13.5.md.
+
 ## radar-puffin-v0.13.4
 
 See release/radar-puffin-v0.13.4.md.
