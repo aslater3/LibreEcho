@@ -17,7 +17,11 @@ The one-shot installer runs the pinned Amonet BROM handoff, flashes LibreEcho
 to logical `boot_a` and `boot_b`, verifies the mapped Amonet payloads, forwards
 the Web UI over ADB, and opens the first-boot setup page.
 
-A virgin stock device requires the physical Amonet BROM short. The installer
+The one-shot installer downloads the release assets and the exact pinned Amonet
+commit archive automatically; no local Amonet checkout or manually prepared
+release directory is required. A virgin stock device still requires the
+physical Amonet BROM short.
+
 does not publish or modify Amonet/vendor boot-chain material, connectivity
 firmware, credentials, or signing keys.
 
