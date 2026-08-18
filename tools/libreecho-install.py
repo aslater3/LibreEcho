@@ -379,6 +379,10 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
     }
     for feature in manifest["features"]:
         expected.update((feature["payload"]["name"], feature["manifest"]["name"]))
+    ota_asset = release_dir / f"{prefix}.ota.tar"
+    if ota_asset.exists():
+        _safe_regular(ota_asset)
+        expected.add(ota_asset.name)
     records = _checksums(checksums, expected)
     for name, digest in records.items():
         candidate = release_dir / name
