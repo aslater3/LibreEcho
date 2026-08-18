@@ -61,6 +61,8 @@ AMONET_FILES = {
     "modules/gpt.py": "39cc7109cc26a56280ff7facd93d0a8f117ada6c56ae112ff556a93d112bc72d",
     "tools/verify-native-k32-diagnostic.py": "14f5ca0112a198d66ad588fcfbca25ac4566cc0415735f42d2c81e2745a75411",
     "inputs/boot-v184-stock32-parity-stock.img": "c0f52a3b079d214495cd3dd22f92fd85695d1b868c58b491a2edb933bc4f6d1a",
+    "bin/lk.bin": "5cb92494340417b1e5d18c3eaa34844dbcfec2cc8086451f087867cd06b15472",
+    "bin/tz.img": "fe1de9f18aa0f82a308f0c08da3be1f7c7ac2fd65832e26a3a6bdeb0e6e10136",
     "bin/boot-k32-native-evt.img": "13922dcfdb045ba3b67f8709c395254ac7a3582e2819b545adf0f604dae31424",
     "bin/boot-k32-native-diag-wrapper.full.img": "64f14102856bf905073fff756058b2bc175be0888dcb5c060ffb619e004eb72f",
     "bin/boot-k32-native-diag-wrapper.sparse.img": "7a1b548551537b918fb39cddd3b2a00ef380f819a40178bd2982d9c75b291c26",
