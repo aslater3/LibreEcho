@@ -293,17 +293,57 @@ def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
         raise InstallerError("fastboot product is not BISCUIT")
 
 
+def _amonet_progress_message(line: str) -> str | None:
+    if "Found port =" in line:
+        return "BROM USB detected; Amonet is performing the serial handshake."
+    if "all good" in line:
+        return "BROM payload is active; Amonet is now running device operations."
+    stages = (
+        ("Clear preloader header", "Amonet is preparing the boot chain; do not disconnect power or USB."),
+        ("Check GPT", "Amonet is reading and checking the partition table."),
+        ("Check boot0", "Amonet is checking the eMMC boot area."),
+        ("Check rpmb", "Amonet is checking RPMB state."),
+        ("Downgrade rpmb", "Amonet is applying the RPMB transition."),
+        ("Flash tz", "Amonet is writing TrustZone; this can take a few minutes."),
+        ("Flash lk", "Amonet is writing LK A/B; this can take a few minutes."),
+        ("Inject payload", "Amonet is installing its persistent wrapper."),
+        ("Force fastboot", "Amonet is preparing the fastboot handoff."),
+        ("Reset BCB", "Amonet is preparing boot control metadata."),
+        ("Flash preloader", "Amonet is restoring the signed preloader."),
+        ("Reboot to unlocked fastboot", "Amonet is rebooting into unlocked fastboot."),
+    )
+    for marker, message in stages:
+        if marker in line:
+            return message
+    return None
+
+
 def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
-    print("Amonet preflight passed; exploit is now waiting for BROM USB.", flush=True)
+    print("Amonet handoff started; monitoring its live progress.", flush=True)
     print("ACTION: power off the Echo, hold the marked CLK-to-GND short while applying power/USB, then release after BROM enumerates.", flush=True)
-    print("Waiting for BROM/USB...", flush=True)
+    print("Amonet status: waiting for BROM/USB...", flush=True)
     try:
         process = subprocess.Popen(["bash", str(launcher)], cwd=cwd)
     except OSError as error:
         raise InstallerError("could not start Amonet handoff") from error
+    log_path = cwd / "modules" / "amonet.log"
+    log_offset = log_path.stat().st_size if log_path.exists() else 0
+    last_state = "Waiting for BROM/USB..."
+    last_notice = time.monotonic()
     deadline = time.monotonic() + timeout
     next_notice = time.monotonic() + 10
     while True:
+        if log_path.exists():
+            with log_path.open("r", encoding="utf-8", errors="replace") as stream:
+                stream.seek(log_offset)
+                for line in stream:
+                    log_offset = stream.tell()
+                    message = _amonet_progress_message(line)
+                    if message and message != last_state:
+                        print(message, flush=True)
+                        last_state = message
+                        last_notice = time.monotonic()
+                        next_notice = last_notice + 10
         returncode = process.poll()
         if returncode is not None:
             if returncode != 0:
@@ -316,7 +356,7 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
             raise InstallerError("Amonet handoff timed out while waiting for BROM/USB")
         if now >= next_notice:
             remaining = max(0, int(deadline - now))
-            print(f"Still waiting for BROM/USB; keep the short applied during power/USB ({remaining}s timeout remaining).", flush=True)
+            print(f"Amonet status: {last_state} ({remaining}s timeout remaining).", flush=True)
             next_notice = now + 10
         time.sleep(min(0.5, max(0.05, next_notice - now)))
 
