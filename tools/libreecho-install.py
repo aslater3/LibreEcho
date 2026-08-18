@@ -126,6 +126,34 @@ def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
         raise InstallerError("fastboot product is not BISCUIT")
 
 
+def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
+    print("Amonet preflight passed; exploit is now waiting for BROM USB.", flush=True)
+    print("ACTION: power off the Echo, hold the marked CLK-to-GND short while applying power/USB, then release after BROM enumerates.", flush=True)
+    print("Waiting for BROM/USB...", flush=True)
+    try:
+        process = subprocess.Popen(["bash", str(launcher)], cwd=cwd)
+    except OSError as error:
+        raise InstallerError("could not start Amonet handoff") from error
+    deadline = time.monotonic() + timeout
+    next_notice = time.monotonic() + 10
+    while True:
+        returncode = process.poll()
+        if returncode is not None:
+            if returncode != 0:
+                raise InstallerError(f"Amonet handoff failed with exit code {returncode}")
+            return
+        now = time.monotonic()
+        if now >= deadline:
+            process.kill()
+            process.wait()
+            raise InstallerError("Amonet handoff timed out while waiting for BROM/USB")
+        if now >= next_notice:
+            remaining = max(0, int(deadline - now))
+            print(f"Still waiting for BROM/USB; keep the short applied during power/USB ({remaining}s timeout remaining).", flush=True)
+            next_notice = now + 10
+        time.sleep(min(0.5, max(0.05, next_notice - now)))
+
+
 def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_sha256: str, timeout: float = 60) -> None:
     if slot not in {"a", "b"}:
         raise InstallerError("invalid readback slot")
@@ -463,13 +491,7 @@ def one_shot(
         amonet = verify_amonet_root(amonet_root, expected_amonet)
         _write_state(state_path, {"phase": "AMONET_VERIFIED", "release": release_tag, "bundle_sha256": bundle_sha})
         launcher = amonet / AMONET_LAUNCHER
-        print("Starting pinned Amonet handoff; follow its physical BROM prompt.", flush=True)
-        try:
-            result = subprocess.run(["bash", str(launcher)], cwd=amonet, timeout=amonet_timeout)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise InstallerError("Amonet handoff failed or timed out") from error
-        if result.returncode != 0:
-            raise InstallerError(f"Amonet handoff failed with exit code {result.returncode}")
+        run_amonet_with_progress(launcher, amonet, amonet_timeout)
         _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha})
         if slots not in {"a", "b", "both"}:
             raise InstallerError("slots must be a, b, or both")
