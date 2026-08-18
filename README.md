@@ -35,6 +35,7 @@ integration continue on review branches.
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
+- **Initial-installer bootstrap:** [`tools/libreecho-install.py`](tools/libreecho-install.py) with its [SHA-256 sidecar](tools/libreecho-install.py.sha256). It currently verifies and prepares the release bundle only; it deliberately does not perform BROM, fastboot, formatting, reboot, or device setup until a separately qualified hardware installer is released.
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
