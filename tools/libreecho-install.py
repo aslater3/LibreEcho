@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import tarfile
 import tempfile
 from pathlib import Path
@@ -36,6 +37,32 @@ def _sha256(path: Path) -> str:
 def _safe_regular(path: Path) -> None:
     if not path.is_file() or path.is_symlink():
         raise InstallerError(f"unsafe or missing regular file: {path}")
+
+
+BOOT_BYTES = 16 * 1024 * 1024
+BOOTOPT = b"bootopt=64S3,32N2,32N2"
+
+
+def validate_public_boot_image(path: Path, expected_sha256: str) -> None:
+    """Accept only the complete verified ARMv7 6.1 Android-v0 image."""
+    _safe_regular(path)
+    if path.stat().st_size != BOOT_BYTES or _sha256(path) != expected_sha256:
+        raise InstallerError("published boot image digest or size mismatch")
+    with path.open("rb") as stream:
+        header = stream.read(576)
+    if (len(header) != 576 or header[:8] != b"ANDROID!"
+            or not struct.unpack_from("<I", header, 8)[0]
+            or not header[64:576].startswith(BOOTOPT)):
+        raise InstallerError("published boot image has an unsupported boot contract")
+
+
+def fastboot_plan(slot: str, boot: Path, misc: Path, format_userdata: bool) -> list[tuple[str, ...]]:
+    if slot not in {"a", "b"}:
+        raise InstallerError("unsupported target slot")
+    # ponytail: fixed tuples are the complete public write allowlist.
+    plan = [("format:ext4", "userdata")] if format_userdata else []
+    plan.extend((("flash", "misc", str(misc)), ("flash", f"boot_{slot}", str(boot)), ("erase", "expdb")))
+    return plan
 
 
 def _safe_name(name: str) -> None:
