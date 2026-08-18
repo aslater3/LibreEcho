@@ -74,12 +74,19 @@ AMONET_FILES = {
 }
 ONE_SHOT_PHASES = {
     "RELEASE_READY", "AMONET_VERIFIED", "AMONET_HANDOFF", "FASTBOOT_READY",
-    "BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED", "WEBUI_FORWARDED",
+    "BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED", "FEATURES_STAGED",
+    "WEBUI_FORWARDED",
 }
 
 
 def _sha256_bytes(path: Path) -> str:
     return _sha256(path)
+
+
+def require_host_commands(*commands: str) -> None:
+    missing = [command for command in commands if shutil.which(command) is None]
+    if missing:
+        raise InstallerError("required host command(s) missing: " + ", ".join(missing))
 
 
 def _run_command(argv: list[str], timeout: float, *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -275,6 +282,46 @@ def fastboot_devices(fastboot_bin: str) -> list[str]:
     return [line.split()[0] for line in result.stdout.splitlines() if len(line.split()) >= 2 and line.split()[1] == "fastboot"]
 
 
+def wait_for_fastboot_serial(fastboot_bin: str, requested: str, timeout: float) -> str:
+    print("Amonet handoff complete; waiting for fastboot USB re-enumeration.", flush=True)
+    deadline = time.monotonic() + timeout
+    next_notice = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            devices = fastboot_devices(fastboot_bin)
+        except InstallerError:
+            devices = []
+        if requested != "auto" and requested in devices:
+            print(f"Fastboot detected: {requested}", flush=True)
+            return requested
+        if requested == "auto" and len(devices) == 1:
+            print(f"Fastboot detected: {devices[0]}", flush=True)
+            return devices[0]
+        now = time.monotonic()
+        if now >= next_notice:
+            remaining = max(0, int(deadline - now))
+            print(f"Fastboot status: waiting for device USB ({remaining}s timeout remaining).", flush=True)
+            next_notice = now + 10
+        time.sleep(1)
+    raise InstallerError("timed out waiting for fastboot USB after Amonet handoff")
+
+
+def adb_devices(adb_bin: str) -> list[str]:
+    result = _run_command([adb_bin, "devices"], 10)
+    return [line.split()[0] for line in result.stdout.splitlines() if len(line.split()) >= 2 and line.split()[1] == "device"]
+
+
+def select_adb_serial(adb_bin: str, requested: str) -> str:
+    devices = adb_devices(adb_bin)
+    if requested == "auto":
+        if len(devices) != 1:
+            raise InstallerError(f"expected exactly one ADB device, found {len(devices)}")
+        return devices[0]
+    if requested not in devices:
+        raise InstallerError(f"ADB serial is not present: {requested}")
+    return requested
+
+
 def select_fastboot_serial(fastboot_bin: str, requested: str) -> str:
     devices = fastboot_devices(fastboot_bin)
     if requested == "auto":
@@ -364,13 +411,21 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
 def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_sha256: str, timeout: float = 60) -> None:
     if slot not in {"a", "b"}:
         raise InstallerError("invalid readback slot")
+    part = "10" if slot == "a" else "11"
+    expected_name = f"boot_{slot}_x"
+    uevent = _run_command(
+        [adb_bin, "-s", serial, "shell", "cat", f"/sys/class/block/mmcblk0p{part}/uevent"],
+        timeout,
+    ).stdout
+    if f"PARTNAME={expected_name}" not in uevent or f"PARTN={part}" not in uevent:
+        raise InstallerError(f"payload partition identity mismatch: mmcblk0p{part}")
     result = _run_command(
-        [adb_bin, "-s", serial, "shell", "sha256sum", f"/dev/block/by-name/boot_{slot}_x"],
+        [adb_bin, "-s", serial, "shell", "sha256sum", f"/dev/mmcblk0p{part}"],
         timeout,
     )
     digest = re.search(r"\b([0-9a-f]{64})\b", result.stdout, re.IGNORECASE)
     if digest is None or digest.group(1).lower() != expected_sha256.lower():
-        raise InstallerError(f"boot_{slot}_x readback hash mismatch")
+        raise InstallerError(f"{expected_name} readback hash mismatch")
 
 
 def wait_for_transport(probe: list[str], expected: str, timeout: float, label: str) -> None:
@@ -681,6 +736,7 @@ def one_shot(
     """Run Amonet, install logical boot payloads, and open first-boot setup."""
     if not execute_hardware:
         raise InstallerError("one-shot requires --execute-hardware")
+    require_host_commands("bash", fastboot_bin, adb_bin)
     cache_root = Path(cache_root)
     state_root = Path(state_root)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -714,7 +770,7 @@ def one_shot(
         if slots not in {"a", "b", "both"}:
             raise InstallerError("slots must be a, b, or both")
         selected = ("a", "b") if slots == "both" else (slots,)
-        serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
+        serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
         verify_fastboot_product(fastboot_bin, serial)
         _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release_tag, "bundle_sha256": bundle_sha})
         for slot in selected:
@@ -730,12 +786,199 @@ def one_shot(
         for slot in selected:
             verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
         _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release_tag, "bundle_sha256": bundle_sha})
+        stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+        _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release_tag, "bundle_sha256": bundle_sha})
         _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
         url = f"http://127.0.0.1:{local_port}/setup.html"
         _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha})
         if open_browser:
             webbrowser.open(url)
         return {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha, "serial": serial, "url": url}
+
+
+def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> int:
+    result = _run_command([fastboot_bin, "-s", serial, "getvar", f"partition-size:{partition}"], 20, check=False)
+    output = f"{result.stdout}\n{result.stderr}"
+    match = re.search(rf"partition-size:{re.escape(partition)}:\s*([0-9a-fA-F]+)", output, re.IGNORECASE)
+    if match is None:
+        raise InstallerError(f"fastboot did not report partition size: {partition}")
+    return int(match.group(1), 16)
+
+
+def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> None:
+    for partition in ("boot_a_x", "boot_b_x"):
+        size = _fastboot_partition_size(fastboot_bin, serial, partition)
+        if size != BOOT_BYTES:
+            raise InstallerError(f"{partition} is not the reviewed 16 MiB payload partition: {size:#x}")
+
+
+def continue_one_shot(
+    *,
+    cache_root: Path | str,
+    state_root: Path | str,
+    install_id: str,
+    fastboot_bin: str,
+    adb_bin: str,
+    fastboot_serial: str,
+    slots: str,
+    fastboot_timeout: float,
+    adb_timeout: float,
+    local_port: int,
+    open_browser: bool,
+    execute_hardware: bool,
+) -> dict[str, str]:
+    if not execute_hardware:
+        raise InstallerError("continuation requires --execute-hardware")
+    require_host_commands("bash", fastboot_bin, adb_bin)
+    state_path = _state_path(Path(state_root), install_id)
+    state = _read_state(state_path)
+    if state["phase"] not in {"AMONET_HANDOFF", "ADB_READY", "READBACK_VERIFIED"}:
+        raise InstallerError(f"continuation requires AMONET_HANDOFF, ADB_READY, or READBACK_VERIFIED state, got {state['phase']}")
+    release = state["release"]
+    cache_root = Path(cache_root)
+    release_sources = cache_root / "downloads" / release
+    if not release_sources.is_dir():
+        release_sources = cache_root / release / "downloads"
+    manifest, bundle = _prepare(release_sources, cache_root, release)
+    if _sha256(bundle) != state["bundle_sha256"]:
+        raise InstallerError("cached bundle hash changed since Amonet handoff")
+    boot = cache_root / release / "bundle" / manifest["boot"]["name"]
+    validate_public_boot_image(boot, manifest["boot"]["sha256"])
+    if slots not in {"a", "b", "both"}:
+        raise InstallerError("slots must be a, b, or both")
+    selected = ("a", "b") if slots == "both" else (slots,)
+    phase = state["phase"]
+    if phase == "AMONET_HANDOFF":
+        serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
+        verify_fastboot_product(fastboot_bin, serial)
+        _verify_fastboot_payload_geometry(fastboot_bin, serial)
+        _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        for slot in selected:
+            _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+        _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
+        _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        try:
+            subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
+        except subprocess.TimeoutExpired:
+            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+        wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+        _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+    else:
+        serial = select_adb_serial(adb_bin, fastboot_serial)
+        print(f"Resuming from {phase}; no flash or reboot will be attempted ({serial}).", flush=True)
+        if phase == "ADB_READY":
+            for slot in selected:
+                verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+            _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+    stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+    _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+    _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
+    url = f"http://127.0.0.1:{local_port}/setup.html"
+    _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+    if open_browser:
+        webbrowser.open(url)
+    return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+
+
+def stage_device_features(
+    adb_bin: str,
+    serial: str,
+    cache_root: Path | str,
+    manifest: dict[str, Any],
+    timeout: float = 180,
+) -> None:
+    cache_root = Path(cache_root)
+    release = manifest["release"]
+    payload_root = cache_root / release / "bundle"
+    root_script = cache_root / "stage-feature-root.sh"
+    root_script.write_text(ROOT_FEATURE_STAGER, encoding="utf-8")
+    root_script.chmod(0o755)
+    for feature in manifest["features"]:
+        name = feature["name"]
+        payload = payload_root / feature["payload"]["name"]
+        feature_manifest = payload_root / feature["manifest"]["name"]
+        _safe_regular(payload)
+        _safe_regular(feature_manifest)
+        remote_payload = f"/tmp/libreecho-{name}.squashfs"
+        remote_manifest = f"/tmp/libreecho-{name}.manifest.json"
+        print(f"Staging feature {name} ({feature['payload']['size']} bytes)...", flush=True)
+        _run_command([adb_bin, "-s", serial, "push", str(payload), remote_payload], timeout)
+        _run_command([adb_bin, "-s", serial, "push", str(feature_manifest), remote_manifest], timeout)
+        config = cache_root / f"stage-{name}.conf"
+        config.write_text(
+            f"FEATURE_ID={name}\n"
+            f"PAYLOAD_SHA256={feature['payload']['sha256']}\n"
+            f"PAYLOAD_SIZE={feature['payload']['size']}\n"
+            f"PAYLOAD_FILE={remote_payload}\n"
+            f"MANIFEST_FILE={remote_manifest}\n",
+            encoding="ascii",
+        )
+        config.chmod(0o600)
+        _run_command([adb_bin, "-s", serial, "push", str(config), "/tmp/libreecho-feature-stage.conf"], timeout)
+        result = _run_command([adb_bin, "-s", serial, "shell", "sh", str(root_script)], timeout, check=False)
+        if result.returncode != 0 or f"FEATURE_STAGE_OK:{name}" not in result.stdout:
+            detail = (result.stderr or result.stdout).strip()[-500:]
+            raise InstallerError(f"feature staging failed for {name}: {detail}")
+        installed = _run_command(
+            [adb_bin, "-s", serial, "shell", "sha256sum", f"/data/libreecho/features/{name}/payload.squashfs"],
+            timeout,
+        ).stdout
+        digest = re.search(r"\b([0-9a-f]{64})\b", installed, re.IGNORECASE)
+        if digest is None or digest.group(1).lower() != feature["payload"]["sha256"].lower():
+            raise InstallerError(f"feature {name} installed hash mismatch")
+        print(f"Feature {name} staged and verified.", flush=True)
+        config.unlink(missing_ok=True)
+
+
+ROOT_FEATURE_STAGER = r"""#!/bin/busybox sh
+set -e
+BB=/bin/busybox
+CONFIG=/tmp/libreecho-feature-stage.conf
+[ -r "$CONFIG" ] || { echo FEATURE_STAGE_CONFIG_MISSING; exit 1; }
+FEATURE_ID=
+PAYLOAD_SHA256=
+PAYLOAD_SIZE=
+PAYLOAD_FILE=
+MANIFEST_FILE=
+while IFS='=' read -r key value; do
+    case "$key" in
+        FEATURE_ID) FEATURE_ID=$value ;;
+        PAYLOAD_SHA256) PAYLOAD_SHA256=$value ;;
+        PAYLOAD_SIZE) PAYLOAD_SIZE=$value ;;
+        PAYLOAD_FILE) PAYLOAD_FILE=$value ;;
+        MANIFEST_FILE) MANIFEST_FILE=$value ;;
+    esac
+done < "$CONFIG"
+case "$FEATURE_ID" in ''|*[!a-z0-9._-]*) echo FEATURE_STAGE_ID_INVALID; exit 1 ;; esac
+[ -f "$PAYLOAD_FILE" ] || { echo FEATURE_STAGE_PAYLOAD_MISSING; exit 1; }
+[ -f "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+if ! $BB grep -q ' /data ' /proc/mounts 2>/dev/null; then
+    [ -b /dev/mmcblk0p16 ] || { echo FEATURE_STAGE_USERDATA_MISSING; exit 1; }
+    $BB mkdir -p /data
+    $BB mount -t ext4 -o rw,nosuid,nodev,noatime /dev/mmcblk0p16 /data || {
+        echo FEATURE_STAGE_USERDATA_MOUNT_FAILED; exit 1; }
+else
+    $BB mount -o remount,rw /data 2>/dev/null || true
+fi
+actual=$($BB sha256sum "$PAYLOAD_FILE" | $BB awk '{print $1}')
+[ "$actual" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_PAYLOAD_HASH_MISMATCH; exit 1; }
+actual_size=$($BB stat -c %s "$PAYLOAD_FILE" 2>/dev/null)
+[ "$actual_size" = "$PAYLOAD_SIZE" ] || { echo FEATURE_STAGE_PAYLOAD_SIZE_MISMATCH; exit 1; }
+DEST=/data/libreecho/features/$FEATURE_ID
+$BB mkdir -p "$DEST/staging"
+$BB cp "$PAYLOAD_FILE" "$DEST/staging/payload.squashfs.new"
+staged=$($BB sha256sum "$DEST/staging/payload.squashfs.new" | $BB awk '{print $1}')
+[ "$staged" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_COPY_HASH_MISMATCH; exit 1; }
+$BB rm -f "$DEST/payload.squashfs.previous"
+if [ -f "$DEST/payload.squashfs" ]; then
+    $BB mv "$DEST/payload.squashfs" "$DEST/payload.squashfs.previous"
+fi
+$BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"
+$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"
+$BB sync
+$BB rm -f "$CONFIG" "$PAYLOAD_FILE" "$MANIFEST_FILE"
+echo "FEATURE_STAGE_OK:$FEATURE_ID"
+"""
 
 
 def resume(
@@ -760,7 +1003,7 @@ def status(state_root: Path | str = Path.home() / ".local/state/libreecho-instal
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("install", "resume", "status", "one-shot"))
+    parser.add_argument("action", choices=("install", "resume", "status", "one-shot", "continue-one-shot"))
     parser.add_argument("--release-dir", type=Path)
     parser.add_argument("--release-tag")
     parser.add_argument("--release-repository", default=RELEASE_REPOSITORY)
@@ -798,6 +1041,16 @@ def main() -> None:
                 slots=args.slots, local_port=args.local_port,
                 amonet_timeout=args.amonet_timeout, fastboot_timeout=args.fastboot_timeout,
                 adb_timeout=args.adb_timeout, open_browser=not args.no_open_browser,
+                execute_hardware=args.execute_hardware,
+            )
+        elif args.action == "continue-one-shot":
+            result = continue_one_shot(
+                cache_root=args.cache_root, state_root=args.state_root,
+                install_id=args.install_id, fastboot_bin=args.fastboot_bin,
+                adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
+                slots=args.slots, fastboot_timeout=args.fastboot_timeout,
+                adb_timeout=args.adb_timeout, local_port=args.local_port,
+                open_browser=not args.no_open_browser,
                 execute_hardware=args.execute_hardware,
             )
         elif args.action == "resume":
