@@ -11,7 +11,7 @@
 [![Latest OTA](https://img.shields.io/github/v/release/aslater3/LibreEcho?display_name=tag&label=latest%20OTA&logo=github)](https://github.com/aslater3/LibreEcho/releases/latest)
 [![Website](https://img.shields.io/badge/site-libreecho.org-16c7d9)](https://libreecho.org/)
 
-[Visit libreecho.org](https://libreecho.org/) | [Download the latest OTA](https://github.com/aslater3/LibreEcho/releases/latest) | [Support the project](https://buymeacoffee.com/libreecho)
+[Visit libreecho.org](https://libreecho.org/) | [Join us on Discord](https://discord.gg/5zBcTWjU4H) | [Download the latest OTA](https://github.com/aslater3/LibreEcho/releases/latest) | [Support the project](https://buymeacoffee.com/libreecho)
 
 </div>
 
@@ -39,6 +39,7 @@ integration continue on review branches.
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
 - **Security:** [read the security policy](SECURITY.md) or [submit a private advisory](https://github.com/aslater3/LibreEcho/security/advisories/new)
+- **Join the community:** [LibreEcho on Discord](https://discord.gg/5zBcTWjU4H)
 - **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
 ## What Is Included
