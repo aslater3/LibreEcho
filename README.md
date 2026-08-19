@@ -51,9 +51,16 @@ MediaTek MT8163V. The next most promising targets are the Echo Dot 2nd Gen
 Echo Studio (`octave`).
 
 Roadmap status distinguishes **LibreEcho working**, **access implemented**,
-**potential on an already-supported SoC family**, and **new SoC/platform work**.
-Access to a device is not the same as a completed LibreEcho port: each target
-still needs device-specific kernel, recovery, packaging and runtime validation.
+**potential on an already-supported SoC family**, **research candidates with
+relevant boot-chain tooling**, and **new platforms**. Access to a device is not
+the same as a completed LibreEcho port: each target still needs device-specific
+kernel, recovery, packaging and runtime validation.
+
+The MT8183 family is an active research area: Kaeru contains explicit MT8183
+support and Amazon-specific LK groundwork for the Fire HD 10 (2019), but an
+initial-access route still needs proving. MT8512 and MT8519 devices are also
+research candidates for possible Fenrir <code>bl2_ext</code> applicability; this
+does not mean Fenrir is currently proven on Echo hardware.
 
 See the [full hardware compatibility and porting matrix](https://libreecho.org/#hardware-roadmap)
 on the website, including relevant access repositories and the suggested porting
