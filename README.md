@@ -42,6 +42,23 @@ integration continue on review branches.
 - **Join the community:** [LibreEcho on Discord](https://discord.gg/5zBcTWjU4H)
 - **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
+## Hardware Roadmap
+
+LibreEcho currently runs on the Amazon Echo 2nd Gen (`radar` / Puffin) using
+MediaTek MT8163V. The next most promising targets are the Echo Dot 2nd Gen
+(`biscuit`), followed by MT8516-family devices such as the Echo Dot 3rd Gen
+(`donut` / `crumpet`), Echo 3rd Gen (`pascal`), Echo Plus 2nd Gen (`lidar`) and
+Echo Studio (`octave`).
+
+Roadmap status distinguishes **LibreEcho working**, **access implemented**,
+**potential on an already-supported SoC family**, and **new SoC/platform work**.
+Access to a device is not the same as a completed LibreEcho port: each target
+still needs device-specific kernel, recovery, packaging and runtime validation.
+
+See the [full hardware compatibility and porting matrix](https://libreecho.org/#hardware-roadmap)
+on the website, including relevant access repositories and the suggested porting
+priority.
+
 ## What Is Included
 
 - Local web administration for device, audio, wake word, networking, logs, and system settings.
