@@ -33,6 +33,11 @@ class PublicInputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.fetch({"name":"private","url":"","sha256":"","redistribution":"blocked-private","kind":"model","license":""}, Path("/tmp/nope"))
 
+    def test_inventory_entrypoint_fails_closed_when_blocked(self):
+        data = module.load(ROOT / "build/inputs/public-inputs.json")
+        self.assertEqual(data["status"], "blocked")
+        self.assertTrue(any(item["redistribution"].startswith("blocked-") for item in data["inputs"]))
+
 
 if __name__ == "__main__":
     unittest.main()
