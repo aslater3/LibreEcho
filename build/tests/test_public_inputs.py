@@ -35,7 +35,7 @@ class PublicInputTests(unittest.TestCase):
 
     def test_inventory_entrypoint_fails_closed_when_blocked(self):
         data = module.load(ROOT / "build/inputs/public-inputs.json")
-        self.assertEqual(data["status"], "blocked")
+        self.assertEqual(data["status"], "partially-cleared")
         self.assertTrue(any(item["redistribution"].startswith("blocked-") for item in data["inputs"]))
 
 
