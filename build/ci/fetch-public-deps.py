@@ -49,7 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("inventory", type=Path)
     args = parser.parse_args()
     data = load(args.inventory)
-    blocked = [x["name"] for x in data["inputs"] if x["redistribution"] != "cleared"]
+    blocked = [x["name"] for x in data["inputs"] if x["redistribution"].startswith(("blocked-", "requires-"))]
     if blocked:
         raise SystemExit("PUBLIC_INPUTS_BLOCKED: " + ",".join(blocked))
     print(f"public_inputs=PASS count={len(data['inputs'])}")

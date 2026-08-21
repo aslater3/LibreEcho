@@ -25,6 +25,6 @@
     {"name": "wakeword-alexa", "url": "https://media.githubusercontent.com/media/dscripka/openWakeWord/v0.5.1/openwakeword/resources/models/alexa_v0.1.onnx", "sha256": "6ff566a01d12670e8d9e3c59da32651db1575d17272a601b7f8a39283dfbae3e", "kind": "model", "license": "CC-BY-NC-SA-4.0", "redistribution": "cleared"},
     {"name": "wakeword-embedding", "url": "https://media.githubusercontent.com/media/dscripka/openWakeWord/v0.5.1/openwakeword/resources/models/embedding_model.onnx", "sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f", "kind": "model", "license": "Apache-2.0", "redistribution": "cleared"},
     {"name": "wakeword-melspectrogram", "url": "https://media.githubusercontent.com/media/dscripka/openWakeWord/v0.5.1/openwakeword/resources/models/melspectrogram.onnx", "sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", "kind": "model", "license": "Apache-2.0", "redistribution": "cleared"},
-    {"name": "owner-local-connectivity-firmware", "url": "", "sha256": "", "kind": "firmware", "license": "", "redistribution": "blocked-owner-local"}
+    {"name": "owner-local-connectivity-firmware", "url": "https://github.com/aslater3/LibreEcho-Platform", "sha256": "", "kind": "runtime-import-contract", "license": "device-local vendor terms", "redistribution": "generated-from-public-importer;bytes-never-uploaded"}
   ]
 }

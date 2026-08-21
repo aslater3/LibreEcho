@@ -37,6 +37,9 @@ class PublicInputTests(unittest.TestCase):
         data = module.load(ROOT / "build/inputs/public-inputs.json")
         self.assertEqual(data["status"], "partially-cleared")
         self.assertTrue(any(item["redistribution"].startswith("blocked-") for item in data["inputs"]))
+        firmware = next(item for item in data["inputs"] if item["name"] == "owner-local-connectivity-firmware")
+        self.assertEqual(firmware["kind"], "runtime-import-contract")
+        self.assertIn("bytes-never-uploaded", firmware["redistribution"])
 
 
 if __name__ == "__main__":
