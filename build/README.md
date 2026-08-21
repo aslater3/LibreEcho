@@ -12,7 +12,7 @@ back to local copies. The device-local connectivity firmware is represented only
 by the public importer contract: first boot verifies and copies it from stock
 `system_a`; the bytes never enter CI, Git, or release assets.
 
-`build/ci/build-public-release.sh` is present as a fail-closed boundary. It will
-not invoke a copied private builder or use local fallback inputs while the
-inventory remains blocked. Phase 1 still publishes all five feature payloads
-but leaves OTA v1 boot-only; feature-aware OTA is Phase 2.
+`build/ci/build-public-release.sh` now invokes the preserved mature builder with
+only explicit hosted dependency/source roots. It fails before compilation when
+the generated public ARM32 toolchain or any required source root is absent; it
+never falls back to local paths.

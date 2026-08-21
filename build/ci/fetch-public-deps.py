@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import urllib.request
+import subprocess
 from pathlib import Path
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -43,13 +44,45 @@ def fetch(record: dict, destination: Path) -> Path:
     return destination
 
 
+NAMES = {
+    "tts-model": "northern-male.optimized.onnx",
+    "tts-model-config": "northern-male.optimized.onnx.json",
+    "stt-encoder": "encoder-epoch-99-avg-1.int8.onnx",
+    "stt-decoder": "decoder-epoch-99-avg-1.int8.onnx",
+    "stt-joiner": "joiner-epoch-99-avg-1.int8.onnx",
+    "stt-tokens": "tokens.txt",
+    "wakeword-alexa": "alexa_v0.1.onnx",
+    "wakeword-embedding": "embedding_model.onnx",
+    "wakeword-melspectrogram": "melspectrogram.onnx",
+    "plistutil-package": "host-packages/libplist-utils.deb",
+    "libplist-runtime-package": "host-packages/libplist-runtime.deb",
+}
+
+
+def stage(inventory: dict, output: Path) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    for record in inventory["inputs"]:
+        if record["redistribution"] != "cleared":
+            continue
+        relative = NAMES.get(record["name"], record["url"].rsplit("/", 1)[-1])
+        fetch(record, output / relative)
+    packages = output / "host-packages"
+    for package in (packages / "libplist-utils.deb", packages / "libplist-runtime.deb"):
+        target = output / "host-tools"
+        target.mkdir(exist_ok=True)
+        subprocess.run(["dpkg-deb", "-x", str(package), str(target)], check=True)
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("inventory", type=Path)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     data = load(args.inventory)
     blocked = [x["name"] for x in data["inputs"] if x["redistribution"].startswith(("blocked-", "requires-"))]
     if blocked:
         raise SystemExit("PUBLIC_INPUTS_BLOCKED: " + ",".join(blocked))
+    if args.output:
+        stage(data, args.output)
     print(f"public_inputs=PASS count={len(data['inputs'])}")
