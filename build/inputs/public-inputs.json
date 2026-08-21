@@ -1,0 +1,21 @@
+{
+  "schema": "libreecho-public-inputs-v1",
+  "status": "blocked",
+  "description": "Public dependency inventory for the hosted LibreEcho image-and-features build. Blocked entries are deliberate fail-closed gates, not local fallbacks.",
+  "inputs": [
+    {"name": "curl", "url": "https://curl.se/download/curl-8.21.0.tar.xz", "sha256": "", "kind": "source-archive", "license": "curl", "redistribution": "requires-verification"},
+    {"name": "ffmpeg", "url": "https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz", "sha256": "", "kind": "source-archive", "license": "LGPL-2.1-or-later", "redistribution": "requires-verification"},
+    {"name": "shairport-sync", "url": "https://github.com/mikebrady/shairport-sync/archive/refs/tags/5.1.tar.gz", "sha256": "", "kind": "source-archive", "license": "MIT/X derivative", "redistribution": "requires-verification"},
+    {"name": "nqptp", "url": "https://github.com/mikebrady/nqptp/archive/refs/tags/1.2.8.tar.gz", "sha256": "", "kind": "source-archive", "license": "MIT/X derivative", "redistribution": "requires-verification"},
+    {"name": "tinyalsa", "url": "https://github.com/tinyalsa/tinyalsa/archive/e43025bbf702eb7dd8edd48c1eb50530c60f1de8.tar.gz", "sha256": "", "kind": "source-archive", "license": "BSD-3-Clause", "redistribution": "requires-verification"},
+    {"name": "speexdsp", "url": "https://github.com/xiph/speexdsp/archive/refs/tags/SpeexDSP-1.2.1.tar.gz", "sha256": "", "kind": "source-archive", "license": "BSD-3-Clause", "redistribution": "requires-verification"},
+    {"name": "dropbear", "url": "https://matt.ucc.asn.au/dropbear/releases/dropbear-2026.93.tar.bz2", "sha256": "", "kind": "source-archive", "license": "MIT", "redistribution": "requires-verification"},
+    {"name": "arm32-musl-toolchain", "url": "", "sha256": "", "kind": "toolchain", "license": "", "redistribution": "blocked-private-pmbootstrap-dependency"},
+    {"name": "aosp-system-core", "url": "", "sha256": "", "kind": "source-tree", "license": "", "redistribution": "blocked-unresolved-public-source-closure"},
+    {"name": "host-plistutil-closure", "url": "", "sha256": "", "kind": "host-tool", "license": "", "redistribution": "blocked-unresolved-public-binary-closure"},
+    {"name": "tts-models", "url": "", "sha256": "", "kind": "model", "license": "", "redistribution": "blocked-model-clearance"},
+    {"name": "stt-model", "url": "", "sha256": "", "kind": "model", "license": "", "redistribution": "blocked-model-clearance"},
+    {"name": "wakeword-model", "url": "", "sha256": "", "kind": "model", "license": "CC-BY-NC-SA-4.0", "redistribution": "blocked-model-clearance"},
+    {"name": "owner-local-connectivity-firmware", "url": "", "sha256": "", "kind": "firmware", "license": "", "redistribution": "blocked-owner-local"}
+  ]
+}

@@ -1,0 +1,99 @@
+name: Hosted LibreEcho build and release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libreecho-main-build
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  resolve-and-preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      product_sha: ${{ steps.resolve.outputs.product_sha }}
+      platform_sha: ${{ steps.resolve.outputs.platform_sha }}
+      linux_sha: ${{ steps.resolve.outputs.linux_sha }}
+      ui_sha: ${{ steps.resolve.outputs.ui_sha }}
+      source_set_id: ${{ steps.resolve.outputs.source_set_id }}
+      version: ${{ steps.resolve.outputs.version }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      channel: ${{ steps.resolve.outputs.channel }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - id: resolve
+        env:
+          PRODUCT_SHA: ${{ github.sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          p=$(git ls-remote https://github.com/aslater3/LibreEcho-Platform.git refs/heads/main | cut -f1)
+          l=$(git ls-remote https://github.com/aslater3/LibreEcho-Linux-6.1.git refs/heads/main | cut -f1)
+          u=$(git ls-remote https://github.com/aslater3/LibreEcho-UI.git refs/heads/main | cut -f1)
+          args=(--product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u")
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            args+=(--version "$VERSION")
+          fi
+          python3 build/ci/resolve-source-set.py "${args[@]}" >> "$GITHUB_OUTPUT"
+
+  prepare-public-inputs:
+    needs: resolve-and-preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - name: Validate public input inventory
+        run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json
+
+  build-image:
+    needs: [resolve-and-preflight, prepare-public-inputs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - name: Fail closed until hosted builder exists
+        run: |
+          test -x build/ci/build-public-release.sh
+          test -f build/ci/fetch-public-deps.py
+          echo 'Hosted public build entrypoint is present.'
+      - name: Build image and features
+        run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
+
+  publish-dev:
+    if: github.event_name == 'push'
+    needs: [resolve-and-preflight, build-image]
+    runs-on: ubuntu-24.04
+    environment: development-signing
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - name: Publish
+        run: python3 build/ci/publish-release.py publish-dev
+
+  publish-production:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [resolve-and-preflight, build-image]
+    runs-on: ubuntu-24.04
+    environment: production-signing
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - name: Publish
+        run: python3 build/ci/publish-release.py publish-production --version '${{ inputs.version }}'
