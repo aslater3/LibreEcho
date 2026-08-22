@@ -10,6 +10,7 @@ git -C "$SRC" fetch --quiet --depth 1 origin 227df8b99103f9c59f6570babf892978e29
 git -C "$SRC" checkout --quiet 227df8b99103f9c59f6570babf892978e293082f
 printf '%s\n' 'TARGET = arm-linux-musleabihf' "OUTPUT = $OUT" > "$SRC/config.mak"
 make -C "$SRC" -j"${JOBS:-2}"
+make -C "$SRC" install
 mkdir -p "$OUT/usr"
 rm -rf "$OUT/usr/bin" "$OUT/usr/include" "$OUT/usr/lib" "$OUT/usr/armv7-alpine-linux-musleabihf"
 mkdir -p "$OUT/usr/bin" "$OUT/usr/armv7-alpine-linux-musleabihf"
