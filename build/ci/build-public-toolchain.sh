@@ -16,7 +16,7 @@ printf '%s\n' \
   'TARGET = arm-linux-musleabihf' \
   "OUTPUT = $OUT" \
   'GNU_SITE = https://ftp.gnu.org/gnu' \
-  'MUSL_SITE = https://git.musl-libc.org/cgit/musl/snapshot' \
+  'MUSL_SITE = https://www.musl-libc.org/releases' \
   'DL_CMD = curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 --max-time 1800 -o' \
   > "$SRC/config.mak"
 for attempt in 1 2 3; do

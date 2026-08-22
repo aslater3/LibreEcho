@@ -36,7 +36,7 @@ class Tests(unittest.TestCase):
   self.assertIn('queue: max',W); self.assertIn('cancel-in-progress: false',W)
   self.assertIn('build/ci/build-public-release.sh',W); self.assertIn('fetch-public-deps.py',W)
   self.assertIn('GNU_SITE = https://ftp.gnu.org/gnu', TOOLCHAIN)
-  self.assertIn('MUSL_SITE = https://git.musl-libc.org/cgit/musl/snapshot', TOOLCHAIN)
+  self.assertIn('MUSL_SITE = https://www.musl-libc.org/releases', TOOLCHAIN)
   self.assertIn('curl -4 -L --fail --retry 5 --retry-all-errors', TOOLCHAIN)
   self.assertIn('curl is required for public toolchain downloads', TOOLCHAIN)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
