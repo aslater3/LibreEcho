@@ -4,6 +4,7 @@ import re
 import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
+TOOLCHAIN=(ROOT/'build/ci/build-public-toolchain.sh').read_text()
 class Tests(unittest.TestCase):
  def test_hosted_only(self):
   self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W)
@@ -33,6 +34,10 @@ class Tests(unittest.TestCase):
   self.assertIn('prepare-public-inputs:',W); self.assertIn('publish-dev:',W); self.assertIn('publish-production:',W)
  def test_boundaries(self):
   self.assertIn('queue: max',W); self.assertIn('cancel-in-progress: false',W)
-  self.assertIn('build-public-release.sh',W); self.assertIn('fetch-public-deps.py',W)
+  self.assertIn('build/ci/build-public-release.sh',W); self.assertIn('fetch-public-deps.py',W)
+  self.assertIn('GNU_SITE = https://ftp.gnu.org/gnu', TOOLCHAIN)
+  self.assertIn('MUSL_SITE = https://git.musl-libc.org/cgit/musl/snapshot', TOOLCHAIN)
+  self.assertIn('curl -4 -L --fail --retry 5 --retry-all-errors', TOOLCHAIN)
+  self.assertIn('curl is required for public toolchain downloads', TOOLCHAIN)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
 if __name__=='__main__': unittest.main()

@@ -5,10 +5,20 @@ set -euo pipefail
 OUT="${1:?output root}"
 SRC="$RUNNER_TEMP/musl-cross-make-227df8b99103f9c59f6570babf892978e293082f"
 rm -rf "$SRC" "$OUT"
+command -v curl >/dev/null || {
+  echo "ERROR: curl is required for public toolchain downloads" >&2
+  exit 1
+}
 git clone --quiet --depth 1 https://github.com/richfelker/musl-cross-make.git "$SRC"
 git -C "$SRC" fetch --quiet --depth 1 origin 227df8b99103f9c59f6570babf892978e293082f
 git -C "$SRC" checkout --quiet 227df8b99103f9c59f6570babf892978e293082f
-printf '%s\n' 'TARGET = arm-linux-musleabihf' "OUTPUT = $OUT" > "$SRC/config.mak"
+printf '%s\n' \
+  'TARGET = arm-linux-musleabihf' \
+  "OUTPUT = $OUT" \
+  'GNU_SITE = https://ftp.gnu.org/gnu' \
+  'MUSL_SITE = https://git.musl-libc.org/cgit/musl/snapshot' \
+  'DL_CMD = curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 --max-time 1800 -o' \
+  > "$SRC/config.mak"
 for attempt in 1 2 3; do
   if make -C "$SRC" -j"${JOBS:-2}"; then
     break
