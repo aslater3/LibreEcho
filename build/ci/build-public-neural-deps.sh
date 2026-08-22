@@ -75,6 +75,7 @@ copy_named_archive() {
   local name="$1" destination="$2" source
   source="$(find "$ORT_BUILD" -type f -name "$name" -print -quit)"
   [[ -n "$source" ]] || fail "ONNX Runtime archive is missing: $name"
+  mkdir -p "$destination"
   install -m 0644 "$source" "$destination/$name"
 }
 
@@ -86,23 +87,16 @@ for archive in \
     libonnxruntime_flatbuffers.a libonnxruntime_lora.a; do
   copy_named_archive "$archive" "$ORT_STAGE"
 done
-for dependency in \
-    _deps/onnx-build/libonnx.a \
-    _deps/onnx-build/libonnx_proto.a \
-    _deps/protobuf-build/libprotobuf-lite.a \
-    _deps/flatbuffers-build/libflatbuffers.a; do
-  source="$ORT_BUILD/$dependency"
-  [[ -f "$source" ]] || fail "ONNX Runtime dependency archive is missing: $dependency"
-  mkdir -p "$ORT_STAGE/$(dirname -- "$dependency")"
-  install -m 0644 "$source" "$ORT_STAGE/$dependency"
-done
+copy_named_archive libonnx.a "$ORT_STAGE/_deps/onnx-build"
+copy_named_archive libonnx_proto.a "$ORT_STAGE/_deps/onnx-build"
+copy_named_archive libprotobuf-lite.a "$ORT_STAGE/_deps/protobuf-build"
+copy_named_archive libflatbuffers.a "$ORT_STAGE/_deps/flatbuffers-build"
 absl_count=0
 while IFS= read -r -d '' source; do
-  relative="${source#"$ORT_BUILD/"}"
-  mkdir -p "$ORT_STAGE/$(dirname -- "$relative")"
-  install -m 0644 "$source" "$ORT_STAGE/$relative"
+  mkdir -p "$ORT_STAGE/_deps/abseil_cpp-build"
+  install -m 0644 "$source" "$ORT_STAGE/_deps/abseil_cpp-build/$(basename -- "$source")"
   absl_count=$((absl_count + 1))
-done < <(find "$ORT_BUILD/_deps/abseil_cpp-build" -type f -name '*.a' -print0 | LC_ALL=C sort -z)
+done < <(find "$ORT_BUILD" -maxdepth 1 -type f -name 'libabsl_*.a' -print0 | LC_ALL=C sort -z)
 ((absl_count > 0)) || fail "ONNX Runtime Abseil dependency closure is missing"
 
 # ORT v1.27 emits component archives by default. Build its RE2 target, then
