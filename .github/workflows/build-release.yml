@@ -69,7 +69,12 @@ jobs:
         id: restore-deps
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
-          path: ${{ runner.temp }}/public-deps
+          # Exclude the neural subdirectory: it is restored by its own, more
+          # specific cache layer after this step. Avoids re-extracting over
+          # the neural restore and keeps the two layers from fighting.
+          path: |
+            ${{ runner.temp }}/public-deps
+            !${{ runner.temp }}/public-deps/neural
           key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
       - name: Fetch public input inventory
         if: steps.restore-deps.outputs.cache-hit != 'true'
@@ -78,7 +83,9 @@ jobs:
         if: steps.restore-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
-          path: ${{ runner.temp }}/public-deps
+          path: |
+            ${{ runner.temp }}/public-deps
+            !${{ runner.temp }}/public-deps/neural
           key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
 
       # ARMHF compilers are staged here (not in build-image) so the neural
