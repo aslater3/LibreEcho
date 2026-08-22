@@ -9,7 +9,16 @@ git clone --quiet --depth 1 https://github.com/richfelker/musl-cross-make.git "$
 git -C "$SRC" fetch --quiet --depth 1 origin 227df8b99103f9c59f6570babf892978e293082f
 git -C "$SRC" checkout --quiet 227df8b99103f9c59f6570babf892978e293082f
 printf '%s\n' 'TARGET = arm-linux-musleabihf' "OUTPUT = $OUT" > "$SRC/config.mak"
-make -C "$SRC" -j"${JOBS:-2}"
+for attempt in 1 2 3; do
+  if make -C "$SRC" -j"${JOBS:-2}"; then
+    break
+  fi
+  if [[ "$attempt" == 3 ]]; then
+    echo "ERROR: public ARM32 toolchain build failed after $attempt attempts" >&2
+    exit 1
+  fi
+  sleep $((attempt * 10))
+done
 make -C "$SRC" install
 mkdir -p "$OUT/usr"
 rm -rf "$OUT/usr/bin" "$OUT/usr/include" "$OUT/usr/lib" "$OUT/usr/armv7-alpine-linux-musleabihf"
