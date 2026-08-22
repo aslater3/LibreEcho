@@ -31,6 +31,15 @@ printf '%s\n' \
   'MUSL_SITE = https://www.musl-libc.org/releases' \
   'DL_CMD = curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 --max-time 1800 -o' \
   > "$SRC/config.mak"
+# Keep volatile build paths out of the target archives. libgcc embeds the
+# GCC build directory in its objects (DWARF, __FILE__), and component
+# contracts reject any binary carrying a private or volatile path. -g0
+# drops debug info, -s strips, and -ffile-prefix-map canonicalizes the
+# remaining build-dir strings to a stable public prefix (the toolchain is
+# built under the runner's temp directory, i.e. a /home/ path on CI).
+printf '%s\n' \
+  'COMMON_CONFIG += CFLAGS="-g0 -Os -ffile-prefix-map='"$SRC"'=/usr/src/musl-cross-make" CXXFLAGS="-g0 -Os -ffile-prefix-map='"$SRC"'=/usr/src/musl-cross-make" LDFLAGS="-s"' \
+  >> "$SRC/config.mak"
 for attempt in 1 2 3; do
   if make -C "$SRC" -j"${JOBS:-2}"; then
     break
