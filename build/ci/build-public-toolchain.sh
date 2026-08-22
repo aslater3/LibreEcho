@@ -37,6 +37,14 @@ cp -a "$OUT/bin/." "$OUT/usr/bin/"
 # GCC resolves cc1/cc1plus via ../libexec relative to the driver, so the
 # usr/bin compiler copies need the libexec tree beside them.
 cp -a "$OUT/libexec" "$OUT/usr/libexec"
+# GCC resolves its internal target include/include-fixed and libgcc through
+# <prefix>/lib/gcc/<configured-target>/<ver>/; stage that tree beside the
+# usr/bin drivers (missing it yields 'no include path for stdc-predef.h').
+cp -a "$OUT/lib/gcc" "$OUT/usr/lib/gcc"
+# GCC searches <prefix>/<configured-target>/bin (arm-linux-musleabihf) for
+# the target assembler and binutils; without it the driver falls back to
+# the host x86 'as' and rejects ARM -march flags.
+cp -a "$OUT/arm-linux-musleabihf/bin" "$OUT/usr/arm-linux-musleabihf/bin"
 cp -a "$OUT/arm-linux-musleabihf/include" "$OUT/usr/include"
 cp -a "$OUT/arm-linux-musleabihf/lib" "$OUT/usr/lib"
 mkdir -p "$OUT/usr/armv7-alpine-linux-musleabihf"

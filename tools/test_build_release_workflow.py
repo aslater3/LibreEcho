@@ -101,6 +101,13 @@ class Tests(unittest.TestCase):
   # compiler copies need the libexec tree staged beside them.
   self.assertIn('cp -a "$OUT/libexec" "$OUT/usr/libexec"', TOOLCHAIN)
   self.assertIn('"$RUNNER_TEMP/toolchain/usr/libexec"', W)
+  # GCC also needs <prefix>/lib/gcc/<target>/<ver> (internal includes,
+  # libgcc) and <prefix>/arm-linux-musleabihf/bin (target binutils)
+  # beside the usr/bin drivers; missing them yields stdc-predef.h and
+  # host-'as' failures.
+  self.assertIn('cp -a "$OUT/lib/gcc" "$OUT/usr/lib/gcc"', TOOLCHAIN)
+  self.assertIn('cp -a "$OUT/arm-linux-musleabihf/bin" "$OUT/usr/arm-linux-musleabihf/bin"', TOOLCHAIN)
+  self.assertIn('"$RUNNER_TEMP/toolchain/usr/arm-linux-musleabihf/bin"', W)
   for package in ('gcc-13-arm-linux-gnueabihf-base', 'gcc-13-cross-base',
                   'cpp-13-arm-linux-gnueabihf', 'libgcc-13-dev-armhf-cross',
                   'libgcc-s1-armhf-cross', 'libstdc++6-armhf-cross',
