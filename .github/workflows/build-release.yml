@@ -299,6 +299,27 @@ jobs:
           mkdir -p "$sysroot"
           cp -a "$RUNNER_TEMP/armhf-root/." "$sysroot/"
 
+      - name: Stage qemu-arm-static for runtime contract checks
+        run: |
+          set -euo pipefail
+          # The wpa_supplicant builder executes the built ARM binary under
+          # qemu-arm-static to verify its version contract; connectivity and
+          # recovery-image checks use it the same way. The hosted runner image
+          # does not ship it, so download the pinned Ubuntu deb and extract
+          # the static binary onto PATH.
+          deb="$RUNNER_TEMP/qemu-user-static.deb"
+          curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 \
+            --max-time 600 -o "$deb" \
+            "https://archive.ubuntu.com/ubuntu/pool/universe/q/qemu/qemu-user-static_8.2.2+ds-0ubuntu1.18_amd64.deb"
+          printf '%s  %s\n' \
+            '5bb397f66063efa349f6fd5cb3b68cd96f29edd0994e4ba5115cf0859a716bf0' \
+            "$deb" | sha256sum -c -
+          dpkg-deb -x "$deb" "$RUNNER_TEMP/qemu-root"
+          mkdir -p "$RUNNER_TEMP/host-bin"
+          install -m 0755 "$RUNNER_TEMP/qemu-root/usr/bin/qemu-arm-static" \
+            "$RUNNER_TEMP/host-bin/qemu-arm-static"
+          echo "$RUNNER_TEMP/host-bin" >> "$GITHUB_PATH"
+
       - name: Export Linux UAPI headers
         run: |
           set -euo pipefail

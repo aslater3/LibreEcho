@@ -72,6 +72,11 @@ class Tests(unittest.TestCase):
   self.assertIn('Export Linux UAPI headers', W)
   self.assertIn('headers_install INSTALL_HDR_PATH="$RUNNER_TEMP/kernel-uapi"', W)
   self.assertIn('LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include', W)
+  # qemu-arm-static is staged from a digest-pinned deb so the wpa/connectivity
+  # runtime contract checks can execute built ARM binaries on the runner.
+  self.assertIn('Stage qemu-arm-static for runtime contract checks', W)
+  self.assertIn('qemu-user-static_8.2.2+ds-0ubuntu1.18_amd64.deb', W)
+  self.assertIn('5bb397f66063efa349f6fd5cb3b68cd96f29edd0994e4ba5115cf0859a716bf0', W)
   self.assertNotIn('LIBREECHO_ADBD_KERNEL_HEADERS: ${{ github.workspace }}/sources/linux', W)
   self.assertIn('libasound2-data', W)
   # Exec bits are restored across the full staged closure: toolchain
