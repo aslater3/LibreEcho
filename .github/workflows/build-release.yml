@@ -156,6 +156,10 @@ jobs:
           for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
             dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
           done
+          for tool in gcc g++ cpp; do
+            ln -sfn "arm-linux-gnueabihf-${tool}-13" \
+              "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-${tool}"
+          done
       - name: Stage public ARMHF AirPlay sysroot
         run: |
           set -euo pipefail
