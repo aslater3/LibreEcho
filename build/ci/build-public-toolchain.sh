@@ -12,6 +12,18 @@ command -v curl >/dev/null || {
 git clone --quiet --depth 1 https://github.com/richfelker/musl-cross-make.git "$SRC"
 git -C "$SRC" fetch --quiet --depth 1 origin 227df8b99103f9c59f6570babf892978e293082f
 git -C "$SRC" checkout --quiet 227df8b99103f9c59f6570babf892978e293082f
+# Reproduce the Alpine musl SONAME contract: musl-cross-make's cowpatch
+# mechanism applies patches/<pkg>/* over the extracted source, so drop the
+# reviewed SONAME diff beside the CVE patches. Without it, libc.so has no
+# SONAME and busybox links libc.so, which the device loader cannot resolve
+# (it stages libc.musl-armv7.so.1 -> ld-musl-armhf.so.1).
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+soname_patch="$script_dir/../inputs/musl-alpine-soname.diff"
+[[ -f "$soname_patch" ]] || {
+  echo "ERROR: musl Alpine SONAME patch is missing: $soname_patch" >&2
+  exit 1
+}
+cp -- "$soname_patch" "$SRC/patches/musl-1.2.6/50-alpine-soname.diff"
 printf '%s\n' \
   'TARGET = arm-linux-musleabihf' \
   "OUTPUT = $OUT" \

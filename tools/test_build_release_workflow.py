@@ -100,6 +100,10 @@ class Tests(unittest.TestCase):
   # GCC resolves cc1 via ../libexec relative to the driver; the usr/bin
   # compiler copies need the libexec tree staged beside them.
   self.assertIn('cp -a "$OUT/libexec" "$OUT/usr/libexec"', TOOLCHAIN)
+  # The Alpine musl SONAME patch is staged into musl-cross-make's patches/
+  # and bound into the toolchain cache key.
+  self.assertIn('patches/musl-1.2.6/50-alpine-soname.diff', TOOLCHAIN)
+  self.assertIn('build/inputs/musl-alpine-soname.diff', W)
   self.assertIn('"$RUNNER_TEMP/toolchain/usr/libexec"', W)
   # GCC also needs <prefix>/lib/gcc/<target>/<ver> (internal includes,
   # libgcc) and <prefix>/arm-linux-musleabihf/bin (target binutils)

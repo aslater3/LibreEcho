@@ -161,7 +161,7 @@ jobs:
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/toolchain
-          key: libreecho-musl-toolchain-v1-${{ runner.os }}-${{ hashFiles('build/ci/build-public-toolchain.sh') }}
+          key: libreecho-musl-toolchain-v1-${{ runner.os }}-${{ hashFiles('build/ci/build-public-toolchain.sh', 'build/inputs/musl-alpine-soname.diff') }}
       - name: Build public ARM32 musl toolchain
         if: steps.restore-toolchain.outputs.cache-hit != 'true'
         env:
@@ -182,7 +182,7 @@ jobs:
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/toolchain
-          key: libreecho-musl-toolchain-v1-${{ runner.os }}-${{ hashFiles('build/ci/build-public-toolchain.sh') }}
+          key: libreecho-musl-toolchain-v1-${{ runner.os }}-${{ hashFiles('build/ci/build-public-toolchain.sh', 'build/inputs/musl-alpine-soname.diff') }}
 
       # --- Layer 3: neural dependency closure (ONNX Runtime, Sherpa, ---
       # --- SpeexDSP), keyed by builder, inventory, and compiler bytes. ---
