@@ -129,6 +129,8 @@ jobs:
           LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
           LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
+          LIBREECHO_CORE_RUNTIME_SYSROOT: /usr/arm-linux-gnueabihf
+          LIBREECHO_CORE_GCC_LIBDIR: /usr/lib/gcc-cross/arm-linux-gnueabihf/13
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain/arm-linux-musleabihf
