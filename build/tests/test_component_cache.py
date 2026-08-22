@@ -21,7 +21,7 @@ class ComponentCacheTests(unittest.TestCase):
             root = Path(temp) / "tree"
             root.mkdir()
             (root / "payload").write_bytes(b"same")
-            (root / "private-pointer").symlink_to("/home/andy/build/libreecho/pipeline/out/CURRENT")
+            (root / "private-pointer").symlink_to("/external/private-state/CURRENT")
             first = self.key(root)
             (root / "private-pointer").unlink()
             (root / "private-pointer").symlink_to("/elsewhere/out/CURRENT")

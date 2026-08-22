@@ -41,6 +41,34 @@ class PublicInputTests(unittest.TestCase):
         self.assertEqual(firmware["kind"], "runtime-import-contract")
         self.assertIn("bytes-never-uploaded", firmware["redistribution"])
 
+    def test_neural_source_pins_are_explicit_and_validated(self):
+        data = module.load(ROOT / "build/inputs/public-inputs.json")
+        records = {item["name"]: item for item in data["inputs"]}
+        self.assertEqual(
+            records["onnxruntime-source"]["commit"],
+            "8f0278c77bf44b0cc83c098c6c722b92a36ac4b5",
+        )
+        self.assertEqual(
+            records["sherpa-onnx-source"]["commit"],
+            "546df6f963ae719dddd8b8d10749e9d9086b0d86",
+        )
+        for name in ("onnxruntime-source", "sherpa-onnx-source"):
+            self.assertTrue(records[name]["url"].startswith("https://"))
+            self.assertRegex(records[name]["commit"], r"^[0-9a-f]{40}$")
+            self.assertEqual(records[name]["kind"], "source-git")
+            self.assertEqual(records[name]["redistribution"], "source-git-pinned")
+
+    def test_source_git_records_require_a_pinned_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "inputs.json"
+            path.write_text(json.dumps({"schema": module.SCHEMA, "inputs": [{
+                "name": "x", "url": "https://example.invalid/x.git",
+                "commit": "not-a-commit", "sha256": "", "kind": "source-git",
+                "license": "MIT", "redistribution": "source-git-pinned",
+            }]}))
+            with self.assertRaises(ValueError):
+                module.load(path)
+
 
 if __name__ == "__main__":
     unittest.main()

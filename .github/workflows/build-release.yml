@@ -67,16 +67,18 @@ jobs:
         run: build/ci/build-public-toolchain.sh "$RUNNER_TEMP/toolchain"
       - name: Record toolchain identity
         run: printf '%s\n' 227df8b99103f9c59f6570babf892978e293082f > "$RUNNER_TEMP/toolchain/TOOLCHAIN_SOURCE_COMMIT"
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/public-deps
           if-no-files-found: error
-      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+          include-hidden-files: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/toolchain
           if-no-files-found: error
+
 
   build-image:
     needs: [resolve-and-preflight, prepare-public-inputs]
@@ -128,10 +130,10 @@ jobs:
       - name: Restore executable toolchain bits
         run: find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
       - name: Restore component cache
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/component-cache
-          key: libreecho-components-v5-${{ runner.os }}-${{ needs.resolve-and-preflight.outputs.source_set_id }}-${{ hashFiles('build/build.sh', 'build/component-cache.py', 'build/inputs/public-inputs.json') }}
+          key: libreecho-components-v5-${{ runner.os }}-${{ needs.resolve-and-preflight.outputs.source_set_id }}-${{ hashFiles('build/build.sh', 'build/component-cache.py', 'build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
           restore-keys: |
             libreecho-components-v5-${{ runner.os }}-
       - name: Install public ARMHF build packages
@@ -179,6 +181,11 @@ jobs:
               cp -a "$path" "$RUNNER_TEMP/public-deps/host-cross$(dirname "$path")/"
             fi
           done
+      - name: Build public neural dependencies
+        env:
+          JOBS: "2"
+          LIBREECHO_NEURAL_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
+        run: build/ci/build-public-neural-deps.sh "$RUNNER_TEMP/public-deps" "$RUNNER_TEMP/armhf-root"
       - name: Fail closed until hosted builder exists
         run: |
           test -x build/ci/build-public-release.sh
@@ -197,7 +204,7 @@ jobs:
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
-          AUDIO_CC: /home/runner/work/_temp/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
+          AUDIO_CC: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain/arm-linux-musleabihf
@@ -215,16 +222,16 @@ jobs:
           LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tokens.txt
           LIBREECHO_STT_MODEL_ROOT: ${{ runner.temp }}/public-deps
           LIBREECHO_WAKE_ORT_SOURCE: ${{ runner.temp }}/public-deps/onnxruntime-source
-          LIBREECHO_ORT_BUILD: ${{ runner.temp }}/public-deps/onnxruntime-build
-          LIBREECHO_ORT_PREFIX: ${{ runner.temp }}/public-deps/onnxruntime-prefix
-          LIBREECHO_WAKE_FLATBUFFERS_PYTHON: ${{ runner.temp }}/public-deps/flatbuffers-python
+          LIBREECHO_ORT_BUILD: ${{ runner.temp }}/public-deps/neural/onnxruntime-build
+          LIBREECHO_ORT_PREFIX: ${{ runner.temp }}/public-deps/neural/onnxruntime-prefix
+          LIBREECHO_WAKE_FLATBUFFERS_PYTHON: ${{ runner.temp }}/public-deps/neural/flatbuffers-python
           LIBREECHO_SHERPA_SOURCE: ${{ runner.temp }}/public-deps/sherpa-onnx-source
-          LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/sherpa-onnx-prefix
+          LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/neural/sherpa-onnx-prefix
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
           LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-source/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
-          LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/speexdsp-prefix
+          LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 
   publish-dev:

@@ -10,6 +10,7 @@ import tarfile
 from pathlib import Path
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SCHEMA = "libreecho-public-inputs-v1"
 
 
@@ -27,6 +28,13 @@ def load(path: Path) -> dict:
         for key in ("url", "sha256", "kind", "license", "redistribution"):
             if not isinstance(item.get(key), str):
                 raise ValueError(f"missing input field: {key}")
+        if item["kind"] == "source-git":
+            if not item["url"].startswith("https://"):
+                raise ValueError(f"source-git input is not fetchable: {item['name']}")
+            if not COMMIT.fullmatch(item.get("commit", "")):
+                raise ValueError(f"source-git input is not pinned: {item['name']}")
+            if item["redistribution"] != "source-git-pinned":
+                raise ValueError(f"source-git input has invalid redistribution: {item['name']}")
         if item["redistribution"] == "cleared":
             if not item["url"].startswith("https://") or not SHA.fullmatch(item["sha256"]):
                 raise ValueError(f"cleared input is not fetchable: {item['name']}")
