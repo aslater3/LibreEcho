@@ -19,7 +19,7 @@ done
 : "${LIBREECHO_MUSL_CROSS_PREFIX:?set generated public ARM32 musl compiler prefix}"
 : "${LIBREECHO_OTA_MUSL_NATIVE_ROOT:?set generated public native toolchain root}"
 : "${LIBREECHO_OTA_MUSL_SYSROOT:?set generated public ARM32 sysroot}"
-export LIBREECHO_INPUTS_ROOT="$LIBREECHO_PUBLIC_DEPS_ROOT/inputs"
+export LIBREECHO_INPUTS_ROOT="$LIBREECHO_PUBLIC_DEPS_ROOT"
 export LIBREECHO_BUILD_ROOT="${LIBREECHO_BUILD_ROOT:-${RUNNER_TEMP:?set RUNNER_TEMP}/libreecho-build}"
 export LIBREECHO_PRIVATE_ROOT="${LIBREECHO_PRIVATE_ROOT:-$RUNNER_TEMP/libreecho-private}"
 export LIBREECHO_PUBLIC_RELEASE=1 LIBREECHO_FEATURE_POLICY=community-noncommercial

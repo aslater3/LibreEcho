@@ -175,6 +175,23 @@ def _tree_digest(root: Path) -> str:
             rel_bytes = rel.as_posix().encode("utf-8")
             mode = stat.S_IMODE(info.st_mode)
             if stat.S_ISLNK(info.st_mode):
+                raw_target = os.readlink(entry.path)
+                try:
+                    resolved = Path(entry.path).resolve(strict=False)
+                    resolved.relative_to(root.resolve())
+                    inside_root = True
+                except (OSError, ValueError):
+                    inside_root = False
+                if not inside_root:
+                    logical_target = f"<external>/{PurePosixPath(raw_target).name}"
+                    target_identity = hashlib.sha256(
+                        b"external-symlink-v1\0" + os.fsencode(logical_target)
+                    ).hexdigest()
+                    digest.update(
+                        b"symlink-external\0" + rel_bytes
+                        + f"\0link_mode={mode:o}\0target_identity={target_identity}\n".encode()
+                    )
+                    continue
                 try:
                     resolved = Path(entry.path).resolve(strict=True)
                     resolved_info = resolved.stat()

@@ -7,6 +7,7 @@ import re
 import urllib.request
 import subprocess
 import shutil
+import tarfile
 from pathlib import Path
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -65,6 +66,14 @@ NAMES = {
     "ca-certificates-notice": "ca-certificates-20260601.copyright",
     "plistutil-package": "host-packages/libplist-utils.deb",
     "libplist-runtime-package": "host-packages/libplist-runtime.deb",
+    "libplist-source": "host-tools/source/libplist_2.3.0.orig.tar.bz2",
+    "libplist-debian-source": "host-tools/source/libplist_2.3.0-1~exp2build2.debian.tar.xz",
+    "libplist-source-descriptor": "host-tools/source/libplist_2.3.0-1~exp2build2.dsc",
+}
+
+RUNNER_SOURCES = {
+    "ca-certificates": Path("/etc/ssl/certs/ca-certificates.crt"),
+    "ca-certificates-notice": Path("/usr/share/doc/ca-certificates/copyright"),
 }
 
 
@@ -75,7 +84,10 @@ def stage(inventory: dict, output: Path) -> None:
             relative = NAMES[record["name"]]
             destination = output / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(record["url"].removeprefix("file://"), destination)
+            source = RUNNER_SOURCES[record["name"]]
+            if not source.is_file():
+                raise FileNotFoundError(f"hosted runner input is missing: {source}")
+            shutil.copy2(source, destination)
             continue
         if record["kind"] == "source-git":
             checkout = output / record["name"]
@@ -96,6 +108,24 @@ def stage(inventory: dict, output: Path) -> None:
     subprocess.run(["cp", str(output / "host-tools/usr/bin/plistutil"), str(output / "host-tools/bin/plistutil")], check=True)
     runtime = next((output / "host-tools/usr/lib").rglob("libplist-2.0.so.4*"))
     subprocess.run(["cp", str(runtime), str(output / "host-tools/lib/libplist-2.0.so.4")], check=True)
+    source_root = output / "host-tools/source"
+    (output / "host-tools/share/libplist").mkdir(parents=True, exist_ok=True)
+    copyright_file = next((output / "host-tools/usr/share/doc").rglob("copyright"))
+    subprocess.run(["cp", str(copyright_file), str(output / "host-tools/share/libplist/copyright")], check=True)
+    with tarfile.open(source_root / "libplist_2.3.0.orig.tar.bz2") as archive:
+        member = next(x for x in archive.getmembers() if x.name.endswith("/COPYING.LESSER"))
+        target = output / "host-tools/share/libplist/COPYING.LESSER"
+        target.write_bytes(archive.extractfile(member).read())
+    manifest = {
+        "schema": 1, "architecture": "amd64", "source_package": "libplist",
+        "package_version": "2.3.0-1~exp2build2", "plistutil_package": "libplist-utils",
+        "plistutil_package_sha256": "8a5c32845d9a33a052ff82412d77a2831f3f77672024610044ee8aa06d3604fa",
+        "plistutil_sha256": hashlib.sha256((output / "host-tools/bin/plistutil").read_bytes()).hexdigest(),
+        "runtime_package": "libplist-2.0-4", "runtime_package_sha256": "e425c79a3e6e336ce05be7ad7d4171d0a956437cd69d13f27e0df98e272a6f26",
+        "libplist_sha256": hashlib.sha256((output / "host-tools/lib/libplist-2.0.so.4").read_bytes()).hexdigest(),
+        "license": "LGPL-2.1-or-later", "source": "https://archive.ubuntu.com/ubuntu/pool/main/libp/libplist/", "ubuntu_suite": "noble"
+    }
+    (output / "host-tools/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     sums = []
     for path in sorted(output.rglob("*")):
         if path.is_file() and path.name != "SHA256SUMS":
