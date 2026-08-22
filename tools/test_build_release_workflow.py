@@ -77,6 +77,13 @@ class Tests(unittest.TestCase):
   self.assertIn('Stage qemu-arm-static for runtime contract checks', W)
   self.assertIn('qemu-user-static_8.2.2+ds-0ubuntu1.18_amd64.deb', W)
   self.assertIn('5bb397f66063efa349f6fd5cb3b68cd96f29edd0994e4ba5115cf0859a716bf0', W)
+  # The DTB contract verifier requires fdtget; stage the digest-pinned dtc
+  # and libfdt debs into host-bin (already on PATH).
+  self.assertIn('Stage device-tree tools for the DTB contract', W)
+  self.assertIn('device-tree-compiler_1.7.0-2build1_amd64.deb', W)
+  self.assertIn('libfdt1_1.7.0-2build1_amd64.deb', W)
+  self.assertIn('b2c1e8c86f18b6bda26408f92bfb9ec1a1e40bfdc41f1034600ccd68e82d2ed7', W)
+  self.assertIn('274d20dfab9d6b216b5de85446a93f6ce5b2cd82c847b8dfdc508577f76eb96a', W)
   self.assertNotIn('LIBREECHO_ADBD_KERNEL_HEADERS: ${{ github.workspace }}/sources/linux', W)
   self.assertIn('libasound2-data', W)
   # Exec bits are restored across the full staged closure: toolchain
@@ -86,8 +93,8 @@ class Tests(unittest.TestCase):
   self.assertIn('find "$RUNNER_TEMP/armhf-root/usr/libexec/gcc-cross/arm-linux-gnueabihf/13" -type f -exec chmod 0755 {} +', W)
   # The staged ARMHF binutils are dynamically linked against -armhf libs
   # inside the extracted root; the runner host lacks them, so the build
-  # step must export LD_LIBRARY_PATH (same pattern as the neural step).
-  self.assertIn('LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu', W)
+  # step must export LD_LIBRARY_PATH (host-bin too, for libfdt.so.1).
+  self.assertIn('LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu:${{ runner.temp }}/host-bin', W)
   self.assertIn('"$RUNNER_TEMP/armhf-root/usr/sbin"', W)
   self.assertIn('find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)

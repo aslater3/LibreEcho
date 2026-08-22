@@ -322,6 +322,33 @@ jobs:
             "$RUNNER_TEMP/host-bin/qemu-arm-static"
           echo "$RUNNER_TEMP/host-bin" >> "$GITHUB_PATH"
 
+      - name: Stage device-tree tools for the DTB contract
+        run: |
+          set -euo pipefail
+          # The radar-puffin DTB contract verifier requires fdtget (and the
+          # kernel build uses dtc). The hosted runner ships neither; stage
+          # the digest-pinned noble debs into the host-bin dir that the
+          # qemu step already puts on PATH. libfdt.so.1 resolves through
+          # LD_LIBRARY_PATH, which the build step exports.
+          dtc_deb="$RUNNER_TEMP/device-tree-compiler.deb"
+          libfdt_deb="$RUNNER_TEMP/libfdt1.deb"
+          curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 \
+            --max-time 600 -o "$dtc_deb" \
+            "https://archive.ubuntu.com/ubuntu/pool/main/d/device-tree-compiler/device-tree-compiler_1.7.0-2build1_amd64.deb"
+          curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 \
+            --max-time 600 -o "$libfdt_deb" \
+            "https://archive.ubuntu.com/ubuntu/pool/main/d/device-tree-compiler/libfdt1_1.7.0-2build1_amd64.deb"
+          printf '%s  %s\n%s  %s\n' \
+            'b2c1e8c86f18b6bda26408f92bfb9ec1a1e40bfdc41f1034600ccd68e82d2ed7' "$dtc_deb" \
+            '274d20dfab9d6b216b5de85446a93f6ce5b2cd82c847b8dfdc508577f76eb96a' "$libfdt_deb" | sha256sum -c -
+          dpkg-deb -x "$dtc_deb" "$RUNNER_TEMP/dtc-root"
+          dpkg-deb -x "$libfdt_deb" "$RUNNER_TEMP/dtc-root"
+          mkdir -p "$RUNNER_TEMP/host-bin"
+          install -m 0755 "$RUNNER_TEMP/dtc-root/usr/bin/dtc" \
+            "$RUNNER_TEMP/dtc-root/usr/bin/fdtget" "$RUNNER_TEMP/host-bin/"
+          install -m 0644 "$RUNNER_TEMP/dtc-root/usr/lib/x86_64-linux-gnu/libfdt.so.1" \
+            "$RUNNER_TEMP/host-bin/libfdt.so.1"
+
       - name: Export Linux UAPI headers
         run: |
           set -euo pipefail
@@ -382,8 +409,8 @@ jobs:
         env:
           # The staged ARMHF gcc/as/ld are dynamically linked against the
           # -armhf binutils libs inside the extracted root; the runner host
-          # does not ship them. Same pattern as the neural dependency step.
-          LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu
+          # does not ship them. host-bin carries libfdt.so.1 for fdtget.
+          LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu:${{ runner.temp }}/host-bin
           LIBREECHO_PUBLIC_DEPS_ROOT: ${{ runner.temp }}/public-deps
           LIBREECHO_KERNEL_SRC: ${{ github.workspace }}/sources/linux
           LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform
