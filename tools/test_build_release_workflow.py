@@ -55,6 +55,11 @@ class Tests(unittest.TestCase):
   # complete successful build.
   self.assertIn('if: always() && steps.restore-components.outputs.cache-hit', W)
   self.assertIn('if: success() && steps.restore-kernel.outputs.cache-hit', W)
+  # The AirPlay sysroot is staged in build-image from the ARMHF root
+  # artifact, and the deps cache layer excludes it (derived, not fetched).
+  self.assertIn('Stage public ARMHF AirPlay sysroot', W)
+  self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)
+  self.assertIn('!${{ runner.temp }}/public-deps/neural', W)
   # Restored inputs are skipped; only cold paths rebuild and re-save.
   self.assertIn("if: steps.restore-deps.outputs.cache-hit != 'true'", W)
   self.assertIn("if: steps.restore-toolchain.outputs.cache-hit != 'true'", W)

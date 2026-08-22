@@ -75,6 +75,7 @@ jobs:
           path: |
             ${{ runner.temp }}/public-deps
             !${{ runner.temp }}/public-deps/neural
+            !${{ runner.temp }}/public-deps/airplay-sysroot
           key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
       - name: Fetch public input inventory
         if: steps.restore-deps.outputs.cache-hit != 'true'
@@ -86,6 +87,7 @@ jobs:
           path: |
             ${{ runner.temp }}/public-deps
             !${{ runner.temp }}/public-deps/neural
+            !${{ runner.temp }}/public-deps/airplay-sysroot
           key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
 
       # ARMHF compilers are staged here (not in build-image) so the neural
@@ -262,11 +264,19 @@ jobs:
         run: |
           set -euo pipefail
           find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
-          chmod 0755 "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" \
-            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-g++-13" \
-            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-cpp-13" \
-            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-ld" \
-            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-ld.bfd" || true
+          find "$RUNNER_TEMP/armhf-root/usr/bin" "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/bin" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13" -maxdepth 1 -type f \
+            \( -name 'cc1*' -o -name 'collect2*' -o -name 'lto*' \) -exec chmod 0755 {} +
+      - name: Stage public ARMHF AirPlay sysroot
+        run: |
+          set -euo pipefail
+          # The AirPlay builder links against the staged ARMHF glibc root;
+          # mirror it into the public-deps root under the name build.sh
+          # expects. The runner has no host /usr/arm-linux-gnueabihf, so the
+          # sysroot must come from the staged root artifact.
+          sysroot="$RUNNER_TEMP/public-deps/airplay-sysroot"
+          mkdir -p "$sysroot"
+          cp -a "$RUNNER_TEMP/armhf-root/." "$sysroot/"
 
       # --- Layer 4: content-addressed component cache. Restored before the ---
       # --- build; saved in a separate step with always() so a late build   ---
