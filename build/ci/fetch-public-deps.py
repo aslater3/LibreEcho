@@ -78,9 +78,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("inventory", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--allow-generated", action="store_true")
     args = parser.parse_args()
     data = load(args.inventory)
-    blocked = [x["name"] for x in data["inputs"] if x["redistribution"].startswith(("blocked-", "requires-"))]
+    blocked = [x["name"] for x in data["inputs"] if x["redistribution"].startswith(("blocked-private", "requires-"))]
+    if not args.allow_generated:
+        blocked += [x["name"] for x in data["inputs"] if x["redistribution"].startswith("blocked-generation")]
     if blocked:
         raise SystemExit("PUBLIC_INPUTS_BLOCKED: " + ",".join(blocked))
     if args.output:

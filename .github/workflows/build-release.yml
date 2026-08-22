@@ -55,8 +55,20 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
-      - name: Validate public input inventory
-        run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json
+      - name: Fetch public input inventory
+        run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json --allow-generated --output "$RUNNER_TEMP/public-deps"
+      - name: Build public ARM32 musl toolchain
+        run: build/ci/build-public-toolchain.sh "$RUNNER_TEMP/toolchain"
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/public-deps
+          if-no-files-found: error
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/toolchain
+          if-no-files-found: error
 
   build-image:
     needs: [resolve-and-preflight, prepare-public-inputs]
@@ -66,12 +78,50 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          path: sources/platform
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Linux-6.1
+          ref: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
+          path: sources/linux
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-UI
+          ref: ${{ needs.resolve-and-preflight.outputs.ui_sha }}
+          path: sources/ui
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/public-deps
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/toolchain
       - name: Fail closed until hosted builder exists
         run: |
           test -x build/ci/build-public-release.sh
           test -f build/ci/fetch-public-deps.py
           echo 'Hosted public build entrypoint is present.'
       - name: Build image and features
+        env:
+          LIBREECHO_PUBLIC_DEPS_ROOT: ${{ runner.temp }}/public-deps
+          LIBREECHO_KERNEL_SRC: ${{ github.workspace }}/sources/linux
+          LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform
+          LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
+          LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}
+          LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
+          LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
+          LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain/arm-linux-musleabihf
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 
   publish-dev:
