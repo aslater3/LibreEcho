@@ -129,24 +129,42 @@ jobs:
         run: find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
       - name: Install public ARMHF build packages
         run: |
-          sudo dpkg --add-architecture armhf
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-            libc6-dev-armhf-cross libasound2-dev:armhf \
-            avahi-daemon:armhf libavahi-client-dev:armhf \
-            libavahi-common-dev:armhf libdbus-1-dev:armhf dbus-daemon:armhf
+          set -euo pipefail
+          apt_root="$RUNNER_TEMP/armhf-apt"
+          debs="$RUNNER_TEMP/armhf-debs"
+          mkdir -p "$apt_root/lists/partial" "$debs"
+          printf '%s\n' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted' \
+            > "$RUNNER_TEMP/armhf.sources.list"
+          apt_opts=(
+            -o Dir::Etc::sourcelist="$RUNNER_TEMP/armhf.sources.list"
+            -o Dir::Etc::sourceparts=-
+            -o Dir::State::lists="$apt_root/lists"
+            -o Dir::Cache::archives="$debs"
+            -o APT::Architecture=armhf
+          )
+          apt-get "${apt_opts[@]}" update
+          cd "$debs"
+          apt-get download "${apt_opts[@]}" \
+            libasound2-dev:armhf avahi-daemon:armhf \
+            libavahi-client-dev:armhf libavahi-common-dev:armhf \
+            libdbus-1-dev:armhf dbus-daemon:armhf
+          cd "$RUNNER_TEMP"
+          apt-get download gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf libc6-dev-armhf-cross
+          for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
+            dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
+          done
       - name: Stage public ARMHF AirPlay sysroot
         run: |
           set -euo pipefail
           sysroot="$RUNNER_TEMP/public-deps/airplay-sysroot"
           mkdir -p "$sysroot"
-          for package in avahi-daemon libavahi-client-dev libavahi-common-dev libdbus-1-dev dbus-daemon libasound2-dev; do
-            dpkg-query -L "$package:armhf" 2>/dev/null || dpkg-query -L "$package"
-          done | awk 'NF && $0 !~ /^\// {next} NF' | sort -u | while read -r path; do
-            if [[ -f "$path" || -L "$path" ]]; then
-              mkdir -p "$sysroot$(dirname "$path")"
-              cp -a "$path" "$sysroot$path"
+          cp -a "$RUNNER_TEMP/armhf-root/." "$sysroot/"
+          for path in /usr/arm-linux-gnueabihf /usr/lib/gcc-cross/arm-linux-gnueabihf; do
+            if [[ -e "$path" ]]; then
+              mkdir -p "$RUNNER_TEMP/public-deps/host-cross$(dirname "$path")"
+              cp -a "$path" "$RUNNER_TEMP/public-deps/host-cross$(dirname "$path")/"
             fi
           done
       - name: Fail closed until hosted builder exists
@@ -162,9 +180,9 @@ jobs:
           LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
           LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}/sources/product
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
-          LIBREECHO_CORE_RUNTIME_SYSROOT: /usr/arm-linux-gnueabihf
-          LIBREECHO_CORE_GCC_LIBDIR: /usr/lib/gcc-cross/arm-linux-gnueabihf/13
-          CROSS: /usr/bin/arm-linux-gnueabihf-
+          LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
+          LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
+          CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
           AUDIO_CC: /home/runner/work/_temp/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
