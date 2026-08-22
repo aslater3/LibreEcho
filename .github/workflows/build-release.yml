@@ -108,6 +108,13 @@ jobs:
           path: sources/ui
           fetch-depth: 1
           persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho
+          ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
+          path: sources/product
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
         with:
           name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
@@ -116,6 +123,8 @@ jobs:
         with:
           name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/toolchain
+      - name: Restore executable toolchain bits
+        run: find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
       - name: Fail closed until hosted builder exists
         run: |
           test -x build/ci/build-public-release.sh
@@ -127,7 +136,7 @@ jobs:
           LIBREECHO_KERNEL_SRC: ${{ github.workspace }}/sources/linux
           LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform
           LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
-          LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}
+          LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}/sources/product
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
           LIBREECHO_CORE_RUNTIME_SYSROOT: /usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: /usr/lib/gcc-cross/arm-linux-gnueabihf/13
