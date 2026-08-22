@@ -189,6 +189,7 @@ jobs:
         env:
           JOBS: "2"
           LIBREECHO_NEURAL_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
+          LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu
         run: build/ci/build-public-neural-deps.sh "$RUNNER_TEMP/public-deps" "$RUNNER_TEMP/armhf-root"
       - name: Fail closed until hosted builder exists
         run: |

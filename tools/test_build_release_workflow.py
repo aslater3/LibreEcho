@@ -26,6 +26,7 @@ class Tests(unittest.TestCase):
   ):
    self.assertIn(variable, W)
   self.assertIn('build/ci/build-public-neural-deps.sh', W)
+  self.assertIn('LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu', W)
   self.assertIn("build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json'", W)
   self.assertNotIn('out/CURRENT', W)
   self.assertIn('runs-on: ubuntu-24.04',W)
