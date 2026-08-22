@@ -160,8 +160,12 @@ jobs:
             libavahi-client-dev:armhf libavahi-common-dev:armhf \
             libdbus-1-dev:armhf dbus-daemon:armhf
           cd "$RUNNER_TEMP"
-          apt-get download gcc-13-arm-linux-gnueabihf g++-13-arm-linux-gnueabihf \
-            binutils-arm-linux-gnueabihf libc6-dev-armhf-cross
+          apt-get download \
+            gcc-13-arm-linux-gnueabihf-base gcc-13-cross-base \
+            cpp-13-arm-linux-gnueabihf gcc-13-arm-linux-gnueabihf \
+            g++-13-arm-linux-gnueabihf libgcc-13-dev-armhf-cross \
+            libstdc++-13-dev-armhf-cross binutils-arm-linux-gnueabihf \
+            libc6-dev-armhf-cross
           for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
             dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
           done

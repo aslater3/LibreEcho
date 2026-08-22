@@ -39,5 +39,9 @@ class Tests(unittest.TestCase):
   self.assertIn('MUSL_SITE = https://www.musl-libc.org/releases', TOOLCHAIN)
   self.assertIn('curl -4 -L --fail --retry 5 --retry-all-errors', TOOLCHAIN)
   self.assertIn('curl is required for public toolchain downloads', TOOLCHAIN)
+  for package in ('gcc-13-arm-linux-gnueabihf-base', 'gcc-13-cross-base',
+                  'cpp-13-arm-linux-gnueabihf', 'libgcc-13-dev-armhf-cross',
+                  'libstdc++-13-dev-armhf-cross'):
+   self.assertIn(package, W)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
 if __name__=='__main__': unittest.main()
