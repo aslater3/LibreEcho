@@ -25,7 +25,6 @@ for library in /lib/x86_64-linux-gnu/libgmp.so.10 /lib/x86_64-linux-gnu/libmpfr.
 done
 rm -f "$OUT/usr/lib/ld-musl-armhf.so.1"
 cp -- "$OUT/arm-linux-musleabihf/lib/libc.so" "$OUT/usr/lib/ld-musl-armhf.so.1"
-cp -- /lib/ld-musl-x86_64.so.1 "$OUT/lib/ld-musl-x86_64.so.1"
 for tool in ar as c++ cc cpp elfedit gcc gcc-ar gcc-nm gcc-ranlib g++ ld ld.bfd nm objcopy objdump ranlib readelf size strings strip; do
   if [[ -f "$OUT/bin/arm-linux-musleabihf-$tool" ]]; then
     cp -- "$OUT/bin/arm-linux-musleabihf-$tool" "$OUT/usr/bin/armv7-alpine-linux-musleabihf-$tool"

@@ -627,7 +627,6 @@ declare -A COMPONENT_STARTED_MS=()
 # an explicit iteration build can reuse only unchanged components.
 ota_musl_key_args=(
   --tree "ota-musl-gcc-libexec=$OTA_MUSL_GCC_LIBEXEC"
-  --file "ota-musl-native-loader=$OTA_MUSL_NATIVE_ROOT/lib/ld-musl-x86_64.so.1"
   --file "ota-musl-native-isl=$OTA_MUSL_NATIVE_ROOT/usr/lib/libisl.so.23"
   --file "ota-musl-native-mpc=$OTA_MUSL_NATIVE_ROOT/usr/lib/libmpc.so.3"
   --file "ota-musl-native-mpfr=$OTA_MUSL_NATIVE_ROOT/usr/lib/libmpfr.so.6"
