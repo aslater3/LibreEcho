@@ -31,6 +31,12 @@ class PublicNeuralDependencyTests(unittest.TestCase):
             self.assertIn(root, SCRIPT)
         self.assertIn('public_neural_dependencies=PASS', SCRIPT)
         self.assertEqual(SCRIPT.count('-DCMAKE_SYSROOT="$ARMHF_ROOT"'), 2)
+        # Sherpa consumes a flat install-style ONNX Runtime include dir.
+        self.assertIn(
+            'SHERPA_ONNXRUNTIME_INCLUDE_DIR="$OUT/onnxruntime-prefix/include"',
+            SCRIPT)
+        self.assertNotIn('SHERPA_ONNXRUNTIME_INCLUDE_DIR="$ORT_SOURCE/include"', SCRIPT)
+        self.assertIn('"$OUT/onnxruntime-prefix/include/onnxruntime_cxx_api.h"', SCRIPT)
         self.assertIn('cmake --build "$ORT_BUILD" --target re2', SCRIPT)
         self.assertIn("printf 'ADDLIB %s\\n'", SCRIPT)
         self.assertNotIn('pipeline/out/CURRENT', SCRIPT)

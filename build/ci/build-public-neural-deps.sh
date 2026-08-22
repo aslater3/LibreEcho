@@ -107,6 +107,21 @@ cmake --build "$ORT_BUILD" --target re2 --parallel "$JOBS"
 re2="$(find "$ORT_BUILD" -type f -name libre2.a -print -quit)"
 [[ -n "$re2" ]] || fail "ONNX Runtime RE2 archive is missing"
 install -m 0644 "$re2" "$OUT/onnxruntime-prefix/lib/libre2.a"
+
+# Sherpa includes the ONNX Runtime headers flat (onnxruntime_cxx_api.h), so
+# stage an install-style flat include directory next to the static library.
+# The source-tree layout (include/onnxruntime/core/session/) does not satisfy
+# that include contract.
+ort_headers="$ORT_SOURCE/include/onnxruntime/core/session"
+[[ -f "$ort_headers/onnxruntime_c_api.h" && -f "$ort_headers/onnxruntime_cxx_api.h" ]] || \
+  fail "ONNX Runtime public headers are missing from the pinned source checkout"
+mkdir -p "$OUT/onnxruntime-prefix/include"
+for header in "$ort_headers"/*; do
+  [[ -f "$header" ]] || continue
+  install -m 0644 "$header" "$OUT/onnxruntime-prefix/include/$(basename -- "$header")"
+done
+[[ -f "$OUT/onnxruntime-prefix/include/onnxruntime_cxx_api.h" ]] || \
+  fail "flat ONNX Runtime include staging failed"
 {
   printf 'CREATE %s\n' "$OUT/onnxruntime-prefix/lib/libonnxruntime.a"
   for archive in \
@@ -132,7 +147,7 @@ cp -a -- "$flatbuffers_root" "$OUT/flatbuffers-python"
 # diarization are disabled; the C and C++ APIs and Piper TTS remain enabled.
 SHERPA_BUILD="$WORK/sherpa"
 SHERPA_PREFIX="$OUT/sherpa-onnx-prefix"
-SHERPA_ONNXRUNTIME_INCLUDE_DIR="$ORT_SOURCE/include" \
+SHERPA_ONNXRUNTIME_INCLUDE_DIR="$OUT/onnxruntime-prefix/include" \
 SHERPA_ONNXRUNTIME_LIB_DIR="$OUT/onnxruntime-prefix/lib" \
 cmake -S "$SHERPA_SOURCE" -B "$SHERPA_BUILD" \
   -DCMAKE_BUILD_TYPE=MinSizeRel \
@@ -158,10 +173,10 @@ cmake -S "$SHERPA_SOURCE" -B "$SHERPA_BUILD" \
   -DSHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION=OFF \
   -DSHERPA_ONNX_USE_PRE_INSTALLED_ONNXRUNTIME_IF_AVAILABLE=ON \
   -DSHERPA_ONNX_LINK_LIBSTDCPP_STATICALLY=ON
-SHERPA_ONNXRUNTIME_INCLUDE_DIR="$ORT_SOURCE/include" \
+SHERPA_ONNXRUNTIME_INCLUDE_DIR="$OUT/onnxruntime-prefix/include" \
 SHERPA_ONNXRUNTIME_LIB_DIR="$OUT/onnxruntime-prefix/lib" \
 cmake --build "$SHERPA_BUILD" --parallel "$JOBS"
-SHERPA_ONNXRUNTIME_INCLUDE_DIR="$ORT_SOURCE/include" \
+SHERPA_ONNXRUNTIME_INCLUDE_DIR="$OUT/onnxruntime-prefix/include" \
 SHERPA_ONNXRUNTIME_LIB_DIR="$OUT/onnxruntime-prefix/lib" \
 cmake --install "$SHERPA_BUILD"
 
@@ -186,6 +201,7 @@ sed -i -e "s|^libdir=.*|libdir='/opt/libreecho/speexdsp/lib'|" \
   "$OUT/speexdsp-prefix/lib/libspeexdsp.la"
 
 for required in \
+    "$OUT/onnxruntime-prefix/include/onnxruntime_cxx_api.h" \
     "$OUT/onnxruntime-build/libonnxruntime_session.a" \
     "$OUT/onnxruntime-build/_deps/onnx-build/libonnx.a" \
     "$OUT/onnxruntime-prefix/lib/libonnxruntime.a" \
