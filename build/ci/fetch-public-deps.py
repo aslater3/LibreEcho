@@ -6,6 +6,7 @@ import json
 import re
 import urllib.request
 import subprocess
+import shutil
 from pathlib import Path
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -36,7 +37,8 @@ def fetch(record: dict, destination: Path) -> Path:
     if record["redistribution"] != "cleared":
         raise ValueError(f"input is not cleared: {record['name']}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(record["url"], timeout=30) as source, destination.open("wb") as target:
+    request = urllib.request.Request(record["url"], headers={"User-Agent": "LibreEcho-public-build/1"})
+    with urllib.request.urlopen(request, timeout=300) as source, destination.open("wb") as target:
         while block := source.read(1024 * 1024):
             target.write(block)
     if hashlib.sha256(destination.read_bytes()).hexdigest() != record["sha256"]:
@@ -51,9 +53,16 @@ NAMES = {
     "stt-decoder": "decoder-epoch-99-avg-1.int8.onnx",
     "stt-joiner": "joiner-epoch-99-avg-1.int8.onnx",
     "stt-tokens": "tokens.txt",
+    "stt-license": "README.md",
     "wakeword-alexa": "alexa_v0.1.onnx",
     "wakeword-embedding": "embedding_model.onnx",
     "wakeword-melspectrogram": "melspectrogram.onnx",
+    "speexdsp": "speexdsp-SpeexDSP-1.2.1.tar.gz",
+    "tinyalsa": "tinyalsa-e43025bbf702eb7dd8edd48c1eb50530c60f1de8.tar.gz",
+    "nqptp": "nqptp-1.2.8.tar.gz",
+    "shairport-sync": "shairport-sync-5.1.tar.gz",
+    "ca-certificates": "ca-certificates-20260601.crt",
+    "ca-certificates-notice": "ca-certificates-20260601.copyright",
     "plistutil-package": "host-packages/libplist-utils.deb",
     "libplist-runtime-package": "host-packages/libplist-runtime.deb",
 }
@@ -62,6 +71,17 @@ NAMES = {
 def stage(inventory: dict, output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for record in inventory["inputs"]:
+        if record["kind"] == "generated-runner-input":
+            relative = NAMES[record["name"]]
+            destination = output / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(record["url"].removeprefix("file://"), destination)
+            continue
+        if record["kind"] == "source-git":
+            checkout = output / record["name"]
+            subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", record["url"], str(checkout)], check=True)
+            subprocess.run(["git", "-C", str(checkout), "checkout", "--quiet", record["commit"]], check=True)
+            continue
         if record["redistribution"] != "cleared":
             continue
         relative = NAMES.get(record["name"], record["url"].rsplit("/", 1)[-1])
@@ -71,6 +91,17 @@ def stage(inventory: dict, output: Path) -> None:
         target = output / "host-tools"
         target.mkdir(exist_ok=True)
         subprocess.run(["dpkg-deb", "-x", str(package), str(target)], check=True)
+    (output / "host-tools/bin").mkdir(parents=True, exist_ok=True)
+    (output / "host-tools/lib").mkdir(parents=True, exist_ok=True)
+    subprocess.run(["cp", str(output / "host-tools/usr/bin/plistutil"), str(output / "host-tools/bin/plistutil")], check=True)
+    runtime = next((output / "host-tools/usr/lib").rglob("libplist-2.0.so.4*"))
+    subprocess.run(["cp", str(runtime), str(output / "host-tools/lib/libplist-2.0.so.4")], check=True)
+    sums = []
+    for path in sorted(output.rglob("*")):
+        if path.is_file() and path.name != "SHA256SUMS":
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            sums.append(f"{digest}  {path.relative_to(output)}")
+    (output / "SHA256SUMS").write_text("\n".join(sums) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

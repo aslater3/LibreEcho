@@ -12,6 +12,8 @@ printf '%s\n' 'TARGET = arm-linux-musleabihf' "OUTPUT = $OUT" > "$SRC/config.mak
 make -C "$SRC" -j"${JOBS:-2}"
 mkdir -p "$OUT/usr"
 ln -sfn ../bin "$OUT/usr/bin"
+ln -sfn ../arm-linux-musleabihf/include "$OUT/usr/include"
+ln -sfn ../arm-linux-musleabihf/lib "$OUT/usr/lib"
 for tool in ar as c++ cc cpp elfedit gcc gcc-ar gcc-nm gcc-ranlib g++ ld ld.bfd nm objcopy objdump ranlib readelf size strings strip; do
   if [[ -e "$OUT/bin/arm-linux-musleabihf-$tool" ]]; then
     ln -sfn "arm-linux-musleabihf-$tool" "$OUT/bin/armv7-alpine-linux-musleabihf-$tool"
