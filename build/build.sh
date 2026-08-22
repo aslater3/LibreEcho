@@ -1104,7 +1104,7 @@ echo "=== building or restoring source-pinned ARM32 adbd ==="
 [[ -x "$ADBD_BUILDER" ]] || { echo "ERROR: adbd builder is missing or not executable" >&2; exit 1; }
 adbd_cache_key="$(component_cache_key adbd \
   --tree "aosp-system-core=$ADBD_SOURCE" --tree "linux-uapi=$ADBD_KERNEL_HEADERS" \
-  --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --file "builder=$ADBD_BUILDER" \
+  --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --tree "adbd-tooling=$TOOLS_DIR/adbd" \
   --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static")"
 ADBD_STAGE="$RUN/adbd-stage"
 adbd_status=rebuilt
