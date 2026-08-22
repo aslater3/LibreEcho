@@ -83,6 +83,7 @@ class Tests(unittest.TestCase):
   # libexec (cc1), ARMHF usr/bin and usr/sbin (avahi/dbus daemons), and
   # host-tools/bin (plistutil), because download-artifact strips them.
   self.assertIn('find "$RUNNER_TEMP/toolchain/libexec" "$RUNNER_TEMP/toolchain/usr/libexec" -type f -exec chmod 0755 {} +', W)
+  self.assertIn('find "$RUNNER_TEMP/armhf-root/usr/libexec/gcc-cross/arm-linux-gnueabihf/13" -type f -exec chmod 0755 {} +', W)
   self.assertIn('"$RUNNER_TEMP/armhf-root/usr/sbin"', W)
   self.assertIn('find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)

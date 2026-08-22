@@ -285,8 +285,10 @@ jobs:
           find "$RUNNER_TEMP/toolchain/libexec" "$RUNNER_TEMP/toolchain/usr/libexec" -type f -exec chmod 0755 {} +
           find "$RUNNER_TEMP/armhf-root/usr/bin" "$RUNNER_TEMP/armhf-root/usr/sbin" \
             "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/bin" -type f -exec chmod 0755 {} +
-          find "$RUNNER_TEMP/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13" -maxdepth 1 -type f \
-            \( -name 'cc1*' -o -name 'collect2*' -o -name 'lto*' \) -exec chmod 0755 {} +
+          # cc1/cc1plus/collect2/lto1 live under libexec, not lib: without
+          # exec bits the kernel Kconfig compiler probe fails with
+          # 'unknown C compiler' (reproduced by stripping cc1's exec bit).
+          find "$RUNNER_TEMP/armhf-root/usr/libexec/gcc-cross/arm-linux-gnueabihf/13" -type f -exec chmod 0755 {} +
           find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +
       - name: Stage public ARMHF AirPlay sysroot
         run: |
