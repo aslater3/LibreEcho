@@ -1,0 +1,456 @@
+name: Hosted LibreEcho build and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Scoped per event and ref so independent PR branches do not queue behind
+  # each other. Push, dispatch, and each PR get their own lane. Running
+  # builds are never cancelled (cancel-in-progress stays false).
+  group: libreecho-build-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-and-preflight:
+    runs-on: ubuntu-24.04
+    outputs:
+      product_sha: ${{ steps.resolve.outputs.product_sha }}
+      platform_sha: ${{ steps.resolve.outputs.platform_sha }}
+      linux_sha: ${{ steps.resolve.outputs.linux_sha }}
+      ui_sha: ${{ steps.resolve.outputs.ui_sha }}
+      source_set_id: ${{ steps.resolve.outputs.source_set_id }}
+      version: ${{ steps.resolve.outputs.version }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      channel: ${{ steps.resolve.outputs.channel }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - id: resolve
+        env:
+          PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            [[ "$GITHUB_BASE_REF" == main ]]
+          else
+            [[ "$GITHUB_REF" == refs/heads/main ]]
+          fi
+          p=$(git ls-remote https://github.com/aslater3/LibreEcho-Platform.git refs/heads/main | cut -f1)
+          l=$(git ls-remote https://github.com/aslater3/LibreEcho-Linux-6.1.git refs/heads/main | cut -f1)
+          u=$(git ls-remote https://github.com/aslater3/LibreEcho-UI.git refs/heads/main | cut -f1)
+          args=(--product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u")
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            args+=(--version "$VERSION")
+          fi
+          python3 build/ci/resolve-source-set.py "${args[@]}" >> "$GITHUB_OUTPUT"
+
+  prepare-public-inputs:
+    needs: resolve-and-preflight
+    runs-on: ubuntu-24.04
+    outputs:
+      armhf_root_digest: ${{ steps.armhf-pkg.outputs.armhf_root_digest }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+
+      # --- Layer 1: fetched public inputs, keyed by the inventory digest ---
+      - name: Restore fetched public inputs cache
+        id: restore-deps
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          # Exclude the neural subdirectory: it is restored by its own, more
+          # specific cache layer after this step. Avoids re-extracting over
+          # the neural restore and keeps the two layers from fighting.
+          path: |
+            ${{ runner.temp }}/public-deps
+            !${{ runner.temp }}/public-deps/neural
+            !${{ runner.temp }}/public-deps/airplay-sysroot
+          key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
+      - name: Fetch public input inventory
+        if: steps.restore-deps.outputs.cache-hit != 'true'
+        run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json --allow-generated --output "$RUNNER_TEMP/public-deps"
+      - name: Save fetched public inputs cache
+        if: success() && steps.restore-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: |
+            ${{ runner.temp }}/public-deps
+            !${{ runner.temp }}/public-deps/neural
+            !${{ runner.temp }}/public-deps/airplay-sysroot
+          key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
+
+      # ARMHF compilers are staged here (not in build-image) so the neural
+      # dependency cache key can bind the exact compiler bytes that produced
+      # the cached static archives.
+      - name: Install public ARMHF build packages
+        run: |
+          set -euo pipefail
+          apt_root="$RUNNER_TEMP/armhf-apt"
+          debs="$RUNNER_TEMP/armhf-debs"
+          mkdir -p "$apt_root/lists/partial" "$debs"
+          printf '%s\n' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted' \
+            > "$RUNNER_TEMP/armhf.sources.list"
+          apt_opts=(
+            -o Dir::Etc::sourcelist="$RUNNER_TEMP/armhf.sources.list"
+            -o Dir::Etc::sourceparts=-
+            -o Dir::State::lists="$apt_root/lists"
+            -o Dir::Cache::archives="$debs"
+            -o APT::Architecture=armhf
+          )
+          apt-get "${apt_opts[@]}" update
+          cd "$debs"
+          apt-get download "${apt_opts[@]}" \
+            libasound2-dev:armhf libasound2-data avahi-daemon:armhf \
+            libavahi-client-dev:armhf libavahi-common-dev:armhf \
+            libdbus-1-dev:armhf dbus-daemon:armhf
+          cd "$RUNNER_TEMP"
+          apt-get download \
+            gcc-13-arm-linux-gnueabihf-base gcc-13-cross-base \
+            cpp-13-arm-linux-gnueabihf gcc-13-arm-linux-gnueabihf \
+            g++-13-arm-linux-gnueabihf libgcc-13-dev-armhf-cross \
+            libgcc-s1-armhf-cross libstdc++6-armhf-cross \
+            libstdc++-13-dev-armhf-cross binutils-arm-linux-gnueabihf \
+            libc6-dev-armhf-cross libc6-armhf-cross linux-libc-dev-armhf-cross
+          for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
+            dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
+          done
+          for tool in gcc g++ cpp; do
+            ln -sfn "arm-linux-gnueabihf-${tool}-13" \
+              "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-${tool}"
+          done
+      - name: Record ARMHF compiler identity
+        id: armhf-id
+        run: |
+          set -euo pipefail
+          printf 'armhf_cc_sha256=%s\n' \
+            "$(sha256sum "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" | awk '{print $1}')" \
+            >> "$GITHUB_OUTPUT"
+      - name: Record ARMHF root package identity
+        id: armhf-pkg
+        run: |
+          set -euo pipefail
+          # Digest of the exact package set extracted into the ARMHF root:
+          # any package added, removed, or updated by the distro changes the
+          # neural and kernel cache keys and forces a rebuild.
+          digest="$(
+            for deb in "$RUNNER_TEMP/armhf-debs"/*.deb "$RUNNER_TEMP"/*.deb; do
+              dpkg-deb -f "$deb" Package Version && printf '\n'
+            done | LC_ALL=C sort -u | sha256sum | awk '{print $1}'
+          )"
+          printf 'armhf_root_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      # --- Layer 2: musl toolchain, keyed by its pinned source commit and ---
+      # --- builder script. ~14 min build; restored in seconds on a hit.  ---
+      - name: Restore musl toolchain cache
+        id: restore-toolchain
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/toolchain
+          key: libreecho-musl-toolchain-v1-${{ runner.os }}-${{ hashFiles('build/ci/build-public-toolchain.sh', 'build/inputs/musl-alpine-soname.diff') }}
+      - name: Build public ARM32 musl toolchain
+        if: steps.restore-toolchain.outputs.cache-hit != 'true'
+        env:
+          JOBS: "4"
+        run: build/ci/build-public-toolchain.sh "$RUNNER_TEMP/toolchain"
+      - name: Record toolchain identity
+        run: printf '%s\n' 227df8b99103f9c59f6570babf892978e293082f > "$RUNNER_TEMP/toolchain/TOOLCHAIN_SOURCE_COMMIT"
+      - name: Verify restored toolchain identity
+        run: |
+          set -euo pipefail
+          recorded="$(cat "$RUNNER_TEMP/toolchain/TOOLCHAIN_SOURCE_COMMIT")"
+          [[ "$recorded" == "227df8b99103f9c59f6570babf892978e293082f" ]] || {
+            echo "ERROR: cached toolchain identity mismatch: $recorded" >&2
+            exit 1
+          }
+      - name: Save musl toolchain cache
+        if: success() && steps.restore-toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/toolchain
+          key: libreecho-musl-toolchain-v1-${{ runner.os }}-${{ hashFiles('build/ci/build-public-toolchain.sh', 'build/inputs/musl-alpine-soname.diff') }}
+
+      # --- Layer 3: neural dependency closure (ONNX Runtime, Sherpa, ---
+      # --- SpeexDSP), keyed by builder, inventory, and compiler bytes. ---
+      - name: Restore neural dependency cache
+        id: restore-neural
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/public-deps/neural
+          key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ steps.armhf-pkg.outputs.armhf_root_digest }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
+      - name: Build public neural dependencies
+        if: steps.restore-neural.outputs.cache-hit != 'true'
+        env:
+          JOBS: "4"
+          LIBREECHO_NEURAL_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
+          LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu
+        run: build/ci/build-public-neural-deps.sh "$RUNNER_TEMP/public-deps" "$RUNNER_TEMP/armhf-root"
+      - name: Save neural dependency cache
+        if: success() && steps.restore-neural.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/public-deps/neural
+          key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ steps.armhf-pkg.outputs.armhf_root_digest }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/public-deps
+          if-no-files-found: error
+          include-hidden-files: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/toolchain
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/armhf-root
+          if-no-files-found: error
+
+
+  build-image:
+    needs: [resolve-and-preflight, prepare-public-inputs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          path: sources/platform
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Linux-6.1
+          ref: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
+          path: sources/linux
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-UI
+          ref: ${{ needs.resolve-and-preflight.outputs.ui_sha }}
+          path: sources/ui
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho
+          ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
+          path: sources/product
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/public-deps
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/toolchain
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/armhf-root
+      - name: Restore executable toolchain bits
+        run: |
+          set -euo pipefail
+          # actions/download-artifact does not restore exec bits, and build.sh
+          # gates several binaries with -x. Restore them after every download.
+          find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" \
+            "$RUNNER_TEMP/toolchain/usr/arm-linux-musleabihf/bin" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/toolchain/libexec" "$RUNNER_TEMP/toolchain/usr/libexec" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/armhf-root/usr/bin" "$RUNNER_TEMP/armhf-root/usr/sbin" \
+            "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/bin" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13" -maxdepth 1 -type f \
+            \( -name 'cc1*' -o -name 'collect2*' -o -name 'lto*' \) -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +
+      - name: Stage public ARMHF AirPlay sysroot
+        run: |
+          set -euo pipefail
+          # The AirPlay builder links against the staged ARMHF glibc root;
+          # mirror it into the public-deps root under the name build.sh
+          # expects. The runner has no host /usr/arm-linux-gnueabihf, so the
+          # sysroot must come from the staged root artifact.
+          sysroot="$RUNNER_TEMP/public-deps/airplay-sysroot"
+          mkdir -p "$sysroot"
+          cp -a "$RUNNER_TEMP/armhf-root/." "$sysroot/"
+
+      - name: Export Linux UAPI headers
+        run: |
+          set -euo pipefail
+          # wpa_supplicant, connectivity helpers, adbd, and wireless-tools
+          # link against an exported Linux UAPI tree (linux/, asm/,
+          # asm-generic/), not the raw kernel source. The private pipeline
+          # used a pre-built kernel-uapi-6.1/include dependency; reproduce it
+          # from the locked kernel source. headers_install is standalone and
+          # does not need a full kernel build.
+          make -C sources/linux O="$RUNNER_TEMP/kernel-uapi-out" ARCH=arm \
+            headers_install INSTALL_HDR_PATH="$RUNNER_TEMP/kernel-uapi"
+          for tree in linux asm asm-generic; do
+            [[ -d "$RUNNER_TEMP/kernel-uapi/include/$tree" ]] || {
+              echo "ERROR: exported UAPI subtree is missing: $tree" >&2
+              exit 1
+            }
+          done
+
+      # --- Layer 4: content-addressed component cache. Restored before the ---
+      # --- build; saved in a separate step with always() so a late build   ---
+      # --- failure does not throw away freshly built components.           ---
+      - name: Restore component cache
+        id: restore-components
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/component-cache
+          key: libreecho-components-v6-${{ runner.os }}-${{ needs.resolve-and-preflight.outputs.source_set_id }}-${{ hashFiles('build/build.sh', 'build/component-cache.py', 'build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
+          restore-keys: |
+            libreecho-components-v6-${{ runner.os }}-
+
+      # --- Layer 5: kernel object tree. Keyed by the exact locked kernel  ---
+      # --- SHA plus the compiler and defconfig bytes: identical inputs    ---
+      # --- restore the full object tree and make finishes in seconds.     ---
+      - name: Compute kernel cache key
+        id: kernel-key
+        run: |
+          set -euo pipefail
+          compiler_sha="$(sha256sum "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" | awk '{print $1}')"
+          printf 'kernel_key=libreecho-kernel-out-v1-%s-%s-%s-%s\n' \
+            "${{ needs.resolve-and-preflight.outputs.linux_sha }}" \
+            "$compiler_sha" \
+            "$(sha256sum sources/linux/arch/arm/configs/mt8163_arm32_defconfig | awk '{print $1}')" \
+            "${{ needs.prepare-public-inputs.outputs.armhf_root_digest }}" \
+            >> "$GITHUB_OUTPUT"
+      - name: Restore kernel object cache
+        id: restore-kernel
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/kernel-out
+          key: ${{ steps.kernel-key.outputs.kernel_key }}
+
+      - name: Fail closed until hosted builder exists
+        run: |
+          test -x build/ci/build-public-release.sh
+          test -f build/ci/fetch-public-deps.py
+          echo 'Hosted public build entrypoint is present.'
+      - name: Build image and features
+        env:
+          LIBREECHO_PUBLIC_DEPS_ROOT: ${{ runner.temp }}/public-deps
+          LIBREECHO_KERNEL_SRC: ${{ github.workspace }}/sources/linux
+          LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform
+          LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
+          LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}/sources/product
+          LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
+          LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
+          LIBREECHO_REUSE_COMPONENT_CACHE: "1"
+          LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
+          LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
+          CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
+          AUDIO_CC: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
+          # The musl builder resolves armv7-alpine-linux-musleabihf-* siblings
+          # beside the compiler it is given; those copies live in usr/bin.
+          LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
+          LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
+          LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
+          LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
+          LIBREECHO_MUSL_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/musl-1.2.5.tar.gz
+          LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wpa_supplicant-2.10.tar.gz
+          LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-tools_30~pre9.orig.tar.gz
+          LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
+          LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
+          LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
+          LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
+          LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
+          LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
+          LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
+          LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tokens.txt
+          LIBREECHO_STT_MODEL_ROOT: ${{ runner.temp }}/public-deps
+          LIBREECHO_WAKE_ORT_SOURCE: ${{ runner.temp }}/public-deps/onnxruntime-source
+          LIBREECHO_ORT_BUILD: ${{ runner.temp }}/public-deps/neural/onnxruntime-build
+          LIBREECHO_ORT_PREFIX: ${{ runner.temp }}/public-deps/neural/onnxruntime-prefix
+          LIBREECHO_WAKE_FLATBUFFERS_PYTHON: ${{ runner.temp }}/public-deps/neural/flatbuffers-python
+          LIBREECHO_SHERPA_SOURCE: ${{ runner.temp }}/public-deps/sherpa-onnx-source
+          LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/neural/sherpa-onnx-prefix
+          LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
+          LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-source/espeak-ng-data
+          LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
+          LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
+          LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa
+          LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
+          LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
+        run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
+
+      # Save caches after the build. The kernel tree is saved only after a
+      # successful build (a partial tree is harmless for make reuse, but a
+      # failed build's config state must not ride forward). The component
+      # cache saves even on failure: entries are stored atomically per
+      # component, so a partial root only ever contains complete entries.
+      - name: Save kernel object cache
+        if: success() && steps.restore-kernel.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/kernel-out
+          key: ${{ steps.kernel-key.outputs.kernel_key }}
+      - name: Save component cache
+        if: always() && steps.restore-components.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/component-cache
+          key: libreecho-components-v6-${{ runner.os }}-${{ needs.resolve-and-preflight.outputs.source_set_id }}-${{ hashFiles('build/build.sh', 'build/component-cache.py', 'build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
+
+      - name: Upload bounded failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: build-failure-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/libreecho-build/generated/component-timing.log
+            ${{ runner.temp }}/libreecho-build/generated/component-identities.log
+
+  publish-dev:
+    if: github.event_name == 'push'
+    needs: [resolve-and-preflight, build-image]
+    runs-on: ubuntu-24.04
+    environment: development-signing
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - name: Publish
+        run: python3 build/ci/publish-release.py publish-dev
+
+  publish-production:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [resolve-and-preflight, build-image]
+    runs-on: ubuntu-24.04
+    environment: production-signing
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - name: Publish
+        run: python3 build/ci/publish-release.py publish-production --version '${{ inputs.version }}'
