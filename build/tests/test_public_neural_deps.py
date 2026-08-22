@@ -37,6 +37,10 @@ class PublicNeuralDependencyTests(unittest.TestCase):
             SCRIPT)
         self.assertNotIn('SHERPA_ONNXRUNTIME_INCLUDE_DIR="$ORT_SOURCE/include"', SCRIPT)
         self.assertIn('"$OUT/onnxruntime-prefix/include/onnxruntime_cxx_api.h"', SCRIPT)
+        # SpeexDSP autotools gets the staged cross compiler and sysroot
+        # explicitly (configure does not inherit CMake's -DCMAKE_SYSROOT).
+        self.assertIn('CC="${CROSS}gcc"', SCRIPT)
+        self.assertIn('--sysroot=$ARMHF_ROOT', SCRIPT)
         self.assertIn('cmake --build "$ORT_BUILD" --target re2', SCRIPT)
         self.assertIn("printf 'ADDLIB %s\\n'", SCRIPT)
         self.assertNotIn('pipeline/out/CURRENT', SCRIPT)

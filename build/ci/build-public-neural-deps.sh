@@ -189,7 +189,12 @@ speex_source="$(find "$SPEEX_WORK" -mindepth 1 -maxdepth 1 -type d -print -quit)
 (
   cd "$speex_source"
   ./autogen.sh
-  CFLAGS="-Os -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard" \
+  # The staged cross compiler is not on PATH; pass it explicitly. --sysroot
+  # rides in CFLAGS so the configure link probe and every compile/link step
+  # resolve the staged ARMHF root (configure does not inherit CMake's
+  # -DCMAKE_SYSROOT).
+  CC="${CROSS}gcc" \
+    CFLAGS="-Os -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard --sysroot=$ARMHF_ROOT" \
     ./configure --host=arm-linux-gnueabihf --prefix="$OUT/speexdsp-prefix" \
       --disable-shared --enable-static --enable-fixed-point --disable-examples
   make -j"$JOBS"
