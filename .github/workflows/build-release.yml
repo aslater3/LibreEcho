@@ -380,6 +380,10 @@ jobs:
           echo 'Hosted public build entrypoint is present.'
       - name: Build image and features
         env:
+          # The staged ARMHF gcc/as/ld are dynamically linked against the
+          # -armhf binutils libs inside the extracted root; the runner host
+          # does not ship them. Same pattern as the neural dependency step.
+          LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu
           LIBREECHO_PUBLIC_DEPS_ROOT: ${{ runner.temp }}/public-deps
           LIBREECHO_KERNEL_SRC: ${{ github.workspace }}/sources/linux
           LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform

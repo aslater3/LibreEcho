@@ -84,6 +84,10 @@ class Tests(unittest.TestCase):
   # host-tools/bin (plistutil), because download-artifact strips them.
   self.assertIn('find "$RUNNER_TEMP/toolchain/libexec" "$RUNNER_TEMP/toolchain/usr/libexec" -type f -exec chmod 0755 {} +', W)
   self.assertIn('find "$RUNNER_TEMP/armhf-root/usr/libexec/gcc-cross/arm-linux-gnueabihf/13" -type f -exec chmod 0755 {} +', W)
+  # The staged ARMHF binutils are dynamically linked against -armhf libs
+  # inside the extracted root; the runner host lacks them, so the build
+  # step must export LD_LIBRARY_PATH (same pattern as the neural step).
+  self.assertIn('LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu', W)
   self.assertIn('"$RUNNER_TEMP/armhf-root/usr/sbin"', W)
   self.assertIn('find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)
