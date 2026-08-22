@@ -31,9 +31,12 @@ for attempt in 1 2 3; do
 done
 make -C "$SRC" install
 mkdir -p "$OUT/usr"
-rm -rf "$OUT/usr/bin" "$OUT/usr/include" "$OUT/usr/lib" "$OUT/usr/armv7-alpine-linux-musleabihf"
+rm -rf "$OUT/usr/bin" "$OUT/usr/include" "$OUT/usr/lib" "$OUT/usr/libexec" "$OUT/usr/armv7-alpine-linux-musleabihf"
 mkdir -p "$OUT/usr/bin" "$OUT/usr/armv7-alpine-linux-musleabihf"
 cp -a "$OUT/bin/." "$OUT/usr/bin/"
+# GCC resolves cc1/cc1plus via ../libexec relative to the driver, so the
+# usr/bin compiler copies need the libexec tree beside them.
+cp -a "$OUT/libexec" "$OUT/usr/libexec"
 cp -a "$OUT/arm-linux-musleabihf/include" "$OUT/usr/include"
 cp -a "$OUT/arm-linux-musleabihf/lib" "$OUT/usr/lib"
 mkdir -p "$OUT/usr/armv7-alpine-linux-musleabihf"

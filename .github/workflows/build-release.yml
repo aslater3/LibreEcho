@@ -281,7 +281,7 @@ jobs:
           # actions/download-artifact does not restore exec bits, and build.sh
           # gates several binaries with -x. Restore them after every download.
           find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
-          find "$RUNNER_TEMP/toolchain/libexec" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/toolchain/libexec" "$RUNNER_TEMP/toolchain/usr/libexec" -type f -exec chmod 0755 {} +
           find "$RUNNER_TEMP/armhf-root/usr/bin" "$RUNNER_TEMP/armhf-root/usr/sbin" \
             "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/bin" -type f -exec chmod 0755 {} +
           find "$RUNNER_TEMP/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13" -maxdepth 1 -type f \

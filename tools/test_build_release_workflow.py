@@ -97,6 +97,10 @@ class Tests(unittest.TestCase):
   self.assertIn('MUSL_SITE = https://www.musl-libc.org/releases', TOOLCHAIN)
   self.assertIn('curl -4 -L --fail --retry 5 --retry-all-errors', TOOLCHAIN)
   self.assertIn('curl is required for public toolchain downloads', TOOLCHAIN)
+  # GCC resolves cc1 via ../libexec relative to the driver; the usr/bin
+  # compiler copies need the libexec tree staged beside them.
+  self.assertIn('cp -a "$OUT/libexec" "$OUT/usr/libexec"', TOOLCHAIN)
+  self.assertIn('"$RUNNER_TEMP/toolchain/usr/libexec"', W)
   for package in ('gcc-13-arm-linux-gnueabihf-base', 'gcc-13-cross-base',
                   'cpp-13-arm-linux-gnueabihf', 'libgcc-13-dev-armhf-cross',
                   'libgcc-s1-armhf-cross', 'libstdc++6-armhf-cross',
