@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import urllib.request
 import subprocess
 import shutil
 import tarfile
@@ -38,10 +37,12 @@ def fetch(record: dict, destination: Path) -> Path:
     if record["redistribution"] != "cleared":
         raise ValueError(f"input is not cleared: {record['name']}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(record["url"], headers={"User-Agent": "LibreEcho-public-build/1"})
-    with urllib.request.urlopen(request, timeout=300) as source, destination.open("wb") as target:
-        while block := source.read(1024 * 1024):
-            target.write(block)
+    request = [
+        "curl", "--fail", "--location", "--ipv4", "--retry", "5",
+        "--retry-all-errors", "--connect-timeout", "30", "--max-time", "600",
+        "--user-agent", "LibreEcho-public-build/1", "--output", str(destination), record["url"]
+    ]
+    subprocess.run(request, check=True)
     if hashlib.sha256(destination.read_bytes()).hexdigest() != record["sha256"]:
         raise ValueError(f"input digest mismatch: {record['name']}")
     return destination
