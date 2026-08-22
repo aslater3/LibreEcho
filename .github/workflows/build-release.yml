@@ -121,7 +121,7 @@ jobs:
             g++-13-arm-linux-gnueabihf libgcc-13-dev-armhf-cross \
             libgcc-s1-armhf-cross libstdc++6-armhf-cross \
             libstdc++-13-dev-armhf-cross binutils-arm-linux-gnueabihf \
-            libc6-dev-armhf-cross
+            libc6-dev-armhf-cross libc6-armhf-cross
           for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
             dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
           done

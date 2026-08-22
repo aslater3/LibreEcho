@@ -80,7 +80,7 @@ class Tests(unittest.TestCase):
   for package in ('gcc-13-arm-linux-gnueabihf-base', 'gcc-13-cross-base',
                   'cpp-13-arm-linux-gnueabihf', 'libgcc-13-dev-armhf-cross',
                   'libgcc-s1-armhf-cross', 'libstdc++6-armhf-cross',
-                  'libstdc++-13-dev-armhf-cross'):
+                  'libstdc++-13-dev-armhf-cross', 'libc6-armhf-cross'):
    self.assertIn(package, W)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
 if __name__=='__main__': unittest.main()
