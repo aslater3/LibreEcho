@@ -30,6 +30,7 @@ class PublicNeuralDependencyTests(unittest.TestCase):
         ):
             self.assertIn(root, SCRIPT)
         self.assertIn('public_neural_dependencies=PASS', SCRIPT)
+        self.assertEqual(SCRIPT.count('-DCMAKE_SYSROOT="$ARMHF_ROOT"'), 2)
         self.assertIn('cmake --build "$ORT_BUILD" --target re2', SCRIPT)
         self.assertIn("printf 'ADDLIB %s\\n'", SCRIPT)
         self.assertNotIn('pipeline/out/CURRENT', SCRIPT)
