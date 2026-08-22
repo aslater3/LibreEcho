@@ -36,12 +36,20 @@ release/X.Y.0        release/X.Y.Z
   release branch**, `release/X.Y.(Z+1)` (for example `release/0.13.8`).
 - Because the current line is pre-1.0 (`0.Y.Z`), a `Y` bump is a *major*
   product release and a `Z` bump is a *minor* (fix) release; this is the
-  terminology used for release branches throughout.
+  terminology used for release branches throughout. In SemVer terms a `Y`
+  bump is a MINOR bump and a `Z` bump is a PATCH bump. The `Release impact:`
+  label always uses SemVer terms: a pre-1.0 product major release (`Y` bump)
+  is `Release impact: minor`, and a pre-1.0 product minor release (`Z` bump)
+  is `Release impact: patch`.
 - A release branch is cut from `main`, receives its features and fixes by PR,
   and merges back into `main` when it is validated and release-ready.
-- If a release branch already exists when a fix lands on `main`, cherry-pick
-  the merged fix commit into the release branch with a reference to the
-  original PR; never hand-edit a divergent copy.
+- If the release branch for a fix already exists, base the fix PR on that
+  release branch rather than on `main`. If a fix was merged into `main`
+  before the release branch was cut, carry it over by cherry-picking the
+  merged commit onto a new `fix/<purpose>` branch cut from the release
+  branch and opening a PR against the release branch that references the
+  original PR; never push directly to a release branch and never hand-edit a
+  divergent copy.
 - After a release merges to `main`, subsequent work starts from `main` again.
   A new release branch is cut for the next release; release branches are not
   reused or revived.
@@ -72,7 +80,10 @@ prefixes require maintainer agreement.
    real test runner. Do not weaken, skip, or delete tests to make CI pass.
 6. CI must be green on the exact current head. After any push, wait for the
    new CI run to complete before requesting review or merging; a stale green
-   run does not count.
+   run does not count. If the changed files match no workflow trigger (for
+   example a documentation-only PR), the head has no applicable CI: state
+   that explicitly in the PR evidence instead of waiting for a run that will
+   never start, and every check that does run must still be green.
 7. Review closure: at least one approving review is required. Automated agent
    reviews (e.g. Codex) must be addressed against the exact current head: fix
    or disprove every actionable finding with evidence, reply to each thread
