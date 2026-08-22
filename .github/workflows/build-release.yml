@@ -132,6 +132,30 @@ jobs:
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain/arm-linux-musleabihf
+          LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
+          LIBREECHO_MUSL_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/musl-1.2.5.tar.gz
+          LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wpa_supplicant-2.10.tar.gz
+          LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-tools_30~pre9.orig.tar.gz
+          LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
+          LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
+          LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
+          LIBREECHO_ADBD_KERNEL_HEADERS: ${{ github.workspace }}/sources/linux
+          LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
+          LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
+          LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
+          LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tokens.txt
+          LIBREECHO_STT_MODEL_ROOT: ${{ runner.temp }}/public-deps
+          LIBREECHO_WAKE_ORT_SOURCE: ${{ runner.temp }}/public-deps/onnxruntime-source
+          LIBREECHO_ORT_BUILD: ${{ runner.temp }}/public-deps/onnxruntime-build
+          LIBREECHO_ORT_PREFIX: ${{ runner.temp }}/public-deps/onnxruntime-prefix
+          LIBREECHO_WAKE_FLATBUFFERS_PYTHON: ${{ runner.temp }}/public-deps/flatbuffers-python
+          LIBREECHO_SHERPA_SOURCE: ${{ runner.temp }}/public-deps/sherpa-onnx-source
+          LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/sherpa-onnx-prefix
+          LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
+          LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-data
+          LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
+          LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/speexdsp-prefix
+          LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 
   publish-dev:
