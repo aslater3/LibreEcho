@@ -6,7 +6,8 @@ ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
 class Tests(unittest.TestCase):
  def test_hosted_only(self):
-  self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W); self.assertNotIn('sudo',W)
+  self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W)
+  self.assertIn('sudo apt-get install', W)
   self.assertIn('runs-on: ubuntu-24.04',W)
  def test_triggers_and_jobs(self):
   self.assertIn('branches: [main]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)

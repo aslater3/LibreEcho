@@ -65,6 +65,8 @@ jobs:
         run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json --allow-generated --output "$RUNNER_TEMP/public-deps"
       - name: Build public ARM32 musl toolchain
         run: build/ci/build-public-toolchain.sh "$RUNNER_TEMP/toolchain"
+      - name: Record toolchain identity
+        run: printf '%s\n' 227df8b99103f9c59f6570babf892978e293082f > "$RUNNER_TEMP/toolchain/TOOLCHAIN_SOURCE_COMMIT"
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
@@ -125,6 +127,28 @@ jobs:
           path: ${{ runner.temp }}/toolchain
       - name: Restore executable toolchain bits
         run: find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
+      - name: Install public ARMHF build packages
+        run: |
+          sudo dpkg --add-architecture armhf
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+            libc6-dev-armhf-cross libasound2-dev:armhf \
+            avahi-daemon:armhf libavahi-client-dev:armhf \
+            libavahi-common-dev:armhf libdbus-1-dev:armhf dbus-daemon:armhf
+      - name: Stage public ARMHF AirPlay sysroot
+        run: |
+          set -euo pipefail
+          sysroot="$RUNNER_TEMP/public-deps/airplay-sysroot"
+          mkdir -p "$sysroot"
+          for package in avahi-daemon libavahi-client-dev libavahi-common-dev libdbus-1-dev dbus-daemon libasound2-dev; do
+            dpkg-query -L "$package:armhf" 2>/dev/null || dpkg-query -L "$package"
+          done | awk 'NF && $0 !~ /^\// {next} NF' | sort -u | while read -r path; do
+            if [[ -f "$path" || -L "$path" ]]; then
+              mkdir -p "$sysroot$(dirname "$path")"
+              cp -a "$path" "$sysroot$path"
+            fi
+          done
       - name: Fail closed until hosted builder exists
         run: |
           test -x build/ci/build-public-release.sh
@@ -140,6 +164,8 @@ jobs:
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
           LIBREECHO_CORE_RUNTIME_SYSROOT: /usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: /usr/lib/gcc-cross/arm-linux-gnueabihf/13
+          CROSS: /usr/bin/arm-linux-gnueabihf-
+          AUDIO_CC: /home/runner/work/_temp/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain/arm-linux-musleabihf
@@ -164,9 +190,9 @@ jobs:
           LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/sherpa-onnx-prefix
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
           LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-data
+          LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/speexdsp-prefix
-          LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 
   publish-dev:
