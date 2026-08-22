@@ -15,3 +15,22 @@ component pull requests.
 Before opening an issue, check for an existing report. Include exact steps,
 expected and observed behavior, device and software versions, and relevant
 logs with secrets removed.
+
+## Branching, pull requests, and versioning
+
+All LibreEcho repositories share one branching model and one version number.
+The full rules are in [`AGENTS.md`](AGENTS.md) under "Branching, Pull
+Requests, and Versioning"; the essentials:
+
+- Features are developed on `feature/<purpose>` branches cut from `main` and
+  merged by PR into the next major release branch `release/X.Y.0`.
+- Fixes follow the same flow and merge by PR into the minor release branch
+  `release/X.Y.Z`.
+- Release branches merge into `main` when release-ready; `main` is never
+  committed to directly.
+- Release branches are named `release/X.Y.Z` with all three components,
+  matching the intended `radar-puffin-vX.Y.Z` product tag. Every repository
+  ships the same version for a release.
+- PRs must be focused, Conventional-Commit titled, evidence-backed, and
+  declare `Release impact:` and `Release note:`. Merging requires explicit
+  authorization; see `AGENTS.md` for the strict rules.
