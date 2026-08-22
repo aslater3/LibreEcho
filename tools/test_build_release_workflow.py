@@ -62,6 +62,17 @@ class Tests(unittest.TestCase):
   # The AirPlay sysroot is staged in build-image from the ARMHF root
   # artifact, and the deps cache layer excludes it (derived, not fetched).
   self.assertIn('Stage public ARMHF AirPlay sysroot', W)
+  # Hosted-runner substitutions for host-only defaults: AirPlay C++ compiler
+  # and ALSA runtime data come from the staged ARMHF root, not /usr.
+  self.assertIn('LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++', W)
+  self.assertIn('LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa', W)
+  self.assertIn('libasound2-data', W)
+  # Exec bits are restored across the full staged closure: toolchain
+  # libexec (cc1), ARMHF usr/bin and usr/sbin (avahi/dbus daemons), and
+  # host-tools/bin (plistutil), because download-artifact strips them.
+  self.assertIn('find "$RUNNER_TEMP/toolchain/libexec" -type f -exec chmod 0755 {} +', W)
+  self.assertIn('"$RUNNER_TEMP/armhf-root/usr/sbin"', W)
+  self.assertIn('find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)
   self.assertIn('!${{ runner.temp }}/public-deps/neural', W)
   # Restored inputs are skipped; only cold paths rebuild and re-save.

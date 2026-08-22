@@ -115,7 +115,7 @@ jobs:
           apt-get "${apt_opts[@]}" update
           cd "$debs"
           apt-get download "${apt_opts[@]}" \
-            libasound2-dev:armhf avahi-daemon:armhf \
+            libasound2-dev:armhf libasound2-data avahi-daemon:armhf \
             libavahi-client-dev:armhf libavahi-common-dev:armhf \
             libdbus-1-dev:armhf dbus-daemon:armhf
           cd "$RUNNER_TEMP"
@@ -281,7 +281,9 @@ jobs:
           # actions/download-artifact does not restore exec bits, and build.sh
           # gates several binaries with -x. Restore them after every download.
           find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
-          find "$RUNNER_TEMP/armhf-root/usr/bin" "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/bin" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/toolchain/libexec" -type f -exec chmod 0755 {} +
+          find "$RUNNER_TEMP/armhf-root/usr/bin" "$RUNNER_TEMP/armhf-root/usr/sbin" \
+            "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/bin" -type f -exec chmod 0755 {} +
           find "$RUNNER_TEMP/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13" -maxdepth 1 -type f \
             \( -name 'cc1*' -o -name 'collect2*' -o -name 'lto*' \) -exec chmod 0755 {} +
           find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +
@@ -350,7 +352,7 @@ jobs:
           AUDIO_CC: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
-          LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain/arm-linux-musleabihf
+          LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
           LIBREECHO_MUSL_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/musl-1.2.5.tar.gz
           LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wpa_supplicant-2.10.tar.gz
@@ -373,6 +375,8 @@ jobs:
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
           LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-source/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
+          LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
+          LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
