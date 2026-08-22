@@ -67,6 +67,7 @@ NAMES = {
     "wakeword-alexa": "alexa_v0.1.onnx",
     "wakeword-embedding": "embedding_model.onnx",
     "wakeword-melspectrogram": "melspectrogram.onnx",
+    "libsodium": "libsodium-1.0.18.tar.gz",
     "speexdsp": "speexdsp-SpeexDSP-1.2.1.tar.gz",
     "tinyalsa": "tinyalsa-e43025bbf702eb7dd8edd48c1eb50530c60f1de8.tar.gz",
     "nqptp": "nqptp-1.2.8.tar.gz",
