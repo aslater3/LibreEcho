@@ -10,6 +10,11 @@ class Tests(unittest.TestCase):
   self.assertIn('ports.ubuntu.com/ubuntu-ports', W)
   self.assertIn('apt-get download', W)
   self.assertIn('dpkg-deb -x', W)
+  self.assertIn('actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a', W)
+  self.assertIn('LIBREECHO_COMPONENT_CACHE_ROOT', W)
+  self.assertIn('LIBREECHO_REUSE_COMPONENT_CACHE: "1"', W)
+  self.assertIn('restore-keys:', W)
+  self.assertNotIn('out/CURRENT', W)
   self.assertIn('runs-on: ubuntu-24.04',W)
  def test_triggers_and_jobs(self):
   self.assertIn('branches: [main]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)

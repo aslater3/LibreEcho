@@ -127,6 +127,13 @@ jobs:
           path: ${{ runner.temp }}/toolchain
       - name: Restore executable toolchain bits
         run: find "$RUNNER_TEMP/toolchain/bin" "$RUNNER_TEMP/toolchain/usr/bin" -type f -exec chmod 0755 {} +
+      - name: Restore component cache
+        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a
+        with:
+          path: ${{ runner.temp }}/component-cache
+          key: libreecho-components-v5-${{ runner.os }}-${{ needs.resolve-and-preflight.outputs.source_set_id }}-${{ hashFiles('build/build.sh', 'build/component-cache.py', 'build/inputs/public-inputs.json') }}
+          restore-keys: |
+            libreecho-components-v5-${{ runner.os }}-
       - name: Install public ARMHF build packages
         run: |
           set -euo pipefail
@@ -185,6 +192,8 @@ jobs:
           LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
           LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}/sources/product
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
+          LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
+          LIBREECHO_REUSE_COMPONENT_CACHE: "1"
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
