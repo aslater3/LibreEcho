@@ -80,7 +80,7 @@ copy_named_archive() {
 
 ORT_STAGE="$OUT/onnxruntime-build"
 for archive in \
-    libonnxruntime.a libonnxruntime_session.a libonnxruntime_optimizer.a \
+    libonnxruntime_session.a libonnxruntime_optimizer.a \
     libonnxruntime_providers.a libonnxruntime_graph.a libonnxruntime_framework.a \
     libonnxruntime_common.a libonnxruntime_mlas.a libonnxruntime_util.a \
     libonnxruntime_flatbuffers.a libonnxruntime_lora.a; do
@@ -105,13 +105,25 @@ while IFS= read -r -d '' source; do
 done < <(find "$ORT_BUILD/_deps/abseil_cpp-build" -type f -name '*.a' -print0 | LC_ALL=C sort -z)
 ((absl_count > 0)) || fail "ONNX Runtime Abseil dependency closure is missing"
 
-# Sherpa's CMake build consumes a conventional libonnxruntime.a plus headers.
-# Keep a copy in the public install prefix and retain the complete ORT headers
-# from the pinned source checkout for the UI and Sherpa compile steps.
-install -m 0644 "$ORT_STAGE/libonnxruntime.a" "$OUT/onnxruntime-prefix/lib/libonnxruntime.a"
+# ORT v1.27 emits component archives by default. Build its RE2 target, then
+# assemble a conventional monolithic archive for Sherpa's pre-installed ORT
+# probe. The mature UI link still consumes the component closure above.
+cmake --build "$ORT_BUILD" --target re2 --parallel "$JOBS"
 re2="$(find "$ORT_BUILD" -type f -name libre2.a -print -quit)"
 [[ -n "$re2" ]] || fail "ONNX Runtime RE2 archive is missing"
 install -m 0644 "$re2" "$OUT/onnxruntime-prefix/lib/libre2.a"
+{
+  printf 'CREATE %s\n' "$OUT/onnxruntime-prefix/lib/libonnxruntime.a"
+  for archive in \
+      libonnxruntime_session.a libonnxruntime_optimizer.a \
+      libonnxruntime_providers.a libonnxruntime_graph.a \
+      libonnxruntime_framework.a libonnxruntime_common.a \
+      libonnxruntime_mlas.a libonnxruntime_util.a \
+      libonnxruntime_flatbuffers.a libonnxruntime_lora.a; do
+    printf 'ADDLIB %s\n' "$ORT_STAGE/$archive"
+  done
+  printf 'SAVE\nEND\n'
+} | ar -M
 
 # The ORT configure step populated the exact Python generator used by the
 # reduced wakeword build. Copy only that source tree into the artifact.
