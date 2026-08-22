@@ -164,6 +164,7 @@ jobs:
             gcc-13-arm-linux-gnueabihf-base gcc-13-cross-base \
             cpp-13-arm-linux-gnueabihf gcc-13-arm-linux-gnueabihf \
             g++-13-arm-linux-gnueabihf libgcc-13-dev-armhf-cross \
+            libgcc-s1-armhf-cross libstdc++6-armhf-cross \
             libstdc++-13-dev-armhf-cross binutils-arm-linux-gnueabihf \
             libc6-dev-armhf-cross
           for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
