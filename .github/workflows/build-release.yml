@@ -350,7 +350,9 @@ jobs:
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
           AUDIO_CC: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-gcc
-          LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/bin/arm-linux-musleabihf-
+          # The musl builder resolves armv7-alpine-linux-musleabihf-* siblings
+          # beside the compiler it is given; those copies live in usr/bin.
+          LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
