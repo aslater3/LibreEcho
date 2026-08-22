@@ -59,6 +59,11 @@ class Tests(unittest.TestCase):
   self.assertIn("if: steps.restore-deps.outputs.cache-hit != 'true'", W)
   self.assertIn("if: steps.restore-toolchain.outputs.cache-hit != 'true'", W)
   self.assertIn("if: steps.restore-neural.outputs.cache-hit != 'true'", W)
+  # Cold-path saves are gated on success so a failed fetch/build never
+  # stores partial output under the real key.
+  self.assertIn("if: success() && steps.restore-deps.outputs.cache-hit", W)
+  self.assertIn("if: success() && steps.restore-toolchain.outputs.cache-hit", W)
+  self.assertIn("if: success() && steps.restore-neural.outputs.cache-hit", W)
  def test_triggers_and_jobs(self):
   self.assertIn('branches: [main]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
   self.assertIn('prepare-public-inputs:',W); self.assertIn('publish-dev:',W); self.assertIn('publish-production:',W)

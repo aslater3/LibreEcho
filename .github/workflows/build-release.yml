@@ -80,7 +80,7 @@ jobs:
         if: steps.restore-deps.outputs.cache-hit != 'true'
         run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json --allow-generated --output "$RUNNER_TEMP/public-deps"
       - name: Save fetched public inputs cache
-        if: steps.restore-deps.outputs.cache-hit != 'true'
+        if: success() && steps.restore-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: |
@@ -161,7 +161,7 @@ jobs:
             exit 1
           }
       - name: Save musl toolchain cache
-        if: steps.restore-toolchain.outputs.cache-hit != 'true'
+        if: success() && steps.restore-toolchain.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/toolchain
@@ -183,7 +183,7 @@ jobs:
           LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu
         run: build/ci/build-public-neural-deps.sh "$RUNNER_TEMP/public-deps" "$RUNNER_TEMP/armhf-root"
       - name: Save neural dependency cache
-        if: steps.restore-neural.outputs.cache-hit != 'true'
+        if: success() && steps.restore-neural.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/public-deps/neural
