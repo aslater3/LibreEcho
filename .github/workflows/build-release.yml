@@ -299,6 +299,24 @@ jobs:
           mkdir -p "$sysroot"
           cp -a "$RUNNER_TEMP/armhf-root/." "$sysroot/"
 
+      - name: Export Linux UAPI headers
+        run: |
+          set -euo pipefail
+          # wpa_supplicant, connectivity helpers, adbd, and wireless-tools
+          # link against an exported Linux UAPI tree (linux/, asm/,
+          # asm-generic/), not the raw kernel source. The private pipeline
+          # used a pre-built kernel-uapi-6.1/include dependency; reproduce it
+          # from the locked kernel source. headers_install is standalone and
+          # does not need a full kernel build.
+          make -C sources/linux O="$RUNNER_TEMP/kernel-uapi-out" ARCH=arm \
+            headers_install INSTALL_HDR_PATH="$RUNNER_TEMP/kernel-uapi"
+          for tree in linux asm asm-generic; do
+            [[ -d "$RUNNER_TEMP/kernel-uapi/include/$tree" ]] || {
+              echo "ERROR: exported UAPI subtree is missing: $tree" >&2
+              exit 1
+            }
+          done
+
       # --- Layer 4: content-addressed component cache. Restored before the ---
       # --- build; saved in a separate step with always() so a late build   ---
       # --- failure does not throw away freshly built components.           ---
@@ -363,7 +381,7 @@ jobs:
           LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
           LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
           LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
-          LIBREECHO_ADBD_KERNEL_HEADERS: ${{ github.workspace }}/sources/linux
+          LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
           LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
           LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
           LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx

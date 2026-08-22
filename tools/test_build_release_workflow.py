@@ -66,6 +66,13 @@ class Tests(unittest.TestCase):
   # and ALSA runtime data come from the staged ARMHF root, not /usr.
   self.assertIn('LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++', W)
   self.assertIn('LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa', W)
+  # Kernel UAPI headers are exported (linux/, asm/, asm-generic/) from the
+  # locked kernel source; component builders link against the exported tree,
+  # not the raw source root.
+  self.assertIn('Export Linux UAPI headers', W)
+  self.assertIn('headers_install INSTALL_HDR_PATH="$RUNNER_TEMP/kernel-uapi"', W)
+  self.assertIn('LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include', W)
+  self.assertNotIn('LIBREECHO_ADBD_KERNEL_HEADERS: ${{ github.workspace }}/sources/linux', W)
   self.assertIn('libasound2-data', W)
   # Exec bits are restored across the full staged closure: toolchain
   # libexec (cc1), ARMHF usr/bin and usr/sbin (avahi/dbus daemons), and
