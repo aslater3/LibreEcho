@@ -95,6 +95,21 @@ def stage(inventory: dict, output: Path) -> None:
             subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", record["url"], str(checkout)], check=True)
             subprocess.run(["git", "-C", str(checkout), "checkout", "--quiet", record["commit"]], check=True)
             continue
+        if record["kind"] == "source-archive-tree":
+            archive_path = output / (record["name"] + ".archive")
+            fetch(record, archive_path)
+            destination = output / record["name"]
+            destination.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(archive_path) as archive:
+                archive.extractall(destination, filter="data")
+            archive_path.unlink()
+            children = list(destination.iterdir())
+            if len(children) == 1 and children[0].is_dir():
+                nested = children[0]
+                for child in nested.iterdir():
+                    child.rename(destination / child.name)
+                nested.rmdir()
+            continue
         if record["redistribution"] != "cleared":
             continue
         relative = NAMES.get(record["name"], record["url"].rsplit("/", 1)[-1])

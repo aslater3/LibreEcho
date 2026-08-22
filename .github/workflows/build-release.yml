@@ -212,7 +212,7 @@ jobs:
           LIBREECHO_SHERPA_SOURCE: ${{ runner.temp }}/public-deps/sherpa-onnx-source
           LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/sherpa-onnx-prefix
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
-          LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-data
+          LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-source/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/speexdsp-prefix
