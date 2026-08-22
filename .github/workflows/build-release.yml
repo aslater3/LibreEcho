@@ -60,6 +60,8 @@ jobs:
   prepare-public-inputs:
     needs: resolve-and-preflight
     runs-on: ubuntu-24.04
+    outputs:
+      armhf_root_digest: ${{ steps.armhf-pkg.outputs.armhf_root_digest }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -123,7 +125,7 @@ jobs:
             g++-13-arm-linux-gnueabihf libgcc-13-dev-armhf-cross \
             libgcc-s1-armhf-cross libstdc++6-armhf-cross \
             libstdc++-13-dev-armhf-cross binutils-arm-linux-gnueabihf \
-            libc6-dev-armhf-cross libc6-armhf-cross
+            libc6-dev-armhf-cross libc6-armhf-cross linux-libc-dev-armhf-cross
           for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
             dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
           done
@@ -138,6 +140,19 @@ jobs:
           printf 'armhf_cc_sha256=%s\n' \
             "$(sha256sum "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" | awk '{print $1}')" \
             >> "$GITHUB_OUTPUT"
+      - name: Record ARMHF root package identity
+        id: armhf-pkg
+        run: |
+          set -euo pipefail
+          # Digest of the exact package set extracted into the ARMHF root:
+          # any package added, removed, or updated by the distro changes the
+          # neural and kernel cache keys and forces a rebuild.
+          digest="$(
+            for deb in "$RUNNER_TEMP/armhf-debs"/*.deb "$RUNNER_TEMP"/*.deb; do
+              dpkg-deb -f "$deb" Package Version && printf '\n'
+            done | LC_ALL=C sort -u | sha256sum | awk '{print $1}'
+          )"
+          printf 'armhf_root_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
 
       # --- Layer 2: musl toolchain, keyed by its pinned source commit and ---
       # --- builder script. ~14 min build; restored in seconds on a hit.  ---
@@ -176,7 +191,7 @@ jobs:
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/public-deps/neural
-          key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
+          key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ steps.armhf-pkg.outputs.armhf_root_digest }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
       - name: Build public neural dependencies
         if: steps.restore-neural.outputs.cache-hit != 'true'
         env:
@@ -189,7 +204,7 @@ jobs:
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ runner.temp }}/public-deps/neural
-          key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
+          key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ steps.armhf-pkg.outputs.armhf_root_digest }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -298,10 +313,11 @@ jobs:
         run: |
           set -euo pipefail
           compiler_sha="$(sha256sum "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" | awk '{print $1}')"
-          printf 'kernel_key=libreecho-kernel-out-v1-%s-%s-%s\n' \
+          printf 'kernel_key=libreecho-kernel-out-v1-%s-%s-%s-%s\n' \
             "${{ needs.resolve-and-preflight.outputs.linux_sha }}" \
             "$compiler_sha" \
             "$(sha256sum sources/linux/arch/arm/configs/mt8163_arm32_defconfig | awk '{print $1}')" \
+            "${{ needs.prepare-public-inputs.outputs.armhf_root_digest }}" \
             >> "$GITHUB_OUTPUT"
       - name: Restore kernel object cache
         id: restore-kernel

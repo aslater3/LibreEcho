@@ -45,8 +45,12 @@ class Tests(unittest.TestCase):
     'libreecho-kernel-out-v1-',
   ):
    self.assertIn(key, W)
-  # The neural cache key binds the exact compiler bytes that produced it.
+  # The neural cache key binds the exact compiler bytes and the ARMHF root
+  # package digest (any package added/removed/updated invalidates it).
   self.assertIn('steps.armhf-id.outputs.armhf_cc_sha256', W)
+  self.assertIn('steps.armhf-pkg.outputs.armhf_root_digest', W)
+  self.assertIn('needs.prepare-public-inputs.outputs.armhf_root_digest', W)
+  self.assertIn('linux-libc-dev-armhf-cross', W)
   # The kernel cache key binds kernel SHA, compiler bytes, and defconfig.
   self.assertIn('needs.resolve-and-preflight.outputs.linux_sha', W)
   self.assertIn('mt8163_arm32_defconfig', W)
