@@ -124,12 +124,14 @@ class Tests(unittest.TestCase):
   self.assertIn('cp -a "$OUT/lib/gcc" "$OUT/usr/lib/gcc"', TOOLCHAIN)
   self.assertIn('cp -a "$OUT/arm-linux-musleabihf/bin" "$OUT/usr/arm-linux-musleabihf/bin"', TOOLCHAIN)
   self.assertIn('"$RUNNER_TEMP/toolchain/usr/arm-linux-musleabihf/bin"', W)
-  # Volatile build paths must not leak into the target archives (libgcc
-  # embeds the GCC build dir in DWARF). -g0/-s/-ffile-prefix-map is the
-  # musl-cross-make-recommended way to keep target archives path-clean;
-  # component contracts reject binaries carrying /home/ paths.
+  # Hygiene flags shrink the toolchain, but only the deterministic
+  # post-install strip pass keeps volatile build paths out of libgcc's
+  # DWARF (component contracts reject binaries carrying /home/ paths).
   self.assertIn('COMMON_CONFIG += CFLAGS="-g0 -Os -ffile-prefix-map=', TOOLCHAIN)
   self.assertIn('=/usr/src/musl-cross-make', TOOLCHAIN)
+  self.assertIn('objcopy" --strip-debug "$archive"', TOOLCHAIN)
+  self.assertIn('ranlib" "$archive"', TOOLCHAIN)
+  self.assertIn('--strip-debug "$OUT/arm-linux-musleabihf/lib/libc.so"', TOOLCHAIN)
   for package in ('gcc-13-arm-linux-gnueabihf-base', 'gcc-13-cross-base',
                   'cpp-13-arm-linux-gnueabihf', 'libgcc-13-dev-armhf-cross',
                   'libgcc-s1-armhf-cross', 'libstdc++6-armhf-cross',
