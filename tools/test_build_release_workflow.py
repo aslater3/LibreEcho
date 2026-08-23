@@ -195,6 +195,31 @@ class Tests(unittest.TestCase):
   self.assertIn("if: success() && steps.restore-deps.outputs.cache-hit", W)
   self.assertIn("if: success() && steps.restore-toolchain.outputs.cache-hit", W)
   self.assertIn("if: success() && steps.restore-neural.outputs.cache-hit", W)
+ def test_vendored_ca_contract(self):
+  # The assistant feature packager rejects any CA bundle except the reviewed
+  # 2026-06-01 bundle (digest c0c940a0...). The hosted pipeline must vendor
+  # those exact bytes in the repository and fail closed on their digest,
+  # never copying the runner's live system bundle (which drifts with runner
+  # image updates).
+  import hashlib, json
+  inv = json.loads((ROOT/'build/inputs/public-inputs.json').read_text())
+  ca = [e for e in inv['inputs'] if e['name']=='ca-certificates'][0]
+  notice = [e for e in inv['inputs'] if e['name']=='ca-certificates-notice'][0]
+  self.assertEqual(ca['kind'], 'reviewed-vendored-input')
+  self.assertEqual(ca['sha256'], 'c0c940a0e30d859783f7f130868d8082e79936ff0b41a0b1098ac7f98909263b')
+  self.assertEqual(ca['url'], 'vendored://reviewed/ca-certificates-20260601.crt')
+  self.assertEqual(notice['sha256'], 'e85e1bcad3a915dc7e6f41412bc5bdeba275cadd817896ea0451f2140a93967c')
+  # Vendored bytes exist and match the pinned digests exactly.
+  for rec in (ca, notice):
+    src = ROOT/'build/inputs'/rec['url'][len('vendored://'):]
+    self.assertTrue(src.is_file(), src)
+    self.assertEqual(hashlib.sha256(src.read_bytes()).hexdigest(), rec['sha256'])
+  # Fetcher has no remaining runner-copy path.
+  fpd = (ROOT/'build/ci/fetch-public-deps.py').read_text()
+  self.assertIn('reviewed-vendored-input', fpd)
+  self.assertIn('stage_vendored', fpd)
+  self.assertNotIn('RUNNER_SOURCES', fpd)
+  self.assertNotIn('/etc/ssl/certs/ca-certificates.crt', fpd)
  def test_triggers_and_jobs(self):
   self.assertIn('branches: [main]',W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
   self.assertIn('prepare-public-inputs:',W); self.assertIn('publish-dev:',W); self.assertIn('publish-production:',W)

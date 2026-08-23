@@ -12,6 +12,7 @@ from pathlib import Path
 SHA = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SCHEMA = "libreecho-public-inputs-v1"
+VENDORED_PREFIX = "vendored://"
 
 
 def load(path: Path) -> dict:
@@ -35,10 +36,38 @@ def load(path: Path) -> dict:
                 raise ValueError(f"source-git input is not pinned: {item['name']}")
             if item["redistribution"] != "source-git-pinned":
                 raise ValueError(f"source-git input has invalid redistribution: {item['name']}")
+        if item["kind"] == "reviewed-vendored-input":
+            if not item["url"].startswith(VENDORED_PREFIX):
+                raise ValueError(f"reviewed-vendored input has a non-vendored url: {item['name']}")
+            if not SHA.fullmatch(item["sha256"]):
+                raise ValueError(f"reviewed-vendored input must pin a digest: {item['name']}")
+            if item["redistribution"] != "reviewed-vendored":
+                raise ValueError(f"reviewed-vendored input has invalid redistribution: {item['name']}")
         if item["redistribution"] == "cleared":
             if not item["url"].startswith("https://") or not SHA.fullmatch(item["sha256"]):
                 raise ValueError(f"cleared input is not fetchable: {item['name']}")
     return data
+
+
+def stage_vendored(record: dict, inventory_dir: Path, destination: Path) -> Path:
+    """Copy a reviewed file vendored in the repository, fail closed on its digest.
+
+    Reviewed inputs (the 2026-06-01 CA bundle and its copyright record) are
+    shipped inside the product repository because their bytes are a release
+    contract: the assistant feature packager rejects any other CA bundle.
+    Copying a runner's live system bundle would silently drift with runner
+    image updates.
+    """
+    relative = record["url"][len(VENDORED_PREFIX):]
+    source = inventory_dir / relative
+    if not source.is_file():
+        raise FileNotFoundError(f"reviewed-vendored input is missing: {source}")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    if digest != record["sha256"]:
+        raise ValueError(f"reviewed-vendored input digest mismatch: {record['name']}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return destination
 
 
 def fetch(record: dict, destination: Path) -> Path:
@@ -82,23 +111,12 @@ NAMES = {
     "libplist-source-descriptor": "host-tools/source/libplist_2.3.0-1~exp2build2.dsc",
 }
 
-RUNNER_SOURCES = {
-    "ca-certificates": Path("/etc/ssl/certs/ca-certificates.crt"),
-    "ca-certificates-notice": Path("/usr/share/doc/ca-certificates/copyright"),
-}
-
-
-def stage(inventory: dict, output: Path) -> None:
+def stage(inventory: dict, output: Path, inventory_dir: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for record in inventory["inputs"]:
-        if record["kind"] == "generated-runner-input":
+        if record["kind"] == "reviewed-vendored-input":
             relative = NAMES[record["name"]]
-            destination = output / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            source = RUNNER_SOURCES[record["name"]]
-            if not source.is_file():
-                raise FileNotFoundError(f"hosted runner input is missing: {source}")
-            shutil.copy2(source, destination)
+            stage_vendored(record, inventory_dir, output / relative)
             continue
         if record["kind"] == "source-git":
             checkout = output / record["name"]
@@ -174,5 +192,5 @@ if __name__ == "__main__":
     if blocked:
         raise SystemExit("PUBLIC_INPUTS_BLOCKED: " + ",".join(blocked))
     if args.output:
-        stage(data, args.output)
+        stage(data, args.output, args.inventory.parent)
     print(f"public_inputs=PASS count={len(data['inputs'])}")
