@@ -14,10 +14,6 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
-    inputs:
-      version:
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -38,8 +34,6 @@ jobs:
       linux_sha: ${{ steps.resolve.outputs.linux_sha }}
       ui_sha: ${{ steps.resolve.outputs.ui_sha }}
       source_set_id: ${{ steps.resolve.outputs.source_set_id }}
-      version: ${{ steps.resolve.outputs.version }}
-      mode: ${{ steps.resolve.outputs.mode }}
       channel: ${{ steps.resolve.outputs.channel }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -47,7 +41,6 @@ jobs:
       - id: resolve
         env:
           PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -56,17 +49,17 @@ jobs:
               *) echo "ERROR: unsupported PR base: $GITHUB_BASE_REF" >&2; exit 1 ;;
             esac
           else
-            [[ "$GITHUB_REF" == refs/heads/main ]]
+            case "$GITHUB_REF" in
+              refs/heads/main|refs/heads/release/*) ;;
+              *) echo "ERROR: unsupported build ref: $GITHUB_REF" >&2; exit 1 ;;
+            esac
           fi
           p=$(git ls-remote https://github.com/aslater3/LibreEcho-Platform.git refs/heads/main | cut -f1)
           l=$(git ls-remote https://github.com/aslater3/LibreEcho-Linux-6.1.git refs/heads/main | cut -f1)
           u=$(git ls-remote https://github.com/aslater3/LibreEcho-UI.git refs/heads/main | cut -f1)
-          args=(--product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u")
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-            args+=(--version "$VERSION")
-          fi
-          python3 build/ci/resolve-source-set.py "${args[@]}" >> "$GITHUB_OUTPUT"
+          python3 build/ci/resolve-source-set.py \
+            --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
+            >> "$GITHUB_OUTPUT"
 
   prepare-public-inputs:
     needs: resolve-and-preflight

@@ -257,7 +257,7 @@ class Tests(unittest.TestCase):
   # The vendored path must not invoke the musl toolchain rebuild anymore.
   self.assertNotIn('build_connectivity_helpers.sh', B)
  def test_triggers_and_jobs(self):
-  self.assertIn("branches: [main, 'release/**']",W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
+  self.assertIn("branches: [main, 'release/**']",W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertNotIn('inputs.version',W)
   self.assertEqual(W.count("- '**/*.md'"), 2)
   self.assertEqual(W.count("- 'docs/**'"), 2)
   self.assertIn('prepare-public-inputs:',W); self.assertNotIn('publish-dev:',W); self.assertNotIn('publish-production:',W)
@@ -268,6 +268,7 @@ class Tests(unittest.TestCase):
   self.assertIn('"${PRODUCT_SHA:0:7}"',W)
   self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
   self.assertIn('LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}',W)
+  self.assertIn('refs/heads/main|refs/heads/release/*',W)
 
  def test_boundaries(self):
   # Concurrency is scoped per event and ref (independent PR lanes), and
