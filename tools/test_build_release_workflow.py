@@ -56,6 +56,11 @@ class Tests(unittest.TestCase):
   # The kernel cache key binds kernel SHA, compiler bytes, and defconfig.
   self.assertIn('needs.resolve-and-preflight.outputs.linux_sha', W)
   self.assertIn('mt8163_arm32_defconfig', W)
+  # A cold kernel output generates defconfig automatically; a restored cache
+  # must not pass --defconfig, which invalidates the object tree and rebuilds
+  # the entire kernel despite a cache hit.
+  public_release = (ROOT/'build/ci/build-public-release.sh').read_text()
+  self.assertNotIn('build.sh" --defconfig', public_release)
   # Component cache is saved even when the build fails (entries are stored
   # atomically per component); the kernel object tree is saved only after a
   # complete successful build.

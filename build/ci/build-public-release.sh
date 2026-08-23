@@ -24,4 +24,4 @@ export LIBREECHO_BUILD_ROOT="${LIBREECHO_BUILD_ROOT:-${RUNNER_TEMP:?set RUNNER_T
 export LIBREECHO_PRIVATE_ROOT="${LIBREECHO_PRIVATE_ROOT:-$RUNNER_TEMP/libreecho-private}"
 export LIBREECHO_PUBLIC_RELEASE=1 LIBREECHO_FEATURE_POLICY=community-noncommercial
 export LIBREECHO_OTA_SIGNING_MODE=github LIBREECHO_UPDATE_CHANNEL=dev JOBS=2
-exec "$ROOT/build.sh" --defconfig --profile ota --service-profile production --feature-policy community-noncommercial --no-publish
+exec "$ROOT/build.sh" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish
