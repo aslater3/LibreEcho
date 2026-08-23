@@ -74,7 +74,7 @@ jobs:
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$tag" -f target_commitish="$HEAD_SHA" \
               -f name="LibreEcho development build $short" \
-              -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Verify SHA256SUMS before use.' \
+              -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial; the wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike). Verify SHA256SUMS before use.' \
               -F prerelease=true -f make_latest=false --jq .id)"
           else
             gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \

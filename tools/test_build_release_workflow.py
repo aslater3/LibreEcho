@@ -275,6 +275,7 @@ class Tests(unittest.TestCase):
   self.assertIn("github.event.workflow_run.head_branch == 'main'", PUBLISH)
   self.assertIn('prepare-dev-release.py', PUBLISH)
   self.assertIn('make_latest=false', PUBLISH)
+  self.assertIn('CC-BY-NC-SA-4.0 (noncommercial and ShareAlike)', PUBLISH)
   self.assertIn('test "${#assets[@]}" -eq 14', PUBLISH)
   self.assertIn("publish:\n    if: github.event_name == 'push'", PUBLISH)
   self.assertIn('refs/heads/main|refs/heads/release/*',W)
