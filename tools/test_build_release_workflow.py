@@ -125,6 +125,11 @@ class Tests(unittest.TestCase):
   self.assertIn('87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb', W)
   self.assertIn('e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e', W)
   self.assertIn('b3c7bb97baf1a5dabe0c672ebdc94724bdcd7251790152cfa4314efda5696817', W)
+  # The glibc dev linker scripts bake absolute /usr/arm-linux-gnueabihf
+  # paths; anchor the staged closure there so configure link probes work.
+  self.assertIn('Anchor ARMHF sysroot at its packaged absolute paths', W)
+  self.assertIn('sudo ln -sfT "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf" /usr/arm-linux-gnueabihf', W)
+  self.assertIn('armhf-anchor-probe', W)
   # Autotools cross builds (wakeword SpeexDSP configure) discover the
   # compiler from PATH; the shim exposes only prefixed cross tools so the
   # host binutils are never shadowed.

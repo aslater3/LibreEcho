@@ -520,6 +520,37 @@ jobs:
           test -x build/ci/build-public-release.sh
           test -f build/ci/fetch-public-deps.py
           echo 'Hosted public build entrypoint is present.'
+      - name: Anchor ARMHF sysroot at its packaged absolute paths
+        run: |
+          set -euo pipefail
+          # The staged ARMHF cross closure lives under RUNNER_TEMP, but the
+          # glibc development linker scripts (libc.so: GROUP /usr/arm-linux-
+          # gnueabihf/lib/libc.so.6 ...) and the driver's default dynamic
+          # search paths reference the packaged absolute locations
+          # /usr/arm-linux-gnueabihf and /usr/lib/gcc-cross/arm-linux-gnueabihf.
+          # On the dedicated lane those paths exist system-wide; on the
+          # hosted runner anchor them with symlinks so autotools configure
+          # link probes (wakeword SpeexDSP is the first) resolve the same
+          # closure. Static-only consumers never touch these scripts, and
+          # every cache key hashes the armhf-root contents (not /usr), so
+          # this anchor invalidates no cache layer.
+          [[ -d "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf/lib" ]] || {
+            echo "ERROR: staged ARMHF sysroot is missing: $RUNNER_TEMP/armhf-root" >&2
+            exit 1
+          }
+          sudo ln -sfT "$RUNNER_TEMP/armhf-root/usr/arm-linux-gnueabihf" /usr/arm-linux-gnueabihf
+          sudo mkdir -p /usr/lib/gcc-cross
+          sudo ln -sfT "$RUNNER_TEMP/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf" \
+            /usr/lib/gcc-cross/arm-linux-gnueabihf
+          # Fail closed here, not mid-wakeword-build: a dynamic link probe
+          # exercises the GROUP scripts through the anchored paths.
+          printf 'int main(void){return 0;}\n' > /tmp/armhf-anchor-probe.c
+          LD_LIBRARY_PATH="$RUNNER_TEMP/armhf-root/usr/lib/x86_64-linux-gnu" \
+            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc" \
+            /tmp/armhf-anchor-probe.c -o /tmp/armhf-anchor-probe
+          rm -f /tmp/armhf-anchor-probe.c /tmp/armhf-anchor-probe
+          echo "ARMHF sysroot anchored at /usr/arm-linux-gnueabihf"
+
       - name: Expose ARMHF cross tools on PATH
         run: |
           set -euo pipefail
