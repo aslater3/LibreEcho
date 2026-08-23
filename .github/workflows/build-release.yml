@@ -293,13 +293,71 @@ jobs:
       - name: Stage public ARMHF AirPlay sysroot
         run: |
           set -euo pipefail
-          # The AirPlay builder links against the staged ARMHF glibc root;
-          # mirror it into the public-deps root under the name build.sh
-          # expects. The runner has no host /usr/arm-linux-gnueabihf, so the
-          # sysroot must come from the staged root artifact.
+          # The AirPlay and assistant-curl builders link statically against a
+          # complete ARMHF glibc dependency closure: Avahi + D-Bus daemons and
+          # their runtime libraries, ALSA, OpenSSL, libplist, libsodium,
+          # libgcrypt, UUID, popt, daemon, config, expat, cap.  A plain
+          # apt-get download does not resolve dependencies, so use
+          # --download-only against an empty dpkg status file with
+          # Install-Recommends=false: apt computes the full runtime closure
+          # (104 packages) without touching the runner's own package state.
+          # The runner has no host /usr/arm-linux-gnueabihf, so this sysroot
+          # must be built from the public ARMHF archive on every prepare run.
           sysroot="$RUNNER_TEMP/public-deps/airplay-sysroot"
-          mkdir -p "$sysroot"
-          cp -a "$RUNNER_TEMP/armhf-root/." "$sysroot/"
+          [[ ! -e "$sysroot" ]] || { echo "ERROR: airplay sysroot path already occupied: $sysroot" >&2; exit 1; }
+          apt_root="$RUNNER_TEMP/airplay-sysroot-apt"
+          debs="$RUNNER_TEMP/airplay-sysroot-debs"
+          mkdir -p "$apt_root/lists/partial" "$debs" "$sysroot"
+          printf '%s\n' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted' \
+            > "$RUNNER_TEMP/airplay-sysroot.sources.list"
+          empty_status="$RUNNER_TEMP/airplay-sysroot-status"
+          : > "$empty_status"
+          apt_opts=(
+            -o Dir::Etc::sourcelist="$RUNNER_TEMP/airplay-sysroot.sources.list"
+            -o Dir::Etc::sourceparts=-
+            -o Dir::State::lists="$apt_root/lists"
+            -o Dir::Cache::archives="$debs"
+            -o Dir::State::status="$empty_status"
+            -o APT::Architecture=armhf
+            -o APT::Install-Recommends=false
+          )
+          apt-get "${apt_opts[@]}" update
+          apt-get "${apt_opts[@]}" install --download-only --reinstall -y \
+            libasound2-dev avahi-daemon libavahi-client-dev libavahi-common-dev \
+            libdbus-1-dev dbus-daemon libssl-dev libplist-dev uuid-dev \
+            libpopt-dev libdaemon-dev libconfig-dev libexpat1-dev libcap-dev \
+            libsodium-dev libgcrypt20-dev libc6-dev-armhf-cross linux-libc-dev-armhf-cross
+          for deb in "$debs"/*.deb; do
+            dpkg-deb -x "$deb" "$sysroot"
+          done
+          # Builder contracts that fail closed when the closure regressed.
+          for required in \
+            "$sysroot/usr/sbin/avahi-daemon" \
+            "$sysroot/usr/bin/dbus-daemon" \
+            "$sysroot/etc/avahi/avahi-daemon.conf" \
+            "$sysroot/usr/share/dbus-1/system.conf" \
+            "$sysroot/usr/share/dbus-1/system.d/avahi-dbus.conf" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/avahi-client.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/dbus-1.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/openssl.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/libsodium.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/libgcrypt.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/uuid.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/libplist-2.0.pc" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/libssl.a" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/libcrypto.a" \
+            "$sysroot/usr/include/openssl/ssl.h" \
+            "$sysroot/usr/include/arm-linux-gnueabihf/openssl/opensslconf.h" \
+            "$sysroot/usr/arm-linux-gnueabihf/lib/crt1.o" \
+            "$sysroot/usr/arm-linux-gnueabihf/lib/libc.a" \
+            "$sysroot/usr/share/alsa/alsa.conf"; do
+            [[ -e "$required" ]] || { echo "ERROR: AirPlay sysroot closure is incomplete: $required" >&2; exit 1; }
+          done
+          copyright_count="$(find "$sysroot/usr/share/doc" -mindepth 2 -maxdepth 2 -type f -name copyright | wc -l)"
+          [[ "$copyright_count" -gt 0 ]] || { echo "ERROR: AirPlay sysroot has no copyright records" >&2; exit 1; }
+          echo "airplay sysroot staged: $copyright_count copyright records"
 
       - name: Stage qemu-arm-static for runtime contract checks
         run: |
@@ -348,6 +406,53 @@ jobs:
             "$RUNNER_TEMP/dtc-root/usr/bin/fdtget" "$RUNNER_TEMP/host-bin/"
           install -m 0644 "$RUNNER_TEMP/dtc-root/usr/lib/x86_64-linux-gnu/libfdt.so.1" \
             "$RUNNER_TEMP/host-bin/libfdt.so.1"
+
+      - name: Stage host build tools (xxd, mksquashfs)
+        run: |
+          set -euo pipefail
+          # The AirPlay builder hard-requires xxd (shairport RAOP keying) and
+          # package_feature_payload.sh hard-requires mksquashfs for all five
+          # feature payloads. Neither ships on the ubuntu-24.04 runner image
+          # (verified against the runner-images apt list), so stage the
+          # digest-pinned noble debs into host-bin (already on PATH and on
+          # LD_LIBRARY_PATH for the build step). mksquashfs links against
+          # liblzo2/liblz4/liblzma/libzstd plus the runner-core libz, so
+          # stage those runtime libraries beside it.
+          stage_deb() {
+            local name="$1" url="$2" sha="$3" dest="$4"
+            curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 \
+              --max-time 600 -o "$dest.deb" "$url"
+            printf '%s  %s\n' "$sha" "$dest.deb" | sha256sum -c -
+            dpkg-deb -x "$dest.deb" "$dest-root"
+          }
+          mkdir -p "$RUNNER_TEMP/host-bin"
+          stage_deb xxd \
+            "https://archive.ubuntu.com/ubuntu/pool/main/v/vim/xxd_9.1.0016-1ubuntu7.19_amd64.deb" \
+            "6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc" \
+            "$RUNNER_TEMP/xxd"
+          stage_deb squashfs-tools \
+            "https://archive.ubuntu.com/ubuntu/pool/main/s/squashfs-tools/squashfs-tools_4.6.1-1build1_amd64.deb" \
+            "87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb" \
+            "$RUNNER_TEMP/squashfs-tools"
+          install -m 0755 "$RUNNER_TEMP/xxd-root/usr/bin/xxd" "$RUNNER_TEMP/host-bin/xxd"
+          install -m 0755 "$RUNNER_TEMP/squashfs-tools-root/usr/bin/mksquashfs" \
+            "$RUNNER_TEMP/squashfs-tools-root/usr/bin/unsquashfs" "$RUNNER_TEMP/host-bin/"
+          for lib_url in \
+            "https://archive.ubuntu.com/ubuntu/pool/main/l/lzo2/liblzo2-2_2.10-2build4_amd64.deb e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e liblzo2-2" \
+            "https://archive.ubuntu.com/ubuntu/pool/main/l/lz4/liblz4-1_1.9.4-1build1.1_amd64.deb 319331270d5cc52d5ebffe51c941d7b01b432bc402c2924b557209a64d4ecbad liblz4-1" \
+            "https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1_amd64.deb 4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52 libzstd1" \
+            "https://archive.ubuntu.com/ubuntu/pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1ubuntu0.3_amd64.deb d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52 liblzma5"; do
+            read -r url sha name <<<"$lib_url"
+            stage_deb "$name" "$url" "$sha" "$RUNNER_TEMP/$name"
+          done
+          install -m 0644 "$RUNNER_TEMP/liblzo2-2-root/lib/x86_64-linux-gnu/liblzo2.so.2" \
+            "$RUNNER_TEMP/liblz4-1-root/usr/lib/x86_64-linux-gnu/liblz4.so.1" \
+            "$RUNNER_TEMP/libzstd1-root/usr/lib/x86_64-linux-gnu/libzstd.so.1" \
+            "$RUNNER_TEMP/liblzma5-root/usr/lib/x86_64-linux-gnu/liblzma.so.5" \
+            "$RUNNER_TEMP/host-bin/"
+          "$RUNNER_TEMP/host-bin/xxd" -v >/dev/null
+          LD_LIBRARY_PATH="$RUNNER_TEMP/host-bin" "$RUNNER_TEMP/host-bin/mksquashfs" -version >/dev/null 2>&1
+          echo "host build tools staged: xxd + mksquashfs/unsquashfs"
 
       - name: Export Linux UAPI headers
         run: |
@@ -436,7 +541,7 @@ jobs:
           LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
           LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
           LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
-          LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
+          LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
           LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
           LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
           LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tokens.txt

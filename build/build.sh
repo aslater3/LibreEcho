@@ -1610,7 +1610,11 @@ AIRPLAY_BUILDER="$TOOLS_DIR/airplay/build_airplay.sh"
   echo "ERROR: ARMHF C++ compiler not found: $AIRPLAY_CXX" >&2
   exit 1
 }
-airplay_build_env=("CXX=$AIRPLAY_CXX")
+# The AirPlay builder derives CC/AR from CROSS_PREFIX (default
+# /usr/bin/arm-linux-gnueabihf-, absent on the hosted runner).  Pin it to the
+# same ARMHF glibc cross used for the UI daemons so nqptp/shairport/tinyalsa
+# compile with the staged compiler instead of a missing system path.
+airplay_build_env=("CXX=$AIRPLAY_CXX" "CROSS_PREFIX=$UI_CROSS")
 if [[ -n "$AIRPLAY_COMPILER_PATH" ]]; then
   airplay_build_env+=("COMPILER_PATH=$AIRPLAY_COMPILER_PATH")
 fi

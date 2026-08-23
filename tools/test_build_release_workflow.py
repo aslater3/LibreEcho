@@ -59,13 +59,24 @@ class Tests(unittest.TestCase):
   # complete successful build.
   self.assertIn('if: always() && steps.restore-components.outputs.cache-hit', W)
   self.assertIn('if: success() && steps.restore-kernel.outputs.cache-hit', W)
-  # The AirPlay sysroot is staged in build-image from the ARMHF root
-  # artifact, and the deps cache layer excludes it (derived, not fetched).
+  # The AirPlay sysroot is staged in build-image as a full ARMHF glibc
+  # dependency closure (apt --download-only with dependency resolution),
+  # and the deps cache layer excludes it (derived, not fetched).
   self.assertIn('Stage public ARMHF AirPlay sysroot', W)
+  self.assertIn('install --download-only --reinstall -y', W)
+  self.assertIn('-o APT::Install-Recommends=false', W)
+  self.assertIn('AirPlay sysroot closure is incomplete', W)
+  self.assertIn('libsodium-dev libgcrypt20-dev libc6-dev-armhf-cross linux-libc-dev-armhf-cross', W)
   # Hosted-runner substitutions for host-only defaults: AirPlay C++ compiler
   # and ALSA runtime data come from the staged ARMHF root, not /usr.
   self.assertIn('LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++', W)
   self.assertIn('LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa', W)
+  # The UI daemons (and AirPlay's CROSS_PREFIX) build with the staged ARMHF
+  # glibc cross, not the musl toolchain: the musl driver has no default
+  # include path in the staged layout, so bare invocations from the UI
+  # Makefile cannot find stdint.h/time.h there.
+  self.assertIn('LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-', W)
+  self.assertNotIn('LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-', W)
   # Kernel UAPI headers are exported (linux/, asm/, asm-generic/) from the
   # locked kernel source; component builders link against the exported tree,
   # not the raw source root.
@@ -97,6 +108,13 @@ class Tests(unittest.TestCase):
   self.assertIn('LD_LIBRARY_PATH: ${{ runner.temp }}/armhf-root/usr/lib/x86_64-linux-gnu:${{ runner.temp }}/host-bin', W)
   self.assertIn('"$RUNNER_TEMP/armhf-root/usr/sbin"', W)
   self.assertIn('find "$RUNNER_TEMP/public-deps/host-tools/bin" -type f -exec chmod 0755 {} +', W)
+  # Host build tools missing from the ubuntu-24.04 runner image are staged
+  # digest-pinned into host-bin: xxd (AirPlay) and mksquashfs/unsquashfs
+  # (feature payloads), plus the mksquashfs runtime libraries.
+  self.assertIn('Stage host build tools (xxd, mksquashfs)', W)
+  self.assertIn('6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc', W)
+  self.assertIn('87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb', W)
+  self.assertIn('e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)
   self.assertIn('!${{ runner.temp }}/public-deps/neural', W)
   # Restored inputs are skipped; only cold paths rebuild and re-save.
