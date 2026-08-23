@@ -331,9 +331,14 @@ jobs:
             libasound2-dev avahi-daemon libavahi-client-dev libavahi-common-dev \
             libdbus-1-dev dbus-daemon libssl-dev libplist-dev uuid-dev \
             libpopt-dev libdaemon-dev libconfig-dev libexpat1-dev libcap-dev \
-            libsodium-dev libgcrypt20-dev
-          # NOTE: do not seed libc6-dev-armhf-cross / linux-libc-dev-armhf-cross
-          # here. They install a second glibc under usr/arm-linux-gnueabihf/
+            libsodium-dev libgcrypt20-dev zlib1g-dev
+          # NOTE: zlib1g-dev is required even though shairport-sync itself
+          # never asks for it: the FFmpeg static archives staged into this
+          # sysroot were built WITH zlib, so their pkg-config Libs.private
+          # injects -lz into shairport-sync's final link. Without the dev
+          # package there is no libz.so linker symlink and the link fails
+          # with 'cannot find -lz'. Do not seed libc6-dev-armhf-cross /
+          # linux-libc-dev-armhf-cross here: they install a second glibc
           # (cross layout) that conflicts with the native armhf layout
           # (usr/lib/arm-linux-gnueabihf/) these builders actually link
           # against: the linker prefers the cross libc.so and its GROUP paths
@@ -385,7 +390,9 @@ jobs:
             "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc" \
             --sysroot="$sysroot" -static \
             -L"$sysroot/usr/lib/arm-linux-gnueabihf" \
-            "$probe_dir/probe.c" -o "$probe_dir/probe-static"
+            "$probe_dir/probe.c" -o "$probe_dir/probe-static" -lz
+          # -lz above is deliberate: it mirrors the real shairport-sync final
+          # link, where FFmpeg's static archives inject -lz via Libs.private.
           file "$probe_dir/probe" | grep -q 'ELF 32-bit LSB pie executable, ARM' || {
             echo "ERROR: airplay sysroot dynamic probe did not produce an ARM binary" >&2
             exit 1
@@ -411,6 +418,9 @@ jobs:
             "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig/libplist-2.0.pc" \
             "$sysroot/usr/lib/arm-linux-gnueabihf/libssl.a" \
             "$sysroot/usr/lib/arm-linux-gnueabihf/libcrypto.a" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/libz.a" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/libz.so" \
+            "$sysroot/usr/include/zlib.h" \
             "$sysroot/usr/include/openssl/ssl.h" \
             "$sysroot/usr/include/arm-linux-gnueabihf/openssl/opensslconf.h" \
             "$sysroot/usr/lib/arm-linux-gnueabihf/crt1.o" \

@@ -68,11 +68,17 @@ class Tests(unittest.TestCase):
   self.assertIn('install --download-only --reinstall -y', W)
   self.assertIn('-o APT::Install-Recommends=false', W)
   self.assertIn('AirPlay sysroot closure is incomplete', W)
-  self.assertIn('libsodium-dev libgcrypt20-dev', W)
+  self.assertIn('libsodium-dev libgcrypt20-dev zlib1g-dev', W)
+  # zlib1g-dev is required transitively: FFmpeg's static archives inject
+  # -lz into shairport-sync's final link; assert the dev side is present.
+  self.assertIn('"$sysroot/usr/lib/arm-linux-gnueabihf/libz.a"', W)
+  self.assertIn('"$sysroot/usr/lib/arm-linux-gnueabihf/libz.so"', W)
+  self.assertIn('"$sysroot/usr/include/zlib.h"', W)
   # The AirPlay sysroot must NOT seed the cross-layout glibc packages:
   # they install a second glibc under usr/arm-linux-gnueabihf/ that
   # conflicts with the native armhf layout the builders link against.
-  self.assertIn('NOTE: do not seed libc6-dev-armhf-cross / linux-libc-dev-armhf-cross', W)
+  self.assertIn('Do not seed libc6-dev-armhf-cross', W)
+  self.assertIn('linux-libc-dev-armhf-cross here: they install a second glibc', W)
   # Noble is usrmerge: libc's dev linker script references /lib/arm-linux-
   # gnueabihf/libc.so.6; with --sysroot ld resolves it inside the sysroot,
   # which needs the usrmerge symlinks dpkg-deb -x never creates. A dynamic
