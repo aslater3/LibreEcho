@@ -5,13 +5,97 @@ on:
     branches: [main]
     paths:
       - 'release/*-candidate.json'
+  workflow_run:
+    workflows: ['Hosted LibreEcho build and release']
+    types: [completed]
 
 permissions:
   actions: read
   contents: write
 
 jobs:
+  publish-hosted-dev:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    environment: public-release
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Resolve exact verified build artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          expected="libreecho-main-${HEAD_SHA:0:7}"
+          mapfile -t matches < <(
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --paginate \
+              --jq ".artifacts[] | select(.name == \"$expected\" and .expired == false) | .name"
+          )
+          test "${#matches[@]}" -eq 1
+          printf 'name=%s\n' "${matches[0]}" >>"$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: verified-build
+      - name: Prepare bounded unsigned dev release
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          python3 build/ci/prepare-dev-release.py \
+            --artifact-root verified-build \
+            --product-commit "$HEAD_SHA" \
+            --output-dir release-assets
+          python3 tools/check-public-metadata.py release-assets
+          (cd release-assets && sha256sum -c *-SHA256SUMS)
+      - name: Publish development prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          tag="radar-puffin-build-$HEAD_SHA"
+          short="${HEAD_SHA:0:7}"
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id 2>/dev/null || true)"
+          if [[ -z "$release_id" ]]; then
+            release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$tag" -f target_commitish="$HEAD_SHA" \
+              -f name="LibreEcho development build $short" \
+              -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Verify SHA256SUMS before use.' \
+              -F prerelease=true -f make_latest=false --jq .id)"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --jq 'select(.prerelease == true and .target_commitish == env.HEAD_SHA) | .id' |
+              grep -qx "$release_id"
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate --jq '.[].id' |
+              while read -r asset_id; do
+                gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null
+              done
+          fi
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -printf '%p\n' | sort)
+          test "${#assets[@]}" -eq 14
+          gh release upload "$tag" "${assets[@]}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate \
+            --jq '.[] | [.name, (.size|tostring)] | @tsv' | sort >actual-assets.tsv
+          find release-assets -maxdepth 1 -type f -printf '%f\t%s\n' | sort >expected-assets.tsv
+          cmp expected-assets.tsv actual-assets.tsv
+          echo "hosted_dev_release=PASS tag=$tag assets=${#assets[@]}"
+
   publish:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     environment: public-release
     steps:

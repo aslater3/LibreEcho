@@ -4,6 +4,7 @@ import re
 import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
+PUBLISH=(ROOT/'.github/workflows/publish-release.yml').read_text()
 TOOLCHAIN=(ROOT/'build/ci/build-public-toolchain.sh').read_text()
 B=(ROOT/'build/build.sh').read_text()
 NEURAL=(ROOT/'build/ci/build-public-neural-deps.sh').read_text()
@@ -263,11 +264,19 @@ class Tests(unittest.TestCase):
   self.assertIn('prepare-public-inputs:',W); self.assertNotIn('publish-dev:',W); self.assertNotIn('publish-production:',W)
   self.assertIn('name: libreecho-${{ steps.dev-build-name.outputs.value }}',W)
   self.assertIn('path: ${{ runner.temp }}/libreecho-build/out/runs/*',W)
+  self.assertIn('release-source-commits.txt', W)
   self.assertIn('ref="${GITHUB_REF_NAME#release/}"',W)
   self.assertIn('PRODUCT_SHA: ${{ needs.resolve-and-preflight.outputs.product_sha }}',W)
   self.assertIn('"${PRODUCT_SHA:0:7}"',W)
   self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
   self.assertIn('LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}',W)
+  self.assertIn("workflows: ['Hosted LibreEcho build and release']", PUBLISH)
+  self.assertIn("github.event.workflow_run.event == 'push'", PUBLISH)
+  self.assertIn("github.event.workflow_run.head_branch == 'main'", PUBLISH)
+  self.assertIn('prepare-dev-release.py', PUBLISH)
+  self.assertIn('make_latest=false', PUBLISH)
+  self.assertIn('test "${#assets[@]}" -eq 14', PUBLISH)
+  self.assertIn("publish:\n    if: github.event_name == 'push'", PUBLISH)
   self.assertIn('refs/heads/main|refs/heads/release/*',W)
 
  def test_boundaries(self):
