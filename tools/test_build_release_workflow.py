@@ -61,6 +61,9 @@ class Tests(unittest.TestCase):
   # the entire kernel despite a cache hit.
   public_release = (ROOT/'build/ci/build-public-release.sh').read_text()
   self.assertNotIn('build.sh" --defconfig', public_release)
+  self.assertIn('Normalize Linux source mtimes for kernel cache reuse', W)
+  self.assertIn('git -C sources/linux ls-files -z', W)
+  self.assertIn("grep -qxF '# CONFIG_LIBREECHO_DEV_RECOVERY_MARKER is not set'", B)
   # Component cache is saved even when the build fails (entries are stored
   # atomically per component); the kernel object tree is saved only after a
   # complete successful build.

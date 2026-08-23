@@ -254,6 +254,12 @@ jobs:
           path: sources/linux
           fetch-depth: 1
           persist-credentials: false
+      - name: Normalize Linux source mtimes for kernel cache reuse
+        run: |
+          set -euo pipefail
+          epoch="$(git -C sources/linux show -s --format=%ct HEAD)"
+          git -C sources/linux ls-files -z |
+            (cd sources/linux && xargs -0 touch -h -d "@$epoch" --)
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: aslater3/LibreEcho-UI

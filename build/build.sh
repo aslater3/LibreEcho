@@ -784,8 +784,14 @@ recovery_marker_kconfig=0
 if grep -Rqs --include='Kconfig*' 'config LIBREECHO_DEV_RECOVERY_MARKER' "$KERNEL_SRC"; then
   recovery_marker_kconfig=1
   case "$IMAGE_PROFILE" in
-    development) "$KERNEL_SRC/scripts/config" --file "$KERNEL_OUT/.config" -e LIBREECHO_DEV_RECOVERY_MARKER ;;
-    ota) "$KERNEL_SRC/scripts/config" --file "$KERNEL_OUT/.config" -d LIBREECHO_DEV_RECOVERY_MARKER ;;
+    development)
+      grep -qxF 'CONFIG_LIBREECHO_DEV_RECOVERY_MARKER=y' "$KERNEL_OUT/.config" ||
+        "$KERNEL_SRC/scripts/config" --file "$KERNEL_OUT/.config" -e LIBREECHO_DEV_RECOVERY_MARKER
+      ;;
+    ota)
+      grep -qxF '# CONFIG_LIBREECHO_DEV_RECOVERY_MARKER is not set' "$KERNEL_OUT/.config" ||
+        "$KERNEL_SRC/scripts/config" --file "$KERNEL_OUT/.config" -d LIBREECHO_DEV_RECOVERY_MARKER
+      ;;
   esac
 fi
 make -s -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
