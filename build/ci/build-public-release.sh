@@ -23,5 +23,5 @@ export LIBREECHO_INPUTS_ROOT="$LIBREECHO_PUBLIC_DEPS_ROOT"
 export LIBREECHO_BUILD_ROOT="${LIBREECHO_BUILD_ROOT:-${RUNNER_TEMP:?set RUNNER_TEMP}/libreecho-build}"
 export LIBREECHO_PRIVATE_ROOT="${LIBREECHO_PRIVATE_ROOT:-$RUNNER_TEMP/libreecho-private}"
 export LIBREECHO_PUBLIC_RELEASE=1 LIBREECHO_FEATURE_POLICY=community-noncommercial
-export LIBREECHO_OTA_SIGNING_MODE=github LIBREECHO_UPDATE_CHANNEL=dev JOBS=2
+export LIBREECHO_OTA_SIGNING_MODE=github LIBREECHO_UPDATE_CHANNEL="${LIBREECHO_UPDATE_CHANNEL:-dev}" JOBS=2
 exec "$ROOT/build.sh" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish

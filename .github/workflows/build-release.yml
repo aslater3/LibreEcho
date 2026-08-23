@@ -704,6 +704,7 @@ jobs:
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
           LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
+          LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
