@@ -22,6 +22,9 @@ jobs:
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
     environment: public-release
+    concurrency:
+      group: hosted-dev-release-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -74,6 +77,11 @@ jobs:
           set -euo pipefail
           tag="$RELEASE_TAG"
           short="${HEAD_SHA:0:7}"
+          verify_tag_ref() {
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" |
+              jq -e --arg sha "$HEAD_SHA" \
+                '.object.type == "commit" and .object.sha == $sha' >/dev/null
+          }
           while IFS= read -r path; do
             printf '%s\t%s\tsha256:%s\n' \
               "$(basename "$path")" "$(stat -c %s "$path")" "$(sha256sum "$path" | awk '{print $1}')"
@@ -88,10 +96,12 @@ jobs:
               -f name="LibreEcho development build $short" \
               -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.' \
               -F draft=true -F prerelease=true -f make_latest=false --jq .id)"
+            verify_tag_ref
           else
             release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
             jq -e --arg sha "$HEAD_SHA" \
               '.prerelease == true and .target_commitish == $sha' <<<"$release_json" >/dev/null
+            verify_tag_ref
             if [[ "$(jq -r .draft <<<"$release_json")" == false ]]; then
               gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate \
                 --jq '.[] | [.name, (.size|tostring), .digest] | @tsv' | sort >actual-assets.tsv
