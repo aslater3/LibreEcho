@@ -29,6 +29,7 @@ jobs:
   resolve-and-preflight:
     runs-on: ubuntu-24.04
     outputs:
+      product_repo: ${{ steps.resolve.outputs.product_repo }}
       product_sha: ${{ steps.resolve.outputs.product_sha }}
       platform_sha: ${{ steps.resolve.outputs.platform_sha }}
       linux_sha: ${{ steps.resolve.outputs.linux_sha }}
@@ -40,6 +41,7 @@ jobs:
         with: {fetch-depth: 1, persist-credentials: false}
       - id: resolve
         env:
+          PRODUCT_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
@@ -57,6 +59,7 @@ jobs:
           p=$(git ls-remote https://github.com/aslater3/LibreEcho-Platform.git refs/heads/main | cut -f1)
           l=$(git ls-remote https://github.com/aslater3/LibreEcho-Linux-6.1.git refs/heads/main | cut -f1)
           u=$(git ls-remote https://github.com/aslater3/LibreEcho-UI.git refs/heads/main | cut -f1)
+          printf 'product_repo=%s\n' "$PRODUCT_REPO" >> "$GITHUB_OUTPUT"
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
             >> "$GITHUB_OUTPUT"
@@ -82,7 +85,7 @@ jobs:
             ${{ runner.temp }}/public-deps
             !${{ runner.temp }}/public-deps/neural
             !${{ runner.temp }}/public-deps/airplay-sysroot
-          key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
+          key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json', 'build/ci/fetch-public-deps.py') }}
       - name: Fetch public input inventory
         if: steps.restore-deps.outputs.cache-hit != 'true'
         run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json --allow-generated --output "$RUNNER_TEMP/public-deps"
@@ -94,7 +97,7 @@ jobs:
             ${{ runner.temp }}/public-deps
             !${{ runner.temp }}/public-deps/neural
             !${{ runner.temp }}/public-deps/airplay-sysroot
-          key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
+          key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json', 'build/ci/fetch-public-deps.py') }}
 
       # ARMHF compilers are staged here (not in build-image) so the neural
       # dependency cache key can bind the exact compiler bytes that produced
@@ -236,6 +239,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          repository: ${{ needs.resolve-and-preflight.outputs.product_repo }}
           ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
           fetch-depth: 1
           persist-credentials: false
@@ -268,7 +272,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          repository: aslater3/LibreEcho
+          repository: ${{ needs.resolve-and-preflight.outputs.product_repo }}
           ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
           path: sources/product
           fetch-depth: 1

@@ -269,6 +269,13 @@ class Tests(unittest.TestCase):
   self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
   self.assertIn('LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}',W)
   self.assertIn('refs/heads/main|refs/heads/release/*',W)
+  # Fork PRs must check the product source out from the head repository, not
+  # assume the head SHA exists in aslater3/LibreEcho.
+  self.assertIn('product_repo: ${{ steps.resolve.outputs.product_repo }}', W)
+  self.assertEqual(W.count('repository: ${{ needs.resolve-and-preflight.outputs.product_repo }}'), 2)
+  # Fetcher behavior defines the staged dependency tree and therefore belongs
+  # in both restore/save keys.
+  self.assertEqual(W.count("hashFiles('build/inputs/public-inputs.json', 'build/ci/fetch-public-deps.py')"), 2)
 
  def test_boundaries(self):
   # Concurrency is scoped per event and ref (independent PR lanes), and
