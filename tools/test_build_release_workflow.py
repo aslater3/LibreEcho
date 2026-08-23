@@ -258,6 +258,8 @@ class Tests(unittest.TestCase):
   self.assertNotIn('build_connectivity_helpers.sh', B)
  def test_triggers_and_jobs(self):
   self.assertIn("branches: [main, 'release/**']",W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
+  self.assertEqual(W.count("- '**/*.md'"), 2)
+  self.assertEqual(W.count("- 'docs/**'"), 2)
   self.assertIn('prepare-public-inputs:',W); self.assertNotIn('publish-dev:',W); self.assertNotIn('publish-production:',W)
   self.assertIn('name: libreecho-${{ steps.dev-build-name.outputs.value }}',W)
   self.assertIn('path: ${{ runner.temp }}/libreecho-build/out/runs/*',W)

@@ -3,8 +3,14 @@ name: Hosted LibreEcho build and release
 on:
   push:
     branches: [main, 'release/**']
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   pull_request:
     branches: [main, release/0.13.8]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
