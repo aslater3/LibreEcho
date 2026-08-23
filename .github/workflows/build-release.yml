@@ -2,9 +2,11 @@ name: Hosted LibreEcho build and release
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
     branches: [main, release/0.13.8]
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       version:
@@ -730,6 +732,24 @@ jobs:
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 
+      - name: Name dev build
+        id: dev-build-name
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          ref="${GITHUB_REF_NAME#release/}"
+          [[ "$GITHUB_EVENT_NAME" != pull_request ]] || ref="pr-$PR_NUMBER"
+          printf 'value=%s-%s\n' "$ref" "${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified dev build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: libreecho-${{ steps.dev-build-name.outputs.value }}
+          path: ${{ runner.temp }}/libreecho-build/out/runs/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
       # Save caches after the build. The kernel tree is saved only after a
       # successful build (a partial tree is harmless for make reuse, but a
       # failed build's config state must not ride forward). The component
@@ -760,7 +780,7 @@ jobs:
             ${{ runner.temp }}/libreecho-build/generated/component-identities.log
 
   publish-dev:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [resolve-and-preflight, build-image]
     runs-on: ubuntu-24.04
     environment: development-signing
