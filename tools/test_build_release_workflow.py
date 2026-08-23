@@ -69,6 +69,12 @@ class Tests(unittest.TestCase):
   self.assertIn('-o APT::Install-Recommends=false', W)
   self.assertIn('AirPlay sysroot closure is incomplete', W)
   self.assertIn('libsodium-dev libgcrypt20-dev libc6-dev-armhf-cross linux-libc-dev-armhf-cross', W)
+  # Noble is usrmerge: libc's dev linker script references /lib/arm-linux-
+  # gnueabihf/libc.so.6; with --sysroot ld resolves it inside the sysroot,
+  # which needs the usrmerge symlinks dpkg-deb -x never creates. A dynamic
+  # link probe fails closed before AirPlay consumes the sysroot.
+  self.assertIn('ln -sfn "usr/$merged" "$sysroot/$merged"', W)
+  self.assertIn('airplay-sysroot-probe', W)
   # Hosted-runner substitutions for host-only defaults: AirPlay C++ compiler
   # and ALSA runtime data come from the staged ARMHF root, not /usr.
   self.assertIn('LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++', W)

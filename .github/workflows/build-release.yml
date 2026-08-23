@@ -335,6 +335,28 @@ jobs:
           for deb in "$debs"/*.deb; do
             dpkg-deb -x "$deb" "$sysroot"
           done
+          # Noble is usrmerge: libc's development linker script references
+          # /lib/arm-linux-gnueabihf/libc.so.6, and with --sysroot ld resolves
+          # that inside the sysroot. dpkg-deb -x extracts usr/* but never
+          # creates the usrmerge symlinks a real root filesystem has, so
+          # dynamic links fail with 'cannot find /lib/arm-linux-gnueabihf/
+          # libc.so.6 inside <sysroot>'. Recreate them.
+          for merged in lib bin sbin; do
+            [[ ! -e "$sysroot/$merged" ]] || {
+              echo "ERROR: airplay sysroot has an unexpected top-level /$merged" >&2
+              exit 1
+            }
+            ln -sfn "usr/$merged" "$sysroot/$merged"
+          done
+          # Fail closed: a dynamic link through the sysroot exercises the
+          # GROUP scripts and the usrmerge layout before AirPlay consumes it.
+          probe_dir="$RUNNER_TEMP/airplay-sysroot-probe"
+          mkdir -p "$probe_dir"
+          printf 'int main(void){return 0;}\n' > "$probe_dir/probe.c"
+          LD_LIBRARY_PATH="$RUNNER_TEMP/armhf-root/usr/lib/x86_64-linux-gnu" \
+            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc" \
+            --sysroot="$sysroot" "$probe_dir/probe.c" -o "$probe_dir/probe"
+          rm -rf "$probe_dir"
           # Builder contracts that fail closed when the closure regressed.
           for required in \
             "$sysroot/usr/sbin/avahi-daemon" \
