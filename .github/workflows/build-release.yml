@@ -331,7 +331,14 @@ jobs:
             libasound2-dev avahi-daemon libavahi-client-dev libavahi-common-dev \
             libdbus-1-dev dbus-daemon libssl-dev libplist-dev uuid-dev \
             libpopt-dev libdaemon-dev libconfig-dev libexpat1-dev libcap-dev \
-            libsodium-dev libgcrypt20-dev libc6-dev-armhf-cross linux-libc-dev-armhf-cross
+            libsodium-dev libgcrypt20-dev
+          # NOTE: do not seed libc6-dev-armhf-cross / linux-libc-dev-armhf-cross
+          # here. They install a second glibc under usr/arm-linux-gnueabihf/
+          # (cross layout) that conflicts with the native armhf layout
+          # (usr/lib/arm-linux-gnueabihf/) these builders actually link
+          # against: the linker prefers the cross libc.so and its GROUP paths
+          # resolve to files that layout never provides. The native armhf
+          # libc6-dev arrives transitively and satisfies every contract.
           for deb in "$debs"/*.deb; do
             dpkg-deb -x "$deb" "$sysroot"
           done
@@ -375,8 +382,8 @@ jobs:
             "$sysroot/usr/lib/arm-linux-gnueabihf/libcrypto.a" \
             "$sysroot/usr/include/openssl/ssl.h" \
             "$sysroot/usr/include/arm-linux-gnueabihf/openssl/opensslconf.h" \
-            "$sysroot/usr/arm-linux-gnueabihf/lib/crt1.o" \
-            "$sysroot/usr/arm-linux-gnueabihf/lib/libc.a" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/crt1.o" \
+            "$sysroot/usr/lib/arm-linux-gnueabihf/libc.a" \
             "$sysroot/usr/share/alsa/alsa.conf"; do
             [[ -e "$required" ]] || { echo "ERROR: AirPlay sysroot closure is incomplete: $required" >&2; exit 1; }
           done
