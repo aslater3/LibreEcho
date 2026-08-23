@@ -13,6 +13,10 @@ JOBS="${JOBS:-2}"
 ORT_COMMIT=8f0278c77bf44b0cc83c098c6c722b92a36ac4b5
 SHERPA_COMMIT=546df6f963ae719dddd8b8d10749e9d9086b0d86
 SPEEX_SHA=d17ca363654556a4ff1d02cc13d9eb1fc5a8642c90b40bd54ce266c3807b91a7
+# The flite source tree is extracted by fetch-public-deps.py (archive
+# SHA-256 verified there); this builder compiles it in place because the
+# UI Makefile links from $(FLITE_SRC)/build/arm-linux-gnueabihf/lib.
+FLITE_SOURCE="$DEPS_ROOT/flite-source"
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -28,6 +32,9 @@ done
 [[ "$(git -C "$SHERPA_SOURCE" rev-parse HEAD)" == "$SHERPA_COMMIT" ]] || fail "Sherpa-ONNX source identity changed"
 [[ -f "$SPEEX_ARCHIVE" && ! -L "$SPEEX_ARCHIVE" ]] || fail "SpeexDSP source archive is missing"
 [[ "$(sha256sum "$SPEEX_ARCHIVE" | awk '{print $1}')" == "$SPEEX_SHA" ]] || fail "SpeexDSP source identity changed"
+[[ -d "$FLITE_SOURCE" && ! -L "$FLITE_SOURCE" ]] || fail "Flite source tree is missing"
+[[ -x "$FLITE_SOURCE/configure" && -f "$FLITE_SOURCE/include/flite.h" ]] || \
+  fail "Flite source tree is incomplete (configure/include)"
 
 rm -rf -- "$OUT"
 mkdir -p "$OUT" "$OUT/onnxruntime-build" "$OUT/onnxruntime-prefix/lib" "$OUT/sherpa-onnx-prefix"
@@ -205,6 +212,40 @@ sed -i -e 's|^prefix=.*|prefix=/opt/libreecho/speexdsp|' \
 sed -i -e "s|^libdir=.*|libdir='/opt/libreecho/speexdsp/lib'|" \
   "$OUT/speexdsp-prefix/lib/libspeexdsp.la"
 
+# Build the static ARM32 Flite libraries.  The neural TTS/STT daemons link
+# them from $FLITE_SOURCE/build/arm-linux-gnueabihf/lib (the exact path the
+# UI Makefile consumes).  The build happens in place inside the extracted
+# source tree, then the build/ subtree is copied into neural/flite-root so
+# it rides in the neural dependency cache (keyed by the exact ARMHF
+# compiler).  build.sh stages it back into the flite source tree before the
+# TTS link; on a neural cache hit the staged copy is the only source.
+rm -rf "$FLITE_SOURCE/build" "$FLITE_SOURCE/bin" "$OUT/flite-root"
+(
+  cd "$FLITE_SOURCE"
+  # The staged ARMHF root carries the ALSA development headers, so configure
+  # detects ALSA even with --with-audio=none and leaves AUDIOLIBS=-lasound,
+  # which breaks the host-side demo binaries the voice mains link against.
+  # Disable the audio backend entirely: only the static archives matter.
+  ./configure --host=arm-linux-gnueabihf --build=x86_64-pc-linux-gnu \
+    --with-audio=none \
+    CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
+    CFLAGS="--sysroot=$ARMHF_ROOT -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -ffunction-sections -fdata-sections"
+  sed -i -e 's/^AUDIOLIBS.*/AUDIOLIBS =/' config/config
+  make -j"$JOBS"
+)
+[[ -d "$FLITE_SOURCE/build/arm-linux-gnueabihf/lib" ]] || \
+  fail "Flite cross build produced no library directory"
+mkdir -p "$OUT/flite-root"
+cp -a -- "$FLITE_SOURCE/build" "$OUT/flite-root/build"
+for flite_lib in \
+    libflite.a libflite_cmu_us_slt.a libflite_cmu_us_awb.a libflite_cmu_us_rms.a \
+    libflite_cmu_us_kal.a libflite_usenglish.a libflite_cmulex.a \
+    libflite_cmu_indic_lang.a libflite_cmu_grapheme_lang.a \
+    libflite_cmu_indic_lex.a libflite_cmu_grapheme_lex.a; do
+  [[ -f "$OUT/flite-root/build/arm-linux-gnueabihf/lib/$flite_lib" ]] || \
+    fail "Flite static library is missing: $flite_lib"
+done
+
 for required in \
     "$OUT/onnxruntime-prefix/include/onnxruntime_cxx_api.h" \
     "$OUT/onnxruntime-build/libonnxruntime_session.a" \
@@ -218,10 +259,11 @@ for required in \
 done
 
 cat > "$OUT/NEURAL_DEPENDENCY_MANIFEST" <<EOF
-schema=libreecho-public-neural-deps-v1
+schema=libreecho-public-neural-deps-v2
 onnxruntime_commit=$ORT_COMMIT
 sherpa_onnx_commit=$SHERPA_COMMIT
 speexdsp_sha256=$SPEEX_SHA
+flite_source=$FLITE_SOURCE
 cross_prefix=$CROSS
 jobs=$JOBS
 EOF

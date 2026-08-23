@@ -410,17 +410,18 @@ jobs:
           install -m 0644 "$RUNNER_TEMP/dtc-root/usr/lib/x86_64-linux-gnu/libfdt.so.1" \
             "$RUNNER_TEMP/host-bin/libfdt.so.1"
 
-      - name: Stage host build tools (xxd, mksquashfs)
+      - name: Stage host build tools (xxd, mksquashfs, cpio)
         run: |
           set -euo pipefail
-          # The AirPlay builder hard-requires xxd (shairport RAOP keying) and
+          # The AirPlay builder hard-requires xxd (shairport RAOP keying),
           # package_feature_payload.sh hard-requires mksquashfs for all five
-          # feature payloads. Neither ships on the ubuntu-24.04 runner image
-          # (verified against the runner-images apt list), so stage the
-          # digest-pinned noble debs into host-bin (already on PATH and on
-          # LD_LIBRARY_PATH for the build step). mksquashfs links against
-          # liblzo2/liblz4/liblzma/libzstd plus the runner-core libz, so
-          # stage those runtime libraries beside it.
+          # feature payloads, and build_recovery_image.py hard-requires cpio
+          # for the ramdisk assembly. None of them ships on the ubuntu-24.04
+          # runner image (verified against the runner-images apt list), so
+          # stage the digest-pinned noble debs into host-bin (already on PATH
+          # and on LD_LIBRARY_PATH for the build step). mksquashfs links
+          # against liblzo2/liblz4/liblzma/libzstd plus the runner-core
+          # libz, so stage those runtime libraries beside it.
           stage_deb() {
             local name="$1" url="$2" sha="$3" dest="$4"
             curl -4 -L --fail --retry 5 --retry-all-errors --connect-timeout 30 \
@@ -437,9 +438,14 @@ jobs:
             "https://archive.ubuntu.com/ubuntu/pool/main/s/squashfs-tools/squashfs-tools_4.6.1-1build1_amd64.deb" \
             "87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb" \
             "$RUNNER_TEMP/squashfs-tools"
+          stage_deb cpio \
+            "https://archive.ubuntu.com/ubuntu/pool/main/c/cpio/cpio_2.15+dfsg-1ubuntu2_amd64.deb" \
+            "b3c7bb97baf1a5dabe0c672ebdc94724bdcd7251790152cfa4314efda5696817" \
+            "$RUNNER_TEMP/cpio"
           install -m 0755 "$RUNNER_TEMP/xxd-root/usr/bin/xxd" "$RUNNER_TEMP/host-bin/xxd"
           install -m 0755 "$RUNNER_TEMP/squashfs-tools-root/usr/bin/mksquashfs" \
             "$RUNNER_TEMP/squashfs-tools-root/usr/bin/unsquashfs" "$RUNNER_TEMP/host-bin/"
+          install -m 0755 "$RUNNER_TEMP/cpio-root/usr/bin/cpio" "$RUNNER_TEMP/host-bin/cpio"
           for lib_url in \
             "https://archive.ubuntu.com/ubuntu/pool/main/l/lzo2/liblzo2-2_2.10-2build4_amd64.deb e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e liblzo2-2" \
             "https://archive.ubuntu.com/ubuntu/pool/main/l/lz4/liblz4-1_1.9.4-1build1.1_amd64.deb 319331270d5cc52d5ebffe51c941d7b01b432bc402c2924b557209a64d4ecbad liblz4-1" \
@@ -454,8 +460,9 @@ jobs:
             "$RUNNER_TEMP/liblzma5-root/usr/lib/x86_64-linux-gnu/liblzma.so.5" \
             "$RUNNER_TEMP/host-bin/"
           "$RUNNER_TEMP/host-bin/xxd" -v >/dev/null
+          "$RUNNER_TEMP/host-bin/cpio" --version >/dev/null 2>&1
           LD_LIBRARY_PATH="$RUNNER_TEMP/host-bin" "$RUNNER_TEMP/host-bin/mksquashfs" -version >/dev/null 2>&1
-          echo "host build tools staged: xxd + mksquashfs/unsquashfs"
+          echo "host build tools staged: xxd + mksquashfs/unsquashfs + cpio"
 
       - name: Export Linux UAPI headers
         run: |
@@ -561,6 +568,7 @@ jobs:
           LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
           LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
+          LIBREECHO_FLITE_ROOT: ${{ runner.temp }}/public-deps/neural/flite-root
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 

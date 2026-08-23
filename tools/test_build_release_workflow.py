@@ -5,6 +5,8 @@ import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
 TOOLCHAIN=(ROOT/'build/ci/build-public-toolchain.sh').read_text()
+B=(ROOT/'build/build.sh').read_text()
+NEURAL=(ROOT/'build/ci/build-public-neural-deps.sh').read_text()
 CACHE_PIN='0400d5f644dc74513175e3cd8d07132dd4860809'
 class Tests(unittest.TestCase):
  def test_hosted_only(self):
@@ -77,6 +79,13 @@ class Tests(unittest.TestCase):
   # Makefile cannot find stdint.h/time.h there.
   self.assertIn('LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-', W)
   self.assertNotIn('LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-', W)
+  # Flite ships as source only; the neural dependency builder compiles the
+  # static ARM32 archives into the neural cache and build.sh stages them
+  # into the source tree at the path the UI Makefile links from.
+  self.assertIn('LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source', W)
+  self.assertIn('LIBREECHO_FLITE_ROOT: ${{ runner.temp }}/public-deps/neural/flite-root', W)
+  self.assertIn('FLITE_BUILT_ROOT="${LIBREECHO_FLITE_ROOT:?ERROR: set LIBREECHO_FLITE_ROOT explicitly}"', B)
+  self.assertIn('libflite_cmu_us_slt.a', NEURAL)
   # Kernel UAPI headers are exported (linux/, asm/, asm-generic/) from the
   # locked kernel source; component builders link against the exported tree,
   # not the raw source root.
@@ -111,10 +120,11 @@ class Tests(unittest.TestCase):
   # Host build tools missing from the ubuntu-24.04 runner image are staged
   # digest-pinned into host-bin: xxd (AirPlay) and mksquashfs/unsquashfs
   # (feature payloads), plus the mksquashfs runtime libraries.
-  self.assertIn('Stage host build tools (xxd, mksquashfs)', W)
+  self.assertIn('Stage host build tools (xxd, mksquashfs, cpio)', W)
   self.assertIn('6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc', W)
   self.assertIn('87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb', W)
   self.assertIn('e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e', W)
+  self.assertIn('b3c7bb97baf1a5dabe0c672ebdc94724bdcd7251790152cfa4314efda5696817', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)
   self.assertIn('!${{ runner.temp }}/public-deps/neural', W)
   # Restored inputs are skipped; only cold paths rebuild and re-save.

@@ -578,6 +578,19 @@ if [[ "$FEATURES_ENABLED" == 1 ]]; then
       exit 1
     }
   done
+  if [[ "$PUBLIC_RELEASE_MODE" == 1 ]]; then
+    # The public lane fetches Flite as source only; the neural dependency
+    # builder compiles the static ARM32 archives into the neural cache
+    # (flite-root/build). Stage them into the source tree at the exact
+    # path the UI Makefile links from ($(FLITE_SRC)/build/arm-linux-gnueabihf/lib).
+    FLITE_BUILT_ROOT="${LIBREECHO_FLITE_ROOT:?ERROR: set LIBREECHO_FLITE_ROOT explicitly}"
+    [[ -d "$FLITE_BUILT_ROOT/build/arm-linux-gnueabihf/lib" && ! -L "$FLITE_BUILT_ROOT/build" ]] || {
+      echo "ERROR: built Flite libraries are missing from the neural dependency cache: $FLITE_BUILT_ROOT" >&2
+      exit 1
+    }
+    rm -rf "$FLITE_SOURCE/build"
+    cp -a "$FLITE_BUILT_ROOT/build" "$FLITE_SOURCE/build"
+  fi
   if [[ "$PUBLIC_RELEASE_MODE" != 1 ]]; then
   [[ -x "$ASSEMBLE_SOURCE_OFFERS" ]] || {
     echo "ERROR: source-offer assembler is unavailable: $ASSEMBLE_SOURCE_OFFERS" >&2
