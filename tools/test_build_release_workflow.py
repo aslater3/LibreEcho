@@ -84,6 +84,10 @@ class Tests(unittest.TestCase):
   # which needs the usrmerge symlinks dpkg-deb -x never creates. A dynamic
   # link probe fails closed before AirPlay consumes the sysroot.
   self.assertIn('ln -sfn "usr/$merged" "$sysroot/$merged"', W)
+  # alsa-topology-conf ships real /lib/firmware; the usrmerge handling must
+  # merge real top-level dirs into usr/ (not fail closed on them).
+  self.assertIn('cp -a "$sysroot/$merged/." "$sysroot/usr/$merged/"', W)
+  self.assertIn('"$sysroot/usr/lib/firmware/skl_hda_dsp_generic-tplg.bin"', W)
   self.assertIn('airplay-sysroot-probe', W)
   # The sysroot must never contain a cross-layout glibc tree (it would
   # shadow the native armhf glibc and reintroduce bare /usr/arm-linux-

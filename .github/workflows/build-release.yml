@@ -358,13 +358,26 @@ jobs:
           # that inside the sysroot. dpkg-deb -x extracts usr/* but never
           # creates the usrmerge symlinks a real root filesystem has, so
           # dynamic links fail with 'cannot find /lib/arm-linux-gnueabihf/
-          # libc.so.6 inside <sysroot>'. Recreate them.
+          # libc.so.6 inside <sysroot>'. dpkg-deb -x also REPLACES a
+          # pre-existing /lib symlink with a real directory whenever a
+          # package ships top-level /lib content (alsa-topology-conf ships
+          # /lib/firmware/*.bin). Reproduce the usrmerge root faithfully:
+          # merge any real top-level dir into usr/, then (re)install the
+          # symlinks, exactly like dpkg does on a merged-usr system.
           for merged in lib bin sbin; do
-            [[ ! -e "$sysroot/$merged" ]] || {
-              echo "ERROR: airplay sysroot has an unexpected top-level /$merged" >&2
-              exit 1
-            }
-            ln -sfn "usr/$merged" "$sysroot/$merged"
+            if [[ -L "$sysroot/$merged" ]]; then
+              [[ "$(readlink "$sysroot/$merged")" == "usr/$merged" ]] || {
+                echo "ERROR: airplay sysroot /$merged is not a usrmerge symlink" >&2
+                exit 1
+              }
+            elif [[ -d "$sysroot/$merged" ]]; then
+              mkdir -p "$sysroot/usr/$merged"
+              cp -a "$sysroot/$merged/." "$sysroot/usr/$merged/"
+              rm -rf "$sysroot/$merged"
+              ln -sfn "usr/$merged" "$sysroot/$merged"
+            else
+              ln -sfn "usr/$merged" "$sysroot/$merged"
+            fi
           done
           # Never let a cross-layout glibc tree sneak into this sysroot:
           # it would shadow the native armhf glibc the builders link
@@ -435,7 +448,8 @@ jobs:
             "$sysroot/usr/share/alsa/ucm2" \
             "$sysroot/usr/share/doc/libasound2-data/copyright" \
             "$sysroot/usr/share/doc/alsa-ucm-conf/copyright" \
-            "$sysroot/usr/share/doc/alsa-topology-conf/copyright"; do
+            "$sysroot/usr/share/doc/alsa-topology-conf/copyright" \
+            "$sysroot/usr/lib/firmware/skl_hda_dsp_generic-tplg.bin"; do
             [[ -e "$required" ]] || { echo "ERROR: AirPlay sysroot closure is incomplete: $required" >&2; exit 1; }
           done
           copyright_count="$(find "$sysroot/usr/share/doc" -mindepth 2 -maxdepth 2 -type f -name copyright | wc -l)"
