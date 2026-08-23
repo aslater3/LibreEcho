@@ -779,27 +779,3 @@ jobs:
           path: |
             ${{ runner.temp }}/libreecho-build/generated/component-timing.log
             ${{ runner.temp }}/libreecho-build/generated/component-identities.log
-
-  publish-dev:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [resolve-and-preflight, build-image]
-    runs-on: ubuntu-24.04
-    environment: development-signing
-    permissions: {contents: write}
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with: {fetch-depth: 1, persist-credentials: false}
-      - name: Publish
-        run: python3 build/ci/publish-release.py publish-dev
-
-  publish-production:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [resolve-and-preflight, build-image]
-    runs-on: ubuntu-24.04
-    environment: production-signing
-    permissions: {contents: write}
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with: {fetch-depth: 1, persist-credentials: false}
-      - name: Publish
-        run: python3 build/ci/publish-release.py publish-production --version '${{ inputs.version }}'

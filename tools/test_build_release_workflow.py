@@ -250,14 +250,14 @@ class Tests(unittest.TestCase):
   self.assertNotIn('build_connectivity_helpers.sh', B)
  def test_triggers_and_jobs(self):
   self.assertIn("branches: [main, 'release/**']",W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
-  self.assertIn('prepare-public-inputs:',W); self.assertIn('publish-dev:',W); self.assertIn('publish-production:',W)
+  self.assertIn('prepare-public-inputs:',W); self.assertNotIn('publish-dev:',W); self.assertNotIn('publish-production:',W)
   self.assertIn('name: libreecho-${{ steps.dev-build-name.outputs.value }}',W)
   self.assertIn('path: ${{ runner.temp }}/libreecho-build/out/runs/*',W)
   self.assertIn('ref="${GITHUB_REF_NAME#release/}"',W)
   self.assertIn('PRODUCT_SHA: ${{ needs.resolve-and-preflight.outputs.product_sha }}',W)
   self.assertIn('"${PRODUCT_SHA:0:7}"',W)
   self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
-  self.assertIn("github.ref == 'refs/heads/main'",W)
+
  def test_boundaries(self):
   # Concurrency is scoped per event and ref (independent PR lanes), and
   # running builds are never cancelled.
