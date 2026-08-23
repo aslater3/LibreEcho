@@ -278,6 +278,16 @@ jobs:
         with:
           name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/armhf-root
+      - name: Derive reviewed TTS voice models
+        run: |
+          set -euo pipefail
+          # The packaged TTS models are byte-for-byte reproducible
+          # derivatives of the pinned upstream Piper voices (upstream blob +
+          # reviewed ONNX metadata_props). Derive them here and fail closed
+          # unless each output hash equals the reviewed contract in
+          # build/inputs/tts-voice-metadata.json (the same hashes that
+          # LibreEcho-Kernel's tts/package_feature.sh enforces).
+          python3 build/ci/derive-tts-model.py --deps-root "$RUNNER_TEMP/public-deps"
       - name: Restore executable toolchain bits
         run: |
           set -euo pipefail
@@ -698,9 +708,9 @@ jobs:
           LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
           LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
           LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
-          LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
-          LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.optimized.onnx
-          LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tokens.txt
+          LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.derived.onnx
+          LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/southern-female.derived.onnx
+          LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tts-tokens.txt
           LIBREECHO_STT_MODEL_ROOT: ${{ runner.temp }}/public-deps
           LIBREECHO_WAKE_ORT_SOURCE: ${{ runner.temp }}/public-deps/onnxruntime-source
           LIBREECHO_ORT_BUILD: ${{ runner.temp }}/public-deps/neural/onnxruntime-build

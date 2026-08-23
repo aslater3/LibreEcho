@@ -57,8 +57,9 @@ def fetch(record: dict, destination: Path) -> Path:
 
 
 NAMES = {
-    "tts-model": "northern-male.optimized.onnx",
-    "tts-model-config": "northern-male.optimized.onnx.json",
+    "tts-northern-upstream": "piper-en_GB-northern_english_male-medium.onnx",
+    "tts-female-upstream": "piper-en_GB-southern_english_female-low.onnx",
+    "tts-tokens": "tts-tokens.txt",
     "stt-encoder": "encoder-epoch-99-avg-1.int8.onnx",
     "stt-decoder": "decoder-epoch-99-avg-1.int8.onnx",
     "stt-joiner": "joiner-epoch-99-avg-1.int8.onnx",

@@ -117,6 +117,17 @@ class Tests(unittest.TestCase):
   # Makefile cannot find stdint.h/time.h there.
   self.assertIn('LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-', W)
   self.assertNotIn('LIBREECHO_UI_CROSS: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-', W)
+  # TTS voices are derived at build time from the pinned upstream Piper
+  # voices (rhasspy/piper-voices rev ea046e84): upstream blob + reviewed
+  # metadata_props. The derived hashes must equal the contract in
+  # tts-voice-metadata.json (same as package_feature.sh), and each voice
+  # gets its own env var — never both pointing at one file.
+  self.assertIn('Derive reviewed TTS voice models', W)
+  self.assertIn('python3 build/ci/derive-tts-model.py --deps-root "$RUNNER_TEMP/public-deps"', W)
+  self.assertIn('LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.derived.onnx', W)
+  self.assertIn('LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/southern-female.derived.onnx', W)
+  self.assertIn('LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tts-tokens.txt', W)
+  self.assertNotIn('LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male', W)
   # Flite ships as source only; the neural dependency builder compiles the
   # static ARM32 archives into the neural cache and build.sh stages them
   # into the source tree at the path the UI Makefile links from.
