@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, release/0.13.8]
   workflow_dispatch:
     inputs:
       version:
@@ -43,7 +43,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            [[ "$GITHUB_BASE_REF" == main ]]
+            case "$GITHUB_BASE_REF" in
+              main|release/0.13.8) ;;
+              *) echo "ERROR: unsupported PR base: $GITHUB_BASE_REF" >&2; exit 1 ;;
+            esac
           else
             [[ "$GITHUB_REF" == refs/heads/main ]]
           fi

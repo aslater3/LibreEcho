@@ -127,7 +127,7 @@ class Tests(unittest.TestCase):
   self.assertIn("if: success() && steps.restore-toolchain.outputs.cache-hit", W)
   self.assertIn("if: success() && steps.restore-neural.outputs.cache-hit", W)
  def test_triggers_and_jobs(self):
-  self.assertIn('branches: [main]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
+  self.assertIn('branches: [main]',W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
   self.assertIn('prepare-public-inputs:',W); self.assertIn('publish-dev:',W); self.assertIn('publish-production:',W)
  def test_boundaries(self):
   # Concurrency is scoped per event and ref (independent PR lanes), and
