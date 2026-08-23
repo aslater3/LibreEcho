@@ -220,6 +220,34 @@ class Tests(unittest.TestCase):
   self.assertIn('stage_vendored', fpd)
   self.assertNotIn('RUNNER_SOURCES', fpd)
   self.assertNotIn('/etc/ssl/certs/ca-certificates.crt', fpd)
+ def test_vendored_connectivity_contract(self):
+  # The connectivity helpers carry a byte-exact recovery-image contract
+  # (CONNECTIVITY_HELPERS in build_recovery_image.py). They were built by
+  # the dedicated lane's Alpine 15.2.0 chroot compiler and cannot be
+  # reproduced by the hosted toolchain, so the public pipeline vendors the
+  # reviewed bytes and stages them fail-closed instead of rebuilding.
+  import hashlib
+  vendored_dir = ROOT/'build/inputs/reviewed/connectivity'
+  contract = {
+    'wmt_configure': (25744, '2a57272037a34519e9f6f5dd64ab5a16ad304c81535c4aa7f15a8afae34aadb1'),
+    'wmt_responder': (21648, '46170ddc1d1ddf21a85ec16df129aac47a258a439bc9e6ed061d1e5942aa48eb'),
+    'wmt_bt_on': (21648, '985320b270149cd27bc59d7f34d0da829817f225a4e712037633517c843cc745'),
+    'wmt_stock_compat': (21648, '7e3afe31b706029ebf6e271f5cda6e3880cfc5b184abb052a190662759708c87'),
+    'wmt_launcher': (21648, '65cb5c0c49bb61aec657c114cf67269e398bf41ff7b70a4abb8eb0ec36ff2c99'),
+  }
+  for name, (size, sha) in contract.items():
+    src = vendored_dir/name
+    self.assertTrue(src.is_file(), src)
+    data = src.read_bytes()
+    self.assertEqual(len(data), size)
+    self.assertEqual(hashlib.sha256(data).hexdigest(), sha)
+  self.assertTrue((vendored_dir/'connectivity-source.json').is_file())
+  self.assertIn('stage-reviewed-connectivity.py', B)
+  self.assertIn('--vendored "$PIPELINE/inputs/reviewed/connectivity"', B)
+  self.assertIn('--tools-dir "$TOOLS_DIR"', B)
+  self.assertIn('--tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity"', B)
+  # The vendored path must not invoke the musl toolchain rebuild anymore.
+  self.assertNotIn('build_connectivity_helpers.sh', B)
  def test_triggers_and_jobs(self):
   self.assertIn('branches: [main]',W); self.assertIn('branches: [main, release/0.13.8]',W); self.assertIn('workflow_dispatch:',W); self.assertIn('version:',W)
   self.assertIn('prepare-public-inputs:',W); self.assertIn('publish-dev:',W); self.assertIn('publish-production:',W)

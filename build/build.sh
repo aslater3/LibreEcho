@@ -542,7 +542,6 @@ case "$SSH_ENABLED" in
 esac
 [[ -x "$TOOLS_DIR/busybox/build_busybox.sh" && -x "$TOOLS_DIR/musl/build_musl.sh" && \
    -x "$TOOLS_DIR/wpa-supplicant/build_wpa_supplicant.sh" && \
-   -x "$TOOLS_DIR/connectivity/build_connectivity_helpers.sh" && \
    -x "$TOOLS_DIR/audio-tools/build_audio_tools.sh" ]] || {
   echo "ERROR: public core source builders are unavailable" >&2; exit 1;
 }
@@ -732,13 +731,15 @@ else
 fi
 
 connectivity_cache_key="$(component_cache_key connectivity \
-  --tree "platform-connectivity=$TOOLS_DIR/connectivity" --value "toolchain=$CORE_TOOLCHAIN_KEY" \
-  --file "builder=$TOOLS_DIR/connectivity/build_connectivity_helpers.sh")"
+  --tree "platform-connectivity=$TOOLS_DIR/connectivity" \
+  --tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity" \
+  --file "builder=$PIPELINE/ci/stage-reviewed-connectivity.py")"
 connectivity_status=rebuilt
 if ! component_cache_restore connectivity "$connectivity_cache_key" "$CONNECTIVITY_HELPERS"; then
-  "$TOOLS_DIR/connectivity/build_connectivity_helpers.sh" \
-    --output "$CONNECTIVITY_HELPERS" --cc "${MUSL_CROSS_PREFIX}gcc" \
-    --sysroot "$OTA_MUSL_SYSROOT" \
+  python3 -B "$PIPELINE/ci/stage-reviewed-connectivity.py" \
+    --vendored "$PIPELINE/inputs/reviewed/connectivity" \
+    --tools-dir "$TOOLS_DIR" \
+    --output "$CONNECTIVITY_HELPERS" \
     | tee "$GENERATED_ROOT/connectivity-build.log"
   component_cache_store connectivity "$connectivity_cache_key" "$CONNECTIVITY_HELPERS"
 else
