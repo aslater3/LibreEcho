@@ -97,6 +97,10 @@ class Tests(unittest.TestCase):
             self.assertFalse(manifest["signed"])
             self.assertFalse(manifest["ota_bundle"])
             self.assertEqual(manifest["status"], "PREPARED_NOT_FLASHED")
+            self.assertRegex(manifest["source_set_id"], r"^[0-9a-f]{16}$")
+            self.assertRegex(manifest["artifact_set_id"], r"^[0-9a-f]{16}$")
+            self.assertIn(manifest["source_set_id"], result.stdout)
+            self.assertIn(manifest["artifact_set_id"], result.stdout)
             sums = next(output.glob("*-SHA256SUMS"))
             check = subprocess.run(
                 ["sha256sum", "-c", sums.name], cwd=output,

@@ -10,8 +10,9 @@ Amonet/BROM wrapper image, calibration data, or local filesystem path.
 Hosted main-branch builds may also produce an **unsigned development
 prerelease**. That bounded prerelease contains the verified boot image, the
 five feature payloads and manifests, a sanitized source/build manifest, the
-independent verifier result, and SHA-256 inventory. Its tag is
-`radar-puffin-build-<full-product-commit>` rather than a SemVer product release.
+independent verifier result, and SHA-256 inventory. Its non-SemVer tag binds the
+product commit plus complete source-set and artifact-set digests, preventing a
+later rebuild from replacing different bytes under an existing public identity.
 It contains no OTA bundle and makes no signing, flashing, deployment, or
 hardware-acceptance claim. This development distribution path is distinct from
 the signed release boundary below.

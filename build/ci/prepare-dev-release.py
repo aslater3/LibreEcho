@@ -119,7 +119,10 @@ def main() -> int:
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
-    prefix = f"libreecho-radar-puffin-build-{args.product_commit[:7]}"
+    source_set_id = hashlib.sha256(
+        ("\n".join(sources[name] for name in ("product", "platform", "linux", "ui")) + "\n").encode()
+    ).hexdigest()[:16]
+    prefix = f"libreecho-radar-puffin-build-{args.product_commit[:7]}-{source_set_id}"
     copied: list[Path] = []
 
     def copy(source: Path, suffix: str, expected_hash: str, expected_size: str = "") -> None:
@@ -153,10 +156,16 @@ def main() -> int:
         {"name": path.name, "size": path.stat().st_size, "sha256": sha256(path)}
         for path in sorted(copied)
     ]
+    artifact_set_id = hashlib.sha256(json.dumps({
+        "sources": [sources[name] for name in ("product", "platform", "linux", "ui")],
+        "artifacts": records,
+    }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
     release_manifest = output / f"{prefix}-build.json"
     release_manifest.write_text(json.dumps({
         "schema": "libreecho-development-build-v1",
-        "build_id": args.product_commit,
+        "build_id": f"{source_set_id}-{artifact_set_id}",
+        "source_set_id": source_set_id,
+        "artifact_set_id": artifact_set_id,
         "board": "radar_puffin",
         "channel": "dev",
         "status": "PREPARED_NOT_FLASHED",
@@ -185,8 +194,10 @@ def main() -> int:
         f"{sha256(path)}  {path.name}\n" for path in sorted(copied)
     ), encoding="ascii")
     print(f"release_dir={output}")
-    print(f"release_tag=radar-puffin-build-{args.product_commit}")
+    print(f"release_tag=radar-puffin-build-{args.product_commit[:7]}-{source_set_id}-{artifact_set_id}")
     print(f"release_prefix={prefix}")
+    print(f"source_set_id={source_set_id}")
+    print(f"artifact_set_id={artifact_set_id}")
     print(f"asset_count={len(copied) + 1}")
     return 0
 

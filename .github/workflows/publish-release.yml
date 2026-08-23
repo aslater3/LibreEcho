@@ -51,6 +51,7 @@ jobs:
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
       - name: Prepare bounded unsigned dev release
+        id: prepare
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -58,28 +59,46 @@ jobs:
           python3 build/ci/prepare-dev-release.py \
             --artifact-root verified-build \
             --product-commit "$HEAD_SHA" \
-            --output-dir release-assets
+            --output-dir release-assets | tee prepare-release.out
+          grep -E '^(release_tag|release_prefix|source_set_id|artifact_set_id)=' \
+            prepare-release.out >>"$GITHUB_OUTPUT"
+          test "$(grep -Ec '^(release_tag|release_prefix|source_set_id|artifact_set_id)=' prepare-release.out)" -eq 4
           python3 tools/check-public-metadata.py release-assets
           (cd release-assets && sha256sum -c *-SHA256SUMS)
       - name: Publish development prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
         run: |
           set -euo pipefail
-          tag="radar-puffin-build-$HEAD_SHA"
+          tag="$RELEASE_TAG"
           short="${HEAD_SHA:0:7}"
-          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id 2>/dev/null || true)"
+          while IFS= read -r path; do
+            printf '%s\t%s\tsha256:%s\n' \
+              "$(basename "$path")" "$(stat -c %s "$path")" "$(sha256sum "$path" | awk '{print $1}')"
+          done < <(find release-assets -maxdepth 1 -type f -print | sort) >expected-assets.tsv
+          mapfile -t release_ids < <(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$tag\") | .id")
+          test "${#release_ids[@]}" -le 1
+          release_id="${release_ids[0]:-}"
           if [[ -z "$release_id" ]]; then
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$tag" -f target_commitish="$HEAD_SHA" \
               -f name="LibreEcho development build $short" \
-              -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial; the wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike). Verify SHA256SUMS before use.' \
-              -F prerelease=true -f make_latest=false --jq .id)"
+              -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.' \
+              -F draft=true -F prerelease=true -f make_latest=false --jq .id)"
           else
-            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-              --jq 'select(.prerelease == true and .target_commitish == env.HEAD_SHA) | .id' |
-              grep -qx "$release_id"
+            release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+            jq -e --arg sha "$HEAD_SHA" \
+              '.prerelease == true and .target_commitish == $sha' <<<"$release_json" >/dev/null
+            if [[ "$(jq -r .draft <<<"$release_json")" == false ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate \
+                --jq '.[] | [.name, (.size|tostring), .digest] | @tsv' | sort >actual-assets.tsv
+              cmp expected-assets.tsv actual-assets.tsv
+              echo "hosted_dev_release=ALREADY_PUBLISHED tag=$tag assets=$(wc -l <actual-assets.tsv)"
+              exit 0
+            fi
             gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate --jq '.[].id' |
               while read -r asset_id; do
                 gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null
@@ -89,9 +108,12 @@ jobs:
           test "${#assets[@]}" -eq 14
           gh release upload "$tag" "${assets[@]}"
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate \
-            --jq '.[] | [.name, (.size|tostring)] | @tsv' | sort >actual-assets.tsv
-          find release-assets -maxdepth 1 -type f -printf '%f\t%s\n' | sort >expected-assets.tsv
+            --jq '.[] | [.name, (.size|tostring), .digest] | @tsv' | sort >actual-assets.tsv
           cmp expected-assets.tsv actual-assets.tsv
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false -F prerelease=true -f make_latest=false >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            --jq 'select(.draft == false and .prerelease == true) | .id' | grep -qx "$release_id"
           echo "hosted_dev_release=PASS tag=$tag assets=${#assets[@]}"
 
   publish:

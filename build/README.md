@@ -36,7 +36,8 @@ artifact. `publish-release.yml` consumes that exact run through a
 `workflow_run` trigger, checks the product and component source commits,
 re-verifies the candidate hashes and independent verifier result, strips the
 run down to the boot image plus five feature payload/manifest pairs, and creates
-a unique GitHub prerelease tagged `radar-puffin-build-<full-product-commit>`.
+a unique GitHub prerelease whose tag binds the product commit, complete
+four-repository source set, and published artifact-set digest.
 
 These releases are **unsigned development builds**. They contain no signed OTA,
 are marked `PREPARED_NOT_FLASHED`, and are not hardware-acceptance evidence.
