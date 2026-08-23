@@ -10,6 +10,7 @@ It is not a stable or production-support commitment.
 - OTA channel: `dev`
 - Release classification: GitHub prerelease
 - Coordinated components: Product, Platform, and UI `0.13.8` release heads
+- Public installer source mirror: [`tools/libreecho-install.py`](../tools/libreecho-install.py), checked against its SHA-256 sidecar and the staged Build installer during release publication
 - Intended audience: supported Echo Gen 2 owners with a verified recovery path
 
 The product release ID is the immutable authority. Development and stable OTA

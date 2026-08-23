@@ -63,15 +63,22 @@ jobs:
           sums="libreecho-${VERSION}-SHA256SUMS"
           test -f "$dir/$sums"
           ota="libreecho-${VERSION}.ota.tar"
+          installer="libreecho-${VERSION}-installer.py"
           test -f "$dir/$ota"
+          test -f "$dir/$installer"
           mapfile -t assets < <(find "$dir" -maxdepth 1 -type f ! -name '.assets' -printf '%f\n' | sort)
           test "${#assets[@]}" -ge 4
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-boot.img"
           printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
+          printf '%s\n' "${assets[@]}" | grep -qx "$installer"
           printf '%s\n' "${assets[@]}" | grep -qx "$sums"
           printf '%s\n' "${assets[@]}" | grep -qx "$ota"
           awk -v ota="$ota" '$2 == ota && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ { found=1 } END { exit !found }' "$dir/$sums"
           (cd "$dir" && sha256sum -c "$sums")
+          (cd tools && sha256sum -c libreecho-install.py.sha256)
+          cmp --silent "$dir/$installer" tools/libreecho-install.py || {
+            echo 'staged public installer differs from the Product mirror' >&2; exit 1
+          }
           if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
             echo 'unexpected compliance asset in public release' >&2; exit 1
           fi

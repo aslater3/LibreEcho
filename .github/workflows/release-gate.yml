@@ -8,6 +8,9 @@ on:
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
       - 'tools/test_release_tools.py'
+      - 'tools/libreecho-install.py'
+      - 'tools/libreecho-install.py.sha256'
+      - 'tools/test_initial_installer_publication.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -18,6 +21,9 @@ on:
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
       - 'tools/test_release_tools.py'
+      - 'tools/libreecho-install.py'
+      - 'tools/libreecho-install.py.sha256'
+      - 'tools/test_initial_installer_publication.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -46,7 +52,9 @@ jobs:
             tools/prepare-sbom.py \
             tools/check-release-components.py \
             tools/check-public-metadata.py \
-            tools/test_release_tools.py
+            tools/test_release_tools.py \
+            tools/libreecho-install.py \
+            tools/test_initial_installer_publication.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
       - name: Enforce full component and SBOM gate
@@ -60,3 +68,5 @@ jobs:
         run: |
           python3 tools/check-release-components.py \
             --release-scope community-noncommercial
+      - name: Verify public installer mirror
+        run: python -B -m unittest tools.test_initial_installer_publication -v
