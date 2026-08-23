@@ -355,14 +355,45 @@ jobs:
             }
             ln -sfn "usr/$merged" "$sysroot/$merged"
           done
-          # Fail closed: a dynamic link through the sysroot exercises the
-          # GROUP scripts and the usrmerge layout before AirPlay consumes it.
+          # Never let a cross-layout glibc tree sneak into this sysroot:
+          # it would shadow the native armhf glibc the builders link
+          # against and reintroduce the bare /usr/arm-linux-gnueabihf
+          # GROUP paths that only resolve behind the hosted anchor.
+          [[ ! -e "$sysroot/usr/arm-linux-gnueabihf" ]] || {
+            echo "ERROR: airplay sysroot contains a cross-layout tree: usr/arm-linux-gnueabihf" >&2
+            exit 1
+          }
+          # Fail closed: link probes that reproduce the CONSUMERS' exact
+          # link lines (build_airplay.sh / build_curl.sh pass -L into the
+          # sysroot's native lib dir). A bare probe without -L is not
+          # faithful: ld would fall through to the cross gcc's default
+          # search dirs in armhf-root, whose libc.so GROUP members are
+          # bare /usr/arm-linux-gnueabihf paths that resolve only after
+          # the later anchor step. These probes exercise the native GROUP
+          # scripts and the usrmerge layout without depending on the
+          # anchor or any host paths.
           probe_dir="$RUNNER_TEMP/airplay-sysroot-probe"
           mkdir -p "$probe_dir"
           printf 'int main(void){return 0;}\n' > "$probe_dir/probe.c"
           LD_LIBRARY_PATH="$RUNNER_TEMP/armhf-root/usr/lib/x86_64-linux-gnu" \
             "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc" \
-            --sysroot="$sysroot" "$probe_dir/probe.c" -o "$probe_dir/probe"
+            --sysroot="$sysroot" \
+            -L"$sysroot/usr/lib/arm-linux-gnueabihf" \
+            -Wl,-rpath-link,"$sysroot/usr/lib/arm-linux-gnueabihf" \
+            "$probe_dir/probe.c" -o "$probe_dir/probe"
+          LD_LIBRARY_PATH="$RUNNER_TEMP/armhf-root/usr/lib/x86_64-linux-gnu" \
+            "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc" \
+            --sysroot="$sysroot" -static \
+            -L"$sysroot/usr/lib/arm-linux-gnueabihf" \
+            "$probe_dir/probe.c" -o "$probe_dir/probe-static"
+          file "$probe_dir/probe" | grep -q 'ELF 32-bit LSB pie executable, ARM' || {
+            echo "ERROR: airplay sysroot dynamic probe did not produce an ARM binary" >&2
+            exit 1
+          }
+          file "$probe_dir/probe-static" | grep -q 'ELF 32-bit LSB executable, ARM' || {
+            echo "ERROR: airplay sysroot static probe did not produce an ARM binary" >&2
+            exit 1
+          }
           rm -rf "$probe_dir"
           # Builder contracts that fail closed when the closure regressed.
           for required in \

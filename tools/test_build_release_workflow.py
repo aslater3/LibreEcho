@@ -79,6 +79,16 @@ class Tests(unittest.TestCase):
   # link probe fails closed before AirPlay consumes the sysroot.
   self.assertIn('ln -sfn "usr/$merged" "$sysroot/$merged"', W)
   self.assertIn('airplay-sysroot-probe', W)
+  # The sysroot must never contain a cross-layout glibc tree (it would
+  # shadow the native armhf glibc and reintroduce bare /usr/arm-linux-
+  # gnueabihf GROUP paths that only resolve behind the hosted anchor).
+  self.assertIn('ERROR: airplay sysroot contains a cross-layout tree: usr/arm-linux-gnueabihf', W)
+  # The probes must reproduce the consumers' exact link lines (-L into the
+  # sysroot's native lib dir); a bare probe without -L falls through to
+  # armhf-root's cross libc.so GROUP paths and fails before the anchor.
+  self.assertIn('-L"$sysroot/usr/lib/arm-linux-gnueabihf"', W)
+  self.assertIn('ELF 32-bit LSB pie executable, ARM', W)
+  self.assertIn('ELF 32-bit LSB executable, ARM', W)
   # Hosted-runner substitutions for host-only defaults: AirPlay C++ compiler
   # and ALSA runtime data come from the staged ARMHF root, not /usr.
   self.assertIn('LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++', W)
