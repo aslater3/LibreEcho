@@ -96,9 +96,17 @@ class Tests(unittest.TestCase):
   self.assertIn('ELF 32-bit LSB pie executable, ARM', W)
   self.assertIn('ELF 32-bit LSB executable, ARM', W)
   # Hosted-runner substitutions for host-only defaults: AirPlay C++ compiler
-  # and ALSA runtime data come from the staged ARMHF root, not /usr.
+  # comes from the staged ARMHF root, and ALSA runtime data plus its Debian
+  # copyright records come from the staged sysroot (which carries
+  # alsa-ucm-conf / alsa-topology-conf, Recommends skipped under
+  # Install-Recommends=false).
   self.assertIn('LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++', W)
-  self.assertIn('LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa', W)
+  self.assertIn('LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/alsa', W)
+  self.assertIn('LIBREECHO_AIRPLAY_ALSA_DATA_COPYRIGHT: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/doc/libasound2-data/copyright', W)
+  self.assertIn('LIBREECHO_AIRPLAY_ALSA_UCM_COPYRIGHT: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/doc/alsa-ucm-conf/copyright', W)
+  self.assertIn('zlib1g-dev alsa-ucm-conf alsa-topology-conf', W)
+  self.assertIn('"$sysroot/usr/share/alsa/ucm2"', W)
+  self.assertIn('"$sysroot/usr/share/doc/alsa-ucm-conf/copyright"', W)
   # The UI daemons (and AirPlay's CROSS_PREFIX) build with the staged ARMHF
   # glibc cross, not the musl toolchain: the musl driver has no default
   # include path in the staged layout, so bare invocations from the UI

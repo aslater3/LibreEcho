@@ -331,7 +331,13 @@ jobs:
             libasound2-dev avahi-daemon libavahi-client-dev libavahi-common-dev \
             libdbus-1-dev dbus-daemon libssl-dev libplist-dev uuid-dev \
             libpopt-dev libdaemon-dev libconfig-dev libexpat1-dev libcap-dev \
-            libsodium-dev libgcrypt20-dev zlib1g-dev
+            libsodium-dev libgcrypt20-dev zlib1g-dev alsa-ucm-conf alsa-topology-conf
+          # alsa-ucm-conf / alsa-topology-conf are Recommends of
+          # libasound2-data and would be skipped under
+          # Install-Recommends=false, but build_airplay.sh fail-closes on
+          # their Debian copyright records (runtime license packaging) and
+          # the runtime copy of /usr/share/alsa on the dedicated lane
+          # includes their ucm/ucm2/topology data. Seed them explicitly.
           # NOTE: zlib1g-dev is required even though shairport-sync itself
           # never asks for it: the FFmpeg static archives staged into this
           # sysroot were built WITH zlib, so their pkg-config Libs.private
@@ -425,7 +431,11 @@ jobs:
             "$sysroot/usr/include/arm-linux-gnueabihf/openssl/opensslconf.h" \
             "$sysroot/usr/lib/arm-linux-gnueabihf/crt1.o" \
             "$sysroot/usr/lib/arm-linux-gnueabihf/libc.a" \
-            "$sysroot/usr/share/alsa/alsa.conf"; do
+            "$sysroot/usr/share/alsa/alsa.conf" \
+            "$sysroot/usr/share/alsa/ucm2" \
+            "$sysroot/usr/share/doc/libasound2-data/copyright" \
+            "$sysroot/usr/share/doc/alsa-ucm-conf/copyright" \
+            "$sysroot/usr/share/doc/alsa-topology-conf/copyright"; do
             [[ -e "$required" ]] || { echo "ERROR: AirPlay sysroot closure is incomplete: $required" >&2; exit 1; }
           done
           copyright_count="$(find "$sysroot/usr/share/doc" -mindepth 2 -maxdepth 2 -type f -name copyright | wc -l)"
@@ -688,7 +698,9 @@ jobs:
           LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-source/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
           LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
-          LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/armhf-root/usr/share/alsa
+          LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/alsa
+          LIBREECHO_AIRPLAY_ALSA_DATA_COPYRIGHT: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/doc/libasound2-data/copyright
+          LIBREECHO_AIRPLAY_ALSA_UCM_COPYRIGHT: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/doc/alsa-ucm-conf/copyright
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
           LIBREECHO_FLITE_ROOT: ${{ runner.temp }}/public-deps/neural/flite-root
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
