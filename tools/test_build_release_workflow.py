@@ -254,6 +254,9 @@ class Tests(unittest.TestCase):
   self.assertIn('name: libreecho-${{ steps.dev-build-name.outputs.value }}',W)
   self.assertIn('path: ${{ runner.temp }}/libreecho-build/out/runs/*',W)
   self.assertIn('ref="${GITHUB_REF_NAME#release/}"',W)
+  self.assertIn('PRODUCT_SHA: ${{ needs.resolve-and-preflight.outputs.product_sha }}',W)
+  self.assertIn('"${PRODUCT_SHA:0:7}"',W)
+  self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
   self.assertIn("github.ref == 'refs/heads/main'",W)
  def test_boundaries(self):
   # Concurrency is scoped per event and ref (independent PR lanes), and
