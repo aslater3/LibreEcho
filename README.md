@@ -35,6 +35,7 @@ integration continue on review branches.
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
+- **Initial-install bootstrap:** [`tools/libreecho-install.py`](tools/libreecho-install.py) with its [SHA-256 sidecar](tools/libreecho-install.py.sha256). The mirror is release-gated against the canonical Build installer; hardware execution remains a separately qualified and explicitly authorized step.
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
