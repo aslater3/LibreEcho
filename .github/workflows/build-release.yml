@@ -738,6 +738,20 @@ jobs:
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
         run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
 
+      - name: Record release source commits
+        env:
+          PRODUCT_SHA: ${{ needs.resolve-and-preflight.outputs.product_sha }}
+          PLATFORM_SHA: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          LINUX_SHA: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
+          UI_SHA: ${{ needs.resolve-and-preflight.outputs.ui_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -eq 1
+          printf 'product=%s\nplatform=%s\nlinux=%s\nui=%s\n' \
+            "$PRODUCT_SHA" "$PLATFORM_SHA" "$LINUX_SHA" "$UI_SHA" \
+            >"${runs[0]}/release-source-commits.txt"
+
       - name: Name dev build
         id: dev-build-name
         env:

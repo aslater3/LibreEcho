@@ -28,3 +28,19 @@ roots under the job-local `public-deps/neural/` directory. The mature builder
 receives those roots explicitly; it never discovers or imports a private neural
 cache. The reduced wakeword ONNX Runtime build remains a separate run-local
 step performed by the mature builder from the same pinned ONNX Runtime source.
+
+## Main-branch development prereleases
+
+A successful hosted build caused by a push to `main` uploads one verified run
+artifact. `publish-release.yml` consumes that exact run through a
+`workflow_run` trigger, checks the product and component source commits,
+re-verifies the candidate hashes and independent verifier result, strips the
+run down to the boot image plus five feature payload/manifest pairs, and creates
+a unique GitHub prerelease whose tag binds the product commit, complete
+four-repository source set, and published artifact-set digest.
+
+These releases are **unsigned development builds**. They contain no signed OTA,
+are marked `PREPARED_NOT_FLASHED`, and are not hardware-acceptance evidence.
+Pull requests, release-branch pushes, scheduled builds, and manual builds do
+not publish releases. The older signed SemVer candidate publisher remains a
+separate path.
