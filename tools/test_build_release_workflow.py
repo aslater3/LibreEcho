@@ -125,6 +125,11 @@ class Tests(unittest.TestCase):
   self.assertIn('87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb', W)
   self.assertIn('e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e', W)
   self.assertIn('b3c7bb97baf1a5dabe0c672ebdc94724bdcd7251790152cfa4314efda5696817', W)
+  # Autotools cross builds (wakeword SpeexDSP configure) discover the
+  # compiler from PATH; the shim exposes only prefixed cross tools so the
+  # host binutils are never shadowed.
+  self.assertIn('Expose ARMHF cross tools on PATH', W)
+  self.assertIn('armhf-cross-shim', W)
   self.assertIn('!${{ runner.temp }}/public-deps/airplay-sysroot', W)
   self.assertIn('!${{ runner.temp }}/public-deps/neural', W)
   # Restored inputs are skipped; only cold paths rebuild and re-save.

@@ -520,6 +520,27 @@ jobs:
           test -x build/ci/build-public-release.sh
           test -f build/ci/fetch-public-deps.py
           echo 'Hosted public build entrypoint is present.'
+      - name: Expose ARMHF cross tools on PATH
+        run: |
+          set -euo pipefail
+          # Autotools cross builds (the wakeword runtime's SpeexDSP
+          # configure is the first one) discover the compiler from PATH as
+          # arm-linux-gnueabihf-gcc. On the dedicated lane the cross lives
+          # in /usr/bin system-wide; on the hosted runner it is staged in
+          # armhf-root. Expose only the prefixed arm-linux-gnueabihf-*
+          # tools through a shim directory so the host as/ld/ar/strip are
+          # never shadowed for host-side build steps.
+          shim="$RUNNER_TEMP/armhf-cross-shim"
+          mkdir -p "$shim"
+          for tool in "$RUNNER_TEMP/armhf-root/usr/bin"/arm-linux-gnueabihf-*; do
+            ln -sfn "$tool" "$shim/$(basename -- "$tool")"
+          done
+          [[ -x "$shim/arm-linux-gnueabihf-gcc" ]] || {
+            echo "ERROR: ARMHF cross compiler shim is missing: $shim/arm-linux-gnueabihf-gcc" >&2
+            exit 1
+          }
+          echo "$shim" >> "$GITHUB_PATH"
+
       - name: Build image and features
         env:
           # The staged ARMHF gcc/as/ld are dynamically linked against the
