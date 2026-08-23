@@ -9,13 +9,17 @@ It is not a stable or production-support commitment.
 - Product release: `radar-puffin-v0.13.8`
 - OTA channel: `dev`
 - Release classification: GitHub prerelease
-- Coordinated components: Product, Platform, and UI `0.13.8` release heads
+- Coordinated components: Product, Platform, Linux 6.1, and UI source heads
+- Linux 6.1 source: `089dd68c9caa7d7417223c8b75aa063f2a12594e` from `main`; the Linux repository has no separate `release/0.13.8` branch
 - Public installer source mirror: [`tools/libreecho-install.py`](../tools/libreecho-install.py), checked against its SHA-256 sidecar and the staged Build installer during release publication
 - Intended audience: supported Echo Gen 2 owners with a verified recovery path
 
 The product release ID is the immutable authority. Development and stable OTA
 aliases, when published, must resolve to an exact candidate carrying this same
-identity; an alias must not replace the immutable release identity.
+identity; an alias must not replace the immutable release identity. The image
+candidate must record this exact Linux commit alongside the Product, Platform,
+and UI identities; component repositories without a release branch are pinned
+by commit rather than inferred from a mutable branch name.
 
 ## Integrated scope
 
