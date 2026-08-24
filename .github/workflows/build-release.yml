@@ -127,9 +127,19 @@ jobs:
             enabled) SSH_ENABLED=1 ;;
             *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
           esac
-          p=$(git ls-remote https://github.com/aslater3/LibreEcho-Platform.git refs/heads/main | cut -f1)
-          l=$(git ls-remote https://github.com/aslater3/LibreEcho-Linux-6.1.git refs/heads/main | cut -f1)
-          u=$(git ls-remote https://github.com/aslater3/LibreEcho-UI.git refs/heads/main | cut -f1)
+          component_ref=main
+          if [[ "$RELEASE_CHANNEL" == stable ]]; then
+            component_ref="release/$RELEASE_VERSION"
+            for component in LibreEcho-Platform LibreEcho-Linux-6.1 LibreEcho-UI; do
+              git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$component_ref" >/dev/null || {
+                echo "ERROR: stable component ref is missing: $component:$component_ref" >&2
+                exit 1
+              }
+            done
+          fi
+          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$component_ref" | cut -f1)
+          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$component_ref" | cut -f1)
+          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$component_ref" | cut -f1)
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
             --channel "$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
@@ -164,6 +174,7 @@ jobs:
             build.tests.test_public_inputs \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
+            build.tests.test_generate_release_notes \
             build.tests.test_resolve_source_set \
             tools.test_build_release_workflow \
             tools.test_initial_installer_publication \
@@ -389,6 +400,18 @@ jobs:
           path: sources/product
           fetch-depth: 1
           persist-credentials: false
+      - name: Verify stable UI version marker
+        if: needs.resolve-and-preflight.outputs.channel == 'stable'
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test -f sources/ui/VERSION
+          ui_version="$(tr -d '\r\n' < sources/ui/VERSION)"
+          [[ "$ui_version" == "$RELEASE_VERSION" ]] || {
+            echo "ERROR: UI VERSION=$ui_version does not match stable release $RELEASE_VERSION" >&2
+            exit 1
+          }
       - name: Materialize protected stable OTA signing key
         if: needs.resolve-and-preflight.outputs.channel == 'stable'
         env:

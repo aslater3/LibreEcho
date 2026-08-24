@@ -293,7 +293,10 @@ class Tests(unittest.TestCase):
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
   self.assertNotIn('aslater3/LibreEcho-Build', PUBLISH)
-  self.assertIn('refs/heads/main|refs/heads/release/*',W)
+  self.assertIn('component_ref="release/$RELEASE_VERSION"', W)
+  self.assertIn('stable component ref is missing', W)
+  self.assertIn('Verify stable UI version marker', W)
+  self.assertIn('UI VERSION=', W)
  def test_release_lanes_and_ota_boundaries(self):
   self.assertIn('LIBREECHO_OTA_SIGNING_MODE', W)
   self.assertIn('LIBREECHO_OTA_SIGNING_KEY_HEX', W)
@@ -308,7 +311,9 @@ class Tests(unittest.TestCase):
   self.assertIn('prerelease=false', STABLE_PUBLISHER)
   self.assertIn('make_latest=true', STABLE_PUBLISHER)
   self.assertNotIn('LibreEcho-Build', PUBLISH)
-  self.assertIn('releases/generate-notes', PUBLISH)
+  self.assertIn('generate-release-notes.py', PUBLISH)
+  self.assertIn('Cross-repository included changes', (ROOT/'build/ci/generate-release-notes.py').read_text())
+  self.assertIn('CC-BY-NC-SA-4.0', (ROOT/'build/ci/generate-release-notes.py').read_text())
   self.assertIn('No local release command', (ROOT/'build/README.md').read_text())
 
  def test_boundaries(self):

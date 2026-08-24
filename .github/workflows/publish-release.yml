@@ -200,6 +200,25 @@ jobs:
           if data["channel"] != "stable":
               raise SystemExit("artifact is not a stable release")
           PY
+      - name: Read exact stable source heads
+        id: sources
+        run: |
+          set -euo pipefail
+          mapfile -t inventories < <(find verified-build -name release-source-commits.txt -type f -print)
+          test "${#inventories[@]}" -eq 1
+          python3 - "${inventories[0]}" >>"$GITHUB_OUTPUT" <<'PY'
+          import sys
+          values = {}
+          for line in open(sys.argv[1], encoding="utf-8"):
+              if "=" in line:
+                  key, value = line.rstrip("\n").split("=", 1)
+                  values[key] = value
+          for source in ("product", "platform", "linux", "ui"):
+              value = values.get(source, "")
+              if len(value) != 40 or any(char not in "0123456789abcdef" for char in value):
+                  raise SystemExit(f"missing or invalid stable source head: {source}")
+              print(f"{source}_head={value}")
+          PY
       - name: Prepare signed stable release assets
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -208,14 +227,20 @@ jobs:
           AMONET_REPOSITORY: ${{ steps.request.outputs.amonet_repository }}
           AMONET_TAG: ${{ steps.request.outputs.amonet_tag }}
           AMONET_COMMIT: ${{ steps.request.outputs.amonet_commit }}
+          PRODUCT_HEAD: ${{ steps.sources.outputs.product_head }}
+          PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
+          LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
+          UI_HEAD: ${{ steps.sources.outputs.ui_head }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          release_tag="radar-puffin-v${RELEASE_VERSION}"
-          mkdir -p "$(dirname "$RELEASE_NOTES")"
-          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$release_tag" \
-            -f target_commitish="$HEAD_SHA" \
-            --jq .body >"$RELEASE_NOTES"
+          python3 build/ci/generate-release-notes.py \
+            --version "$RELEASE_VERSION" \
+            --product-head "$PRODUCT_HEAD" \
+            --platform-head "$PLATFORM_HEAD" \
+            --linux-head "$LINUX_HEAD" \
+            --ui-head "$UI_HEAD" \
+            --output "$RELEASE_NOTES"
           python3 build/ci/prepare-stable-release.py \
             --artifact-root verified-build \
             --product-root "$GITHUB_WORKSPACE" \

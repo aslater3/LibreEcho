@@ -6,7 +6,9 @@ on:
       - 'release/**'
       - 'tools/prepare-release.py'
       - 'build/ci/prepare-stable-release.py'
+      - 'build/ci/generate-release-notes.py'
       - 'build/tests/test_release_packaging.py'
+      - 'build/tests/test_generate_release_notes.py'
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
       - 'tools/test_release_tools.py'
@@ -21,7 +23,9 @@ on:
       - 'release/**'
       - 'tools/prepare-release.py'
       - 'build/ci/prepare-stable-release.py'
+      - 'build/ci/generate-release-notes.py'
       - 'build/tests/test_release_packaging.py'
+      - 'build/tests/test_generate_release_notes.py'
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
       - 'tools/test_release_tools.py'
@@ -54,7 +58,9 @@ jobs:
           python -m py_compile \
             tools/prepare-release.py \
             build/ci/prepare-stable-release.py \
+            build/ci/generate-release-notes.py \
             build/tests/test_release_packaging.py \
+            build/tests/test_generate_release_notes.py \
             tools/prepare-sbom.py \
             tools/check-release-components.py \
             tools/check-public-metadata.py \
