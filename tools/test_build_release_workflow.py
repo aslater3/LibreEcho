@@ -294,9 +294,11 @@ class Tests(unittest.TestCase):
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
   self.assertNotIn('aslater3/LibreEcho-Build', PUBLISH)
   self.assertIn('component_ref="release/$RELEASE_VERSION"', W)
-  self.assertIn('stable component ref is missing', W)
+  self.assertIn('coordinated component ref is missing', W)
   self.assertIn('Verify stable UI version marker', W)
   self.assertIn('UI VERSION=', W)
+  self.assertIn('"$GITHUB_BASE_REF" == release/*', W)
+  self.assertIn('component_ref="$GITHUB_BASE_REF"', W)
  def test_release_lanes_and_ota_boundaries(self):
   self.assertIn('LIBREECHO_OTA_SIGNING_MODE', W)
   self.assertIn('LIBREECHO_OTA_SIGNING_KEY_HEX', W)

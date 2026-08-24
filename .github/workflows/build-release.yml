@@ -128,11 +128,15 @@ jobs:
             *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
           esac
           component_ref=main
-          if [[ "$RELEASE_CHANNEL" == stable ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == release/* ]]; then
+            component_ref="$GITHUB_BASE_REF"
+          elif [[ "$RELEASE_CHANNEL" == stable ]]; then
             component_ref="release/$RELEASE_VERSION"
+          fi
+          if [[ "$component_ref" != main ]]; then
             for component in LibreEcho-Platform LibreEcho-Linux-6.1 LibreEcho-UI; do
               git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$component_ref" >/dev/null || {
-                echo "ERROR: stable component ref is missing: $component:$component_ref" >&2
+                echo "ERROR: coordinated component ref is missing: $component:$component_ref" >&2
                 exit 1
               }
             done
