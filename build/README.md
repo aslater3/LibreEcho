@@ -29,18 +29,48 @@ receives those roots explicitly; it never discovers or imports a private neural
 cache. The reduced wakeword ONNX Runtime build remains a separate run-local
 step performed by the mature builder from the same pinned ONNX Runtime source.
 
-## Main-branch development prereleases
+## Issuing a stable release
 
-A successful hosted build caused by a push to `main` uploads one verified run
-artifact. `publish-release.yml` consumes that exact run through a
-`workflow_run` trigger, checks the product and component source commits,
-re-verifies the candidate hashes and independent verifier result, strips the
-run down to the boot image plus five feature payload/manifest pairs, and creates
-a unique GitHub prerelease whose tag binds the product commit, complete
-four-repository source set, and published artifact-set digest.
+Use GitHub only: open **Actions → Hosted LibreEcho build and release → Run
+workflow**, select the matching `release/X.Y.Z` branch, choose `stable`, and
+provide the version plus the reviewed Amonet repository/tag/commit. The
+workflow generates release notes through GitHub's release-notes API, builds and
+signs the exact artifact, waits for the protected signing environment, and
+publishes the normal `radar-puffin-vX.Y.Z` release. No local release command or
+checked-in release-notes file is required.
 
-These releases are **unsigned development builds**. They contain no signed OTA,
-are marked `PREPARED_NOT_FLASHED`, and are not hardware-acceptance evidence.
-Pull requests, release-branch pushes, scheduled builds, and manual builds do
-not publish releases. The older signed SemVer candidate publisher remains a
-separate path.
+## Product release lanes
+
+The Product repository owns all hosted image and release automation. The lanes
+are deliberately separate:
+
+- **PR validation:** pull requests targeting `main` or `release/**` build a
+  no-publish OTA-profile image with the development channel. The run artifact is
+  validation evidence only and never publishes a release.
+- **SSH option:** all non-dispatch builds keep SSH disabled. A manual GitHub
+  Actions run may select `ssh_enabled=enabled`; that run requires the protected
+  `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret and embeds the static ARM32 Dropbear
+  server plus `dropbearkey` in the initramfs. The image uses password-only root
+  login, does not include public-key authorization or persistent host keys, and
+  records both binary hashes in the release manifest.
+- **Development:** pushes to `main` publish a bounded unsigned GitHub
+  prerelease from the exact workflow artifact. These releases are
+  `PREPARED_NOT_FLASHED`, contain no signed OTA, and are not hardware-acceptance
+  evidence.
+- **Nightly:** the scheduled `main` run uses the same no-publish build but tags
+  its output as `radar-puffin-nightly-*`. After successful publication it keeps
+  only the three newest nightly prereleases and removes older nightly releases
+  and tags. Ordinary development prereleases are not affected.
+- **Stable/product:** a maintainer manually dispatches the workflow from a
+  matching `release/X.Y.Z` branch with `update_channel=stable`, the release
+  version, release notes, and the reviewed Amonet tag. The protected
+  `stable-release` environment supplies `LIBREECHO_OTA_SIGNING_KEY_HEX`; the
+  image job uses local signing and must produce exactly one signed OTA bundle.
+  The following Product `workflow_run` prepares and publishes the exact stable
+  artifact set as the normal `radar-puffin-vX.Y.Z` GitHub release.
+
+Stable publication is fail-closed on the exact Product workflow artifact,
+source identities, OTA hash, public key, feature payload hashes, installer
+bundle, release notes, and complete `SHA256SUMS`. It does not flash hardware or
+claim runtime acceptance. Configure the protected environment secret and
+approval rules before attempting a stable dispatch.

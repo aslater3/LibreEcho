@@ -7,13 +7,44 @@ on:
       - '**/*.md'
       - 'docs/**'
   pull_request:
-    branches: [main, release/0.13.8]
+    branches: [main, 'release/**']
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      update_channel:
+        description: Release channel for this run
+        required: true
+        default: dev
+        type: choice
+        options: [dev, stable]
+      ssh_enabled:
+        description: Include password-authenticated root SSH in the image
+        required: true
+        default: disabled
+        type: choice
+        options: [disabled, enabled]
+      release_version:
+        description: Stable SemVer version, for example 0.14.0
+        required: false
+        type: string
+      amonet_repository:
+        description: Reviewed Amonet repository for the installer manifest
+        required: false
+        default: https://github.com/amonet-kamakiri/amonet
+        type: string
+      amonet_tag:
+        description: Reviewed Amonet tag for the installer manifest
+        required: false
+        type: string
+      amonet_commit:
+        description: Reviewed Amonet commit for the installer manifest
+        required: false
+        default: dfefe52f0eed7296012707cfff1f753b0ea33257
+        type: string
 
 permissions:
   contents: read
@@ -35,17 +66,25 @@ jobs:
       ui_sha: ${{ steps.resolve.outputs.ui_sha }}
       source_set_id: ${{ steps.resolve.outputs.source_set_id }}
       channel: ${{ steps.resolve.outputs.channel }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+      release_notes: ${{ steps.resolve.outputs.release_notes }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
       - id: resolve
         env:
           PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          RELEASE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
+          RELEASE_VERSION: ${{ inputs.release_version || '' }}
+          AMONET_TAG: ${{ inputs.amonet_tag || '' }}
+          SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             case "$GITHUB_BASE_REF" in
-              main|release/0.13.8) ;;
+              main|release/*) ;;
               *) echo "ERROR: unsupported PR base: $GITHUB_BASE_REF" >&2; exit 1 ;;
             esac
           else
@@ -54,12 +93,87 @@ jobs:
               *) echo "ERROR: unsupported build ref: $GITHUB_REF" >&2; exit 1 ;;
             esac
           fi
+          case "$RELEASE_CHANNEL" in
+            dev)
+              [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || -z "$RELEASE_VERSION" ]] || {
+                echo "ERROR: release_version is only valid for stable dispatches" >&2; exit 1;
+              }
+              ;;
+            stable)
+              [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || {
+                echo "ERROR: stable builds require workflow_dispatch" >&2; exit 1;
+              }
+              [[ "$GITHUB_REF" == refs/heads/release/* ]] || {
+                echo "ERROR: stable builds must run from a release/X.Y.Z branch" >&2; exit 1;
+              }
+              [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+                echo "ERROR: stable release_version must be X.Y.Z" >&2; exit 1;
+              }
+              [[ "${GITHUB_REF_NAME#release/}" == "$RELEASE_VERSION" ]] || {
+                echo "ERROR: stable version must match the release branch" >&2; exit 1;
+              }
+              RELEASE_NOTES="release/radar-puffin-v${RELEASE_VERSION}.md"
+              [[ "$RELEASE_NOTES" =~ ^release/[A-Za-z0-9._-]+\.md$ ]] || {
+                echo "ERROR: generated stable release-notes path is invalid" >&2; exit 1;
+              }
+              [[ -n "$AMONET_TAG" ]] || {
+                echo "ERROR: stable releases require an amonet_tag input" >&2; exit 1;
+              }
+              ;;
+            *) echo "ERROR: unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
+          esac
+          case "$SSH_ENABLED_INPUT" in
+            disabled) SSH_ENABLED=0 ;;
+            enabled) SSH_ENABLED=1 ;;
+            *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
+          esac
           p=$(git ls-remote https://github.com/aslater3/LibreEcho-Platform.git refs/heads/main | cut -f1)
           l=$(git ls-remote https://github.com/aslater3/LibreEcho-Linux-6.1.git refs/heads/main | cut -f1)
           u=$(git ls-remote https://github.com/aslater3/LibreEcho-UI.git refs/heads/main | cut -f1)
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
-            >> "$GITHUB_OUTPUT"
+            --channel "$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_CHANNEL" == stable ]]; then
+            RELEASE_NOTES="release/radar-puffin-v${RELEASE_VERSION}.md"
+          else
+            RELEASE_NOTES=
+          fi
+          printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
+          printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_CHANNEL" == stable ]]; then
+            printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            printf 'release_tag=\n' >> "$GITHUB_OUTPUT"
+          fi
+
+  contract-checks:
+    name: Product pipeline contract checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Run maintained Product pipeline suites
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
+            build.tests.test_component_cache \
+            build.tests.test_prepare_dev_release \
+            build.tests.test_public_inputs \
+            build.tests.test_public_neural_deps \
+            build.tests.test_release_packaging \
+            build.tests.test_resolve_source_set \
+            tools.test_build_release_workflow \
+            tools.test_initial_installer_publication \
+            tools.test_release_tools
+      - name: Validate tracked source syntax
+        run: |
+          set -euo pipefail
+          git ls-files -z '*.py' | xargs -0 -r python -B -m py_compile
+          while IFS= read -r -d '' script; do bash -n "$script"; done < <(git ls-files -z '*.sh')
+          git diff --check
 
   prepare-public-inputs:
     needs: resolve-and-preflight
@@ -229,9 +343,11 @@ jobs:
 
 
   build-image:
-    needs: [resolve-and-preflight, prepare-public-inputs]
+    needs: [resolve-and-preflight, prepare-public-inputs, contract-checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    environment:
+      name: ${{ (needs.resolve-and-preflight.outputs.channel == 'stable' || needs.resolve-and-preflight.outputs.ssh_enabled == '1') && 'stable-release' || 'dev-build' }}
     permissions: {contents: read}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -273,6 +389,24 @@ jobs:
           path: sources/product
           fetch-depth: 1
           persist-credentials: false
+      - name: Materialize protected stable OTA signing key
+        if: needs.resolve-and-preflight.outputs.channel == 'stable'
+        env:
+          OTA_SIGNING_KEY_HEX: ${{ secrets.LIBREECHO_OTA_SIGNING_KEY_HEX }}
+        run: |
+          set -euo pipefail
+          test -n "$OTA_SIGNING_KEY_HEX"
+          umask 077
+          printf '%s\n' "$OTA_SIGNING_KEY_HEX" >"$RUNNER_TEMP/ota-signing-key.hex"
+      - name: Materialize protected SSH root password hash
+        if: needs.resolve-and-preflight.outputs.ssh_enabled == '1'
+        env:
+          SSH_ROOT_PASSWORD_HASH: ${{ secrets.LIBREECHO_SSH_ROOT_PASSWORD_HASH }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_ROOT_PASSWORD_HASH"
+          umask 077
+          printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
         with:
           name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
@@ -698,6 +832,10 @@ jobs:
           LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
           LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
+          LIBREECHO_OTA_SIGNING_MODE: ${{ needs.resolve-and-preflight.outputs.channel == 'stable' && 'local' || 'github' }}
+          LIBREECHO_OTA_SIGNING_KEY: ${{ runner.temp }}/ota-signing-key.hex
+          LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
+          LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
@@ -752,7 +890,40 @@ jobs:
             "$PRODUCT_SHA" "$PLATFORM_SHA" "$LINUX_SHA" "$UI_SHA" \
             >"${runs[0]}/release-source-commits.txt"
 
-      - name: Name dev build
+      - name: Record release request and public OTA key
+        env:
+          RELEASE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
+          RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
+          RELEASE_NOTES: ${{ needs.resolve-and-preflight.outputs.release_notes }}
+          AMONET_REPOSITORY: ${{ inputs.amonet_repository || '' }}
+          AMONET_TAG: ${{ inputs.amonet_tag || '' }}
+          AMONET_COMMIT: ${{ inputs.amonet_commit || '' }}
+          SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -eq 1
+          run="${runs[0]}"
+          install -m 0644 \
+            "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/ota/ota-public-key.hex" \
+            "$run/ota-public-key.hex"
+          python3 - "$run/release-request.json" <<'PY'
+          import json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+              "schema": "libreecho-release-request-v1",
+              "channel": os.environ["RELEASE_CHANNEL"],
+              "version": os.environ["RELEASE_VERSION"],
+              "release_tag": (f"radar-puffin-v{os.environ['RELEASE_VERSION']}"
+                              if os.environ["RELEASE_VERSION"] else ""),
+              "release_notes": os.environ["RELEASE_NOTES"],
+              "amonet_repository": os.environ["AMONET_REPOSITORY"],
+              "amonet_tag": os.environ["AMONET_TAG"],
+              "amonet_commit": os.environ["AMONET_COMMIT"],
+              "ssh_enabled": os.environ["SSH_ENABLED"],
+          }, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Name build artifact
         id: dev-build-name
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}

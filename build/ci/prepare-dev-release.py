@@ -59,6 +59,7 @@ def main() -> int:
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--product-commit", required=True)
+    parser.add_argument("--release-kind", choices=("development", "nightly"), default="development")
     args = parser.parse_args()
 
     if not COMMIT.fullmatch(args.product_commit):
@@ -84,11 +85,28 @@ def main() -> int:
         ("image_profile", "ota"),
         ("service_profile", "production"),
         ("feature_policy", "community-noncommercial"),
-        ("ssh_enabled", "0"),
         ("ota_signing_mode", "github"),
     ):
         if candidate.get(field) != expected:
             fail(f"candidate has unexpected {field}")
+    ssh_enabled = candidate.get("ssh_enabled", "0")
+    if ssh_enabled not in {"0", "1"}:
+        fail("candidate has invalid ssh_enabled")
+    ssh_manifest = manifest.get("ssh", {})
+    if not isinstance(ssh_manifest, dict) or bool(ssh_manifest.get("enabled")) != (ssh_enabled == "1"):
+        fail("candidate SSH manifest does not match ssh_enabled")
+    ssh_files = ssh_manifest.get("files", {}) if isinstance(ssh_manifest, dict) else {}
+    for field in ("dropbear_sha256", "dropbearkey_sha256"):
+        value = candidate.get(field, "")
+        if ssh_enabled == "1" and not re.fullmatch(r"[0-9a-f]{64}", value):
+            fail(f"candidate is missing enabled SSH identity: {field}")
+        if ssh_enabled == "0" and value:
+            fail(f"disabled SSH candidate contains {field}")
+    if ssh_enabled == "1":
+        for field, path in (("dropbear_sha256", "sbin/dropbear"), ("dropbearkey_sha256", "sbin/dropbearkey")):
+            record = ssh_files.get(path, {}) if isinstance(ssh_files, dict) else {}
+            if record.get("sha256") != candidate[field]:
+                fail(f"candidate SSH manifest identity mismatch: {field}")
     if candidate.get("ota_bundle") or candidate.get("ota_bundle_sha256"):
         fail("unsigned dev candidate unexpectedly contains an OTA bundle")
     if candidate.get("product_git_head") != sources["product"]:
@@ -123,6 +141,7 @@ def main() -> int:
         ("\n".join(sources[name] for name in ("product", "platform", "linux", "ui")) + "\n").encode()
     ).hexdigest()[:16]
     prefix = f"libreecho-radar-puffin-build-{args.product_commit[:7]}-{source_set_id}"
+    release_tag_prefix = "radar-puffin-nightly" if args.release_kind == "nightly" else "radar-puffin-build"
     copied: list[Path] = []
 
     def copy(source: Path, suffix: str, expected_hash: str, expected_size: str = "") -> None:
@@ -168,6 +187,12 @@ def main() -> int:
         "artifact_set_id": artifact_set_id,
         "board": "radar_puffin",
         "channel": "dev",
+        "kind": args.release_kind,
+        "ssh_enabled": ssh_enabled == "1",
+        "ssh": {
+            "dropbear_sha256": candidate.get("dropbear_sha256", ""),
+            "dropbearkey_sha256": candidate.get("dropbearkey_sha256", ""),
+        },
         "status": "PREPARED_NOT_FLASHED",
         "signed": False,
         "ota_bundle": False,
@@ -194,7 +219,7 @@ def main() -> int:
         f"{sha256(path)}  {path.name}\n" for path in sorted(copied)
     ), encoding="ascii")
     print(f"release_dir={output}")
-    print(f"release_tag=radar-puffin-build-{args.product_commit[:7]}-{source_set_id}-{artifact_set_id}")
+    print(f"release_tag={release_tag_prefix}-{args.product_commit[:7]}-{source_set_id}-{artifact_set_id}")
     print(f"release_prefix={prefix}")
     print(f"source_set_id={source_set_id}")
     print(f"artifact_set_id={artifact_set_id}")
