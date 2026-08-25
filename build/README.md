@@ -14,6 +14,15 @@ device-local connectivity firmware is represented only by the public importer
 contract: first boot verifies and copies it from stock `system_a`; the bytes
 never enter CI, Git, or release assets.
 
+The OTA signing job uses the reviewed Python 3.11/Linux wheel closure under
+`build/inputs/reviewed/python-wheels/`. `PyNaCl==1.5.0`, `cffi==1.17.1`, and
+`pycparser==2.22` are each vendored and SHA-256-pinned in the public inventory;
+`requirements.txt` is pinned as well. The build artifact verifies its complete
+`SHA256SUMS` before installing with pip `--no-index`, `--find-links`, and
+`--require-hashes`. No OTA signing dependency is fetched from the live package
+index, and this verification runs before the protected signing key is
+materialized.
+
 `build/ci/build-public-release.sh` now invokes the preserved mature builder with
 only explicit hosted dependency/source roots. It fails before compilation when
 the generated public ARM32 toolchain or any required source root is absent; it

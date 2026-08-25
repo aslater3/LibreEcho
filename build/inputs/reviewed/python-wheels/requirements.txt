@@ -1,0 +1,7 @@
+# Reviewed Python 3.11/Linux x86_64 closure for make_ota_bundle.py.
+PyNaCl==1.5.0 \
+    --hash=sha256:06b8f6fa7f5de8d5d2f7573fe8c863c051225a27b61e6860fd047b1775807858
+cffi==1.17.1 \
+    --hash=sha256:610faea79c43e44c71e1ec53a554553fa22321b65fae24889706c0a84d4ad86d
+pycparser==2.22 \
+    --hash=sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc
