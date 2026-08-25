@@ -84,6 +84,14 @@ priority.
 
 See [the repository boundary guide](docs/repositories.md) for where a change belongs.
 
+## Hardware modifications
+
+Optional, irreversible changes to the device itself.
+
+| Guide | What it enables |
+|---|---|
+| [Adding a USB tail](docs/usb-tail-mod.md) | ADB and external USB storage, by bringing a short cable out of the case |
+
 ## Support
 
 Use the issue tracker for reproducible bugs and hardware problems. Include the
