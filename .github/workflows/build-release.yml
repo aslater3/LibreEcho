@@ -407,6 +407,26 @@ jobs:
           path: sources/product
           fetch-depth: 1
           persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Install reviewed OTA signing dependency closure
+        run: |
+          set -euo pipefail
+          deps="$RUNNER_TEMP/public-deps"
+          wheelhouse="$deps/python-wheels"
+          test -f "$deps/SHA256SUMS"
+          test -f "$wheelhouse/requirements.txt"
+          test -f "$wheelhouse/PyNaCl-1.5.0-cp36-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/cffi-1.17.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/pycparser-2.22-py3-none-any.whl"
+          (cd "$deps" && sha256sum -c SHA256SUMS)
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --find-links "$wheelhouse" \
+            --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
       - name: Verify stable UI version marker
         if: needs.resolve-and-preflight.outputs.channel == 'stable'
         env:
