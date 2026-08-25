@@ -7,15 +7,21 @@ Amonet/BROM wrapper image, calibration data, or local filesystem path.
 
 ## Release boundary
 
-Hosted main-branch builds may also produce an **unsigned development
-prerelease**. That bounded prerelease contains the verified boot image, the
-five feature payloads and manifests, a sanitized source/build manifest, the
-independent verifier result, and SHA-256 inventory. Its non-SemVer tag binds the
-product commit plus complete source-set and artifact-set digests, preventing a
-later rebuild from replacing different bytes under an existing public identity.
-It contains no OTA bundle and makes no signing, flashing, deployment, or
-hardware-acceptance claim. This development distribution path is distinct from
-the signed release boundary below.
+Hosted main-branch builds produce a bounded `dev`-channel prerelease. Pull
+requests remain unsigned validation-only builds, but successful pushes to
+`main` and scheduled nightly runs produce a **signed development OTA** from the
+exact verified Product workflow artifact. These dev/nightly releases contain
+the signed OTA bundle, verified boot image, five feature payloads and manifests,
+a sanitized source/build manifest, the independent verifier result, and a
+SHA-256 inventory. Their non-SemVer tags bind the product commit plus complete
+source-set and artifact-set digests, preventing a later rebuild from replacing
+different bytes under an existing public identity.
+
+A signed dev/nightly release is usable only by devices deliberately switched to
+the `dev` OTA channel. It remains a GitHub prerelease, is never marked `latest`,
+and makes no stable-product, flashing, deployment, or hardware-acceptance
+claim. This development distribution path is signed for beta OTA testing but
+remains distinct from the stable release boundary below.
 
 A complete `community-noncommercial` release has two layers:
 
