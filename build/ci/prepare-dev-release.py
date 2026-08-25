@@ -81,14 +81,16 @@ def main() -> int:
         fail("candidate is not PREPARED_NOT_FLASHED")
     if candidate.get("public_release_mode") != "1" or candidate.get("update_channel") != "dev":
         fail("candidate is not a public dev build")
+    signed = candidate.get("ota_signing_mode") == "local"
     for field, expected in (
         ("image_profile", "ota"),
         ("service_profile", "production"),
         ("feature_policy", "community-noncommercial"),
-        ("ota_signing_mode", "github"),
     ):
         if candidate.get(field) != expected:
             fail(f"candidate has unexpected {field}")
+    if candidate.get("ota_signing_mode") not in {"github", "local"}:
+        fail("candidate has unexpected ota_signing_mode")
     ssh_enabled = candidate.get("ssh_enabled", "0")
     if ssh_enabled not in {"0", "1"}:
         fail("candidate has invalid ssh_enabled")
@@ -107,7 +109,12 @@ def main() -> int:
             record = ssh_files.get(path, {}) if isinstance(ssh_files, dict) else {}
             if record.get("sha256") != candidate[field]:
                 fail(f"candidate SSH manifest identity mismatch: {field}")
-    if candidate.get("ota_bundle") or candidate.get("ota_bundle_sha256"):
+    ota_bundles = sorted(run.glob("*.ota.tar"))
+    if signed:
+        if len(ota_bundles) != 1:
+            fail("signed dev candidate requires exactly one OTA bundle")
+        expect_hash(ota_bundles[0], candidate.get("ota_bundle_sha256", ""))
+    elif candidate.get("ota_bundle") or candidate.get("ota_bundle_sha256") or ota_bundles:
         fail("unsigned dev candidate unexpectedly contains an OTA bundle")
     if candidate.get("product_git_head") != sources["product"]:
         fail("candidate product identity mismatch")
@@ -154,6 +161,12 @@ def main() -> int:
         copied.append(target)
 
     copy(run / "boot.img", "boot.img", candidate.get("boot_image_sha256", ""))
+    if signed:
+        regular(ota_bundles[0])
+        expect_hash(ota_bundles[0], candidate.get("ota_bundle_sha256", ""))
+        ota_target = output / f"{prefix}.ota.tar"
+        shutil.copyfile(ota_bundles[0], ota_target)
+        copied.append(ota_target)
     for feature in FEATURES:
         key = "airplay" if feature == "airplay2" else feature
         copy(
@@ -194,8 +207,8 @@ def main() -> int:
             "dropbearkey_sha256": candidate.get("dropbearkey_sha256", ""),
         },
         "status": "PREPARED_NOT_FLASHED",
-        "signed": False,
-        "ota_bundle": False,
+        "signed": signed,
+        "ota_bundle": signed,
         "hardware_accepted": False,
         "feature_policy": "community-noncommercial",
         "sources": {
@@ -224,6 +237,8 @@ def main() -> int:
     print(f"source_set_id={source_set_id}")
     print(f"artifact_set_id={artifact_set_id}")
     print(f"asset_count={len(copied) + 1}")
+    print(f"signed={int(signed)}")
+    print(f"ota_bundle={int(signed)}")
     return 0
 
 

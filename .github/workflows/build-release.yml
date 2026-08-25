@@ -70,6 +70,7 @@ jobs:
       release_notes: ${{ steps.resolve.outputs.release_notes }}
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
+      signing_mode: ${{ steps.resolve.outputs.signing_mode }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -80,6 +81,7 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
+          SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -154,6 +156,7 @@ jobs:
           fi
           printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          printf 'signing_mode=%s\n' "$SIGNING_MODE" >> "$GITHUB_OUTPUT"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           else
@@ -362,7 +365,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment:
-      name: ${{ (needs.resolve-and-preflight.outputs.channel == 'stable' || needs.resolve-and-preflight.outputs.ssh_enabled == '1') && 'stable-release' || 'dev-build' }}
+      name: ${{ (needs.resolve-and-preflight.outputs.signing_mode == 'local' || needs.resolve-and-preflight.outputs.ssh_enabled == '1') && (needs.resolve-and-preflight.outputs.channel == 'stable' && 'stable-release' || 'dev-release') || 'dev-build' }}
     permissions: {contents: read}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -416,8 +419,8 @@ jobs:
             echo "ERROR: UI VERSION=$ui_version does not match stable release $RELEASE_VERSION" >&2
             exit 1
           }
-      - name: Materialize protected stable OTA signing key
-        if: needs.resolve-and-preflight.outputs.channel == 'stable'
+      - name: Materialize protected OTA signing key
+        if: needs.resolve-and-preflight.outputs.signing_mode == 'local'
         env:
           OTA_SIGNING_KEY_HEX: ${{ secrets.LIBREECHO_OTA_SIGNING_KEY_HEX }}
         run: |
@@ -859,8 +862,8 @@ jobs:
           LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
           LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
-          LIBREECHO_OTA_SIGNING_MODE: ${{ needs.resolve-and-preflight.outputs.channel == 'stable' && 'local' || 'github' }}
-          LIBREECHO_OTA_SIGNING_KEY: ${{ runner.temp }}/ota-signing-key.hex
+          LIBREECHO_OTA_SIGNING_MODE: ${{ needs.resolve-and-preflight.outputs.signing_mode }}
+          LIBREECHO_OTA_SIGNING_KEY: ${{ needs.resolve-and-preflight.outputs.signing_mode == 'local' && format('{0}/ota-signing-key.hex', runner.temp) || '' }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf

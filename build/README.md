@@ -53,11 +53,11 @@ are deliberately separate:
   server plus `dropbearkey` in the initramfs. The image uses password-only root
   login, does not include public-key authorization or persistent host keys, and
   records both binary hashes in the release manifest.
-- **Development:** pushes to `main` publish a bounded unsigned GitHub
-  prerelease from the exact workflow artifact. These releases are
-  `PREPARED_NOT_FLASHED`, contain no signed OTA, and are not hardware-acceptance
-  evidence.
-- **Nightly:** the scheduled `main` run uses the same no-publish build but tags
+- **Development:** pushes to `main` publish a bounded signed `dev`-channel GitHub
+  prerelease from the exact workflow artifact. Pull requests remain unsigned
+  validation-only builds. These releases are `PREPARED_NOT_FLASHED`, are not
+  marked latest, and are not hardware-acceptance evidence.
+- **Nightly:** the scheduled `main` run uses the same no-publish signed build but tags
   its output as `radar-puffin-nightly-*`. After successful publication it keeps
   only the three newest nightly prereleases and removes older nightly releases
   and tags. Ordinary development prereleases are not affected.
