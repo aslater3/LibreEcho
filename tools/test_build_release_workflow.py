@@ -298,6 +298,8 @@ class Tests(unittest.TestCase):
   self.assertNotIn('aslater3/LibreEcho-Build', PUBLISH)
   self.assertIn('component_ref="release/$RELEASE_VERSION"', W)
   self.assertIn('coordinated component ref is missing', W)
+  self.assertIn('Install OTA signing dependency', W)
+  self.assertIn('PyNaCl==1.5.0', W)
   self.assertIn('Verify stable UI version marker', W)
   self.assertIn('UI VERSION=', W)
   self.assertIn('"$GITHUB_BASE_REF" == release/*', W)
