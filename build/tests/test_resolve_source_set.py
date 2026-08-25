@@ -14,4 +14,8 @@ class Tests(unittest.TestCase):
   self.assertNotEqual(r.source_set_id(x),r.source_set_id(y))
  def test_bad_sha(self):
   with self.assertRaises(ValueError): r.validate_sha('not-a-sha')
+ def test_channel_is_explicit_and_fail_closed(self):
+  self.assertEqual(r.validate_channel('dev'), 'dev')
+  self.assertEqual(r.validate_channel('stable'), 'stable')
+  with self.assertRaises(ValueError): r.validate_channel('nightly')
 if __name__=='__main__': unittest.main()

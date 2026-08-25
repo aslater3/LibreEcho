@@ -1,10 +1,6 @@
-name: Publish merged release
+name: Publish Product release
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'release/*-candidate.json'
   workflow_run:
     workflows: ['Hosted LibreEcho build and release']
     types: [completed]
@@ -18,14 +14,14 @@ jobs:
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main' &&
+      (
+        github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'schedule'
+      )
     runs-on: ubuntu-24.04
     environment: public-release
     concurrency:
-      # Preserve every successful source/artifact set. GitHub keeps at most
-      # one pending job per group, so grouping only by product SHA could drop
-      # an intervening run that resolved different component heads.
       group: hosted-dev-release-${{ github.event.workflow_run.id }}
       cancel-in-progress: false
     steps:
@@ -34,7 +30,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Resolve exact verified build artifact
+      - name: Resolve exact verified Product artifact
         id: artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,26 +52,29 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
-      - name: Prepare bounded unsigned dev release
+      - name: Prepare bounded unsigned development release
         id: prepare
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
         run: |
           set -euo pipefail
           python3 build/ci/prepare-dev-release.py \
             --artifact-root verified-build \
             --product-commit "$HEAD_SHA" \
+            --release-kind "$RELEASE_KIND" \
             --output-dir release-assets | tee prepare-release.out
           grep -E '^(release_tag|release_prefix|source_set_id|artifact_set_id)=' \
             prepare-release.out >>"$GITHUB_OUTPUT"
           test "$(grep -Ec '^(release_tag|release_prefix|source_set_id|artifact_set_id)=' prepare-release.out)" -eq 4
           python3 tools/check-public-metadata.py release-assets
           (cd release-assets && sha256sum -c *-SHA256SUMS)
-      - name: Publish development prerelease
+      - name: Publish development or nightly prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
@@ -101,8 +100,8 @@ jobs:
           if [[ -z "$release_id" ]]; then
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$tag" -f target_commitish="$HEAD_SHA" \
-              -f name="LibreEcho development build $short" \
-              -f body=$'Unsigned development build from verified hosted CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.' \
+              -f name="LibreEcho development/nightly build $short" \
+              -f body=$'Unsigned development or nightly build from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.' \
               -F draft=true -F prerelease=true -f make_latest=false --jq .id)"
           else
             release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
@@ -112,7 +111,7 @@ jobs:
               gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate \
                 --jq '.[] | [.name, (.size|tostring), .digest] | @tsv' | sort >actual-assets.tsv
               cmp expected-assets.tsv actual-assets.tsv
-              echo "hosted_dev_release=ALREADY_PUBLISHED tag=$tag assets=$(wc -l <actual-assets.tsv)"
+              echo "dev_release=ALREADY_PUBLISHED tag=$tag assets=$(wc -l <actual-assets.tsv)"
               exit 0
             fi
             gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate --jq '.[].id' |
@@ -130,102 +129,135 @@ jobs:
             -F draft=false -F prerelease=true -f make_latest=false >/dev/null
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             --jq 'select(.draft == false and .prerelease == true) | .id' | grep -qx "$release_id"
-          echo "hosted_dev_release=PASS tag=$tag assets=${#assets[@]}"
+          echo "dev_release=PASS tag=$tag assets=${#assets[@]}"
+          if [[ "$RELEASE_KIND" == nightly ]]; then
+            while IFS=$'\t' read -r created release_id old_tag; do
+              [[ -n "$release_id" ]] || continue
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$release_id" >/dev/null
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$old_tag" >/dev/null
+              echo "nightly_retention=DELETED tag=$old_tag created=$created"
+            done < <(
+              gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+                --jq '.[] | select(.tag_name | startswith("radar-puffin-nightly-")) | [.created_at, (.id|tostring), .tag_name] | @tsv' |
+                LC_ALL=C sort -r | tail -n +4
+            )
+          fi
 
-  publish:
-    if: github.event_name == 'push'
+  publish-stable:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      startsWith(github.event.workflow_run.head_branch, 'release/')
     runs-on: ubuntu-24.04
     environment: public-release
+    concurrency:
+      group: stable-release-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Read merged candidate
-        id: candidate
-        env:
-          BUILD_TOKEN: ${{ secrets.LIBREECHO_BUILD_READ_TOKEN }}
-        run: |
-          set -euo pipefail
-          mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" -- 'release/*-candidate.json')
-          test "${#changed[@]}" -eq 1
-          candidate="${changed[0]}"
-          test -n "$candidate"
-          python3 - "$candidate" >>"$GITHUB_OUTPUT" <<'PY'
-          import json, sys
-          data=json.load(open(sys.argv[1], encoding='utf-8'))
-          for key in ('version','source_run_id','source_run_attempt'):
-              if key not in data: raise SystemExit(f'missing candidate field: {key}')
-              print(f'{key}={data[key]}')
-          channel=data.get('channel','stable')
-          if channel not in ('stable','dev'): raise SystemExit('invalid candidate channel')
-          print(f'channel={channel}')
-          PY
-      - name: Download exact Build staging artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
-        with:
-          repository: aslater3/LibreEcho-Build
-          run-id: ${{ steps.candidate.outputs.source_run_id }}
-          github-token: ${{ secrets.LIBREECHO_BUILD_READ_TOKEN }}
-          name: community-noncommercial-candidate-${{ steps.candidate.outputs.source_run_id }}-${{ steps.candidate.outputs.source_run_attempt }}
-          path: public-release
-      - name: Publish bounded assets
+      - name: Resolve exact stable Product artifact
+        id: artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.candidate.outputs.version }}
-          CANDIDATE_CHANNEL: ${{ steps.candidate.outputs.channel }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          case "$CANDIDATE_CHANNEL" in
-            stable|dev) ;;
-            *) echo "invalid candidate channel: $CANDIDATE_CHANNEL" >&2; exit 1 ;;
-          esac
-          dir=public-release/public-release
-          test -d "$dir" || dir=public-release
-          sums="libreecho-${VERSION}-SHA256SUMS"
-          test -f "$dir/$sums"
-          ota="libreecho-${VERSION}.ota.tar"
-          installer="libreecho-${VERSION}-installer.py"
-          test -f "$dir/$ota"
-          test -f "$dir/$installer"
-          mapfile -t assets < <(find "$dir" -maxdepth 1 -type f ! -name '.assets' -printf '%f\n' | sort)
-          test "${#assets[@]}" -ge 4
-          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-boot.img"
-          printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${VERSION}-initial-install.tar"
-          printf '%s\n' "${assets[@]}" | grep -qx "$installer"
-          printf '%s\n' "${assets[@]}" | grep -qx "$sums"
-          printf '%s\n' "${assets[@]}" | grep -qx "$ota"
-          awk -v ota="$ota" '$2 == ota && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ { found=1 } END { exit !found }' "$dir/$sums"
-          (cd "$dir" && sha256sum -c "$sums")
-          (cd tools && sha256sum -c libreecho-install.py.sha256)
-          cmp --silent "$dir/$installer" tools/libreecho-install.py || {
-            echo 'staged public installer differs from the Product mirror' >&2; exit 1
-          }
-          if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
-            echo 'unexpected compliance asset in public release' >&2; exit 1
-          fi
-          for alias in stable dev; do
-            if [ "$CANDIDATE_CHANNEL" = "$alias" ]; then
-              cp "$dir/$ota" "$dir/libreecho-radar-puffin-${alias}.ota.tar"
-              assets+=("libreecho-radar-puffin-${alias}.ota.tar")
-            fi
-          done
-          printf '%s\n' "${assets[@]}" | sort -u >"$dir/.assets"
-          mapfile -t assets <"$dir/.assets"
-          (cd "$dir" && find . -maxdepth 1 -type f ! -name '*-SHA256SUMS' ! -name '.assets' -printf '%f\0' | sort -z | xargs -0 sha256sum >"libreecho-${VERSION}-SHA256SUMS")
-          mapfile -t assets < <(find "$dir" -maxdepth 1 -type f ! -name '.assets' -printf '%f\n' | sort)
-          tag="$VERSION"
-          release_id="$(gh release view "$tag" --json databaseId --jq .databaseId 2>/dev/null || true)"
-          if [ -z "$release_id" ]; then
-            gh release create "$tag" --target "$GITHUB_SHA" --title "LibreEcho $VERSION" --notes-file "release/${VERSION}.md" --prerelease
-            release_id="$(gh release view "$tag" --json databaseId --jq .databaseId)"
-          fi
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.assets[].id' |
-            while read -r id; do gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}" >/dev/null; done
-          for asset in "${assets[@]}"; do
-            gh release upload "$tag" "$dir/$asset" --clobber
-          done
-          actual="$(gh release view "$tag" --json assets --jq '.assets | map(.name) | sort | join("\n")')"
-          expected="$(printf '%s\n' "${assets[@]}" | sort)"
-          test "$actual" = "$expected"
-          echo "release_publish=PASS assets=${#assets[@]} tag=$tag"
+          expected="libreecho-${HEAD_BRANCH#release/}-${HEAD_SHA:0:7}"
+          mapfile -t matches < <(
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --paginate \
+              --jq ".artifacts[] | select(.name == \"$expected\" and .expired == false) | .name"
+          )
+          test "${#matches[@]}" -eq 1
+          printf 'name=%s\n' "${matches[0]}" >>"$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: verified-build
+      - name: Read stable release request
+        id: request
+        run: |
+          set -euo pipefail
+          mapfile -t requests < <(find verified-build -name release-request.json -type f -print)
+          test "${#requests[@]}" -eq 1
+          python3 - "${requests[0]}" >>"$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          for key in ("channel", "version", "release_tag", "release_notes", "amonet_repository", "amonet_tag", "amonet_commit", "ssh_enabled"):
+              value = data.get(key, "")
+              if not value:
+                  raise SystemExit(f"missing stable release field: {key}")
+              print(f"{key}={value}")
+          if data["channel"] != "stable":
+              raise SystemExit("artifact is not a stable release")
+          PY
+      - name: Read exact stable source heads
+        id: sources
+        run: |
+          set -euo pipefail
+          mapfile -t inventories < <(find verified-build -name release-source-commits.txt -type f -print)
+          test "${#inventories[@]}" -eq 1
+          python3 - "${inventories[0]}" >>"$GITHUB_OUTPUT" <<'PY'
+          import sys
+          values = {}
+          for line in open(sys.argv[1], encoding="utf-8"):
+              if "=" in line:
+                  key, value = line.rstrip("\n").split("=", 1)
+                  values[key] = value
+          for source in ("product", "platform", "linux", "ui"):
+              value = values.get(source, "")
+              if len(value) != 40 or any(char not in "0123456789abcdef" for char in value):
+                  raise SystemExit(f"missing or invalid stable source head: {source}")
+              print(f"{source}_head={value}")
+          PY
+      - name: Prepare signed stable release assets
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_VERSION: ${{ steps.request.outputs.version }}
+          RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
+          AMONET_REPOSITORY: ${{ steps.request.outputs.amonet_repository }}
+          AMONET_TAG: ${{ steps.request.outputs.amonet_tag }}
+          AMONET_COMMIT: ${{ steps.request.outputs.amonet_commit }}
+          PRODUCT_HEAD: ${{ steps.sources.outputs.product_head }}
+          PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
+          LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
+          UI_HEAD: ${{ steps.sources.outputs.ui_head }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 build/ci/generate-release-notes.py \
+            --version "$RELEASE_VERSION" \
+            --product-head "$PRODUCT_HEAD" \
+            --platform-head "$PLATFORM_HEAD" \
+            --linux-head "$LINUX_HEAD" \
+            --ui-head "$UI_HEAD" \
+            --output "$RELEASE_NOTES"
+          python3 build/ci/prepare-stable-release.py \
+            --artifact-root verified-build \
+            --product-root "$GITHUB_WORKSPACE" \
+            --product-commit "$HEAD_SHA" \
+            --release-version "$RELEASE_VERSION" \
+            --release-notes "$RELEASE_NOTES" \
+            --amonet-repository "$AMONET_REPOSITORY" \
+            --amonet-tag "$AMONET_TAG" \
+            --amonet-commit "$AMONET_COMMIT" \
+            --output-dir release-assets
+          python3 tools/check-public-metadata.py release-assets
+          (cd release-assets && sha256sum -c *-SHA256SUMS)
+      - name: Publish stable Product release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
+          RELEASE_DIR: release-assets
+          RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: build/ci/publish-stable-release.sh

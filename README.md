@@ -71,6 +71,8 @@ priority.
 
 - Local web administration for device, audio, wake word, networking, logs, and system settings.
 - Signed A/B OTA updates with opt-in automatic installation and a manual update action.
+- Optional password-authenticated root SSH in manually selected builds; public
+  builds keep it disabled unless the release operator explicitly enables it.
 - Linux kernel and initramfs bring-up for the MT8163 ARM32 platform.
 - Clear component boundaries so UI work, hardware work, and product support can evolve independently.
 
@@ -78,8 +80,8 @@ priority.
 
 | Repository | Owns |
 | --- | --- |
-| [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, documentation, support, roadmap, issues, release notes, and OTA distribution |
-| [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; the historical 3.18 tree remains here for compatibility |
+| [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, hosted image CI, documentation, support, roadmap, issues, release notes, and OTA distribution |
+| [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, and OTA verification/build inputs; the historical 3.18 tree remains here for compatibility |
 | [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1) | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 

@@ -23,5 +23,16 @@ export LIBREECHO_INPUTS_ROOT="$LIBREECHO_PUBLIC_DEPS_ROOT"
 export LIBREECHO_BUILD_ROOT="${LIBREECHO_BUILD_ROOT:-${RUNNER_TEMP:?set RUNNER_TEMP}/libreecho-build}"
 export LIBREECHO_PRIVATE_ROOT="${LIBREECHO_PRIVATE_ROOT:-$RUNNER_TEMP/libreecho-private}"
 export LIBREECHO_PUBLIC_RELEASE=1 LIBREECHO_FEATURE_POLICY=community-noncommercial
-export LIBREECHO_OTA_SIGNING_MODE=github LIBREECHO_UPDATE_CHANNEL="${LIBREECHO_UPDATE_CHANNEL:-dev}" JOBS=2
+channel="${LIBREECHO_UPDATE_CHANNEL:-dev}"
+signing_mode="${LIBREECHO_OTA_SIGNING_MODE:-github}"
+case "$channel" in
+  dev|stable) ;;
+  *) echo "ERROR: unsupported OTA update channel: $channel" >&2; exit 2 ;;
+esac
+case "$signing_mode" in
+  github) [[ "$channel" == dev ]] || { echo "ERROR: stable releases require local OTA signing" >&2; exit 2; } ;;
+  local) [[ "$channel" == stable ]] || { echo "ERROR: local OTA signing is reserved for stable releases" >&2; exit 2; } ;;
+  *) echo "ERROR: unsupported OTA signing mode: $signing_mode" >&2; exit 2 ;;
+esac
+export LIBREECHO_OTA_SIGNING_MODE="$signing_mode" LIBREECHO_UPDATE_CHANNEL="$channel" JOBS=2
 exec "$ROOT/build.sh" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish
