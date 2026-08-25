@@ -31,7 +31,7 @@ case "$channel" in
 esac
 case "$signing_mode" in
   github) [[ "$channel" == dev ]] || { echo "ERROR: stable releases require local OTA signing" >&2; exit 2; } ;;
-  local) [[ "$channel" == stable ]] || { echo "ERROR: local OTA signing is reserved for stable releases" >&2; exit 2; } ;;
+  local) ;;
   *) echo "ERROR: unsupported OTA signing mode: $signing_mode" >&2; exit 2 ;;
 esac
 export LIBREECHO_OTA_SIGNING_MODE="$signing_mode" LIBREECHO_UPDATE_CHANNEL="$channel" JOBS=2

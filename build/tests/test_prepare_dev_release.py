@@ -126,6 +126,35 @@ class Tests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("release_tag=radar-puffin-nightly-", result.stdout)
 
+    def test_prepares_signed_dev_release_with_ota_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run, commits = fixture(root)
+            ota = run / "signed.ota.tar"
+            ota.write_bytes(b"signed dev ota")
+            candidate = run / "CURRENT.candidate"
+            text = candidate.read_text()
+            text = text.replace(
+                "ota_signing_mode=github\n",
+                "ota_signing_mode=local\n",
+            )
+            text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
+            text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
+            candidate.write_text(text)
+            output = root / "release"
+            result = subprocess.run([
+                sys.executable, str(SCRIPT),
+                "--artifact-root", str(root),
+                "--output-dir", str(output),
+                "--product-commit", commits["product"],
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            files = {path.name for path in output.iterdir()}
+            self.assertTrue(any(name.endswith(".ota.tar") for name in files))
+            manifest = json.loads(next(output.glob("*-build.json")).read_text())
+            self.assertTrue(manifest["signed"])
+            self.assertTrue(manifest["ota_bundle"])
+
     def test_preserves_enabled_ssh_identity_in_release_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

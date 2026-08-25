@@ -165,6 +165,10 @@ class ComponentGateTests(unittest.TestCase):
         self.assertIn("Normal public downloads", boundary)
         self.assertIn("Compliance materials", boundary)
         self.assertIn("furnished to recipients on", boundary)
+        self.assertIn("signed development OTA", boundary)
+        self.assertIn("dev` OTA channel", boundary)
+        self.assertIn("never marked `latest`", boundary)
+        self.assertNotIn("Hosted main-branch builds may also produce an **unsigned development", boundary)
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
