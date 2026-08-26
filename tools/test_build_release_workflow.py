@@ -282,6 +282,8 @@ class Tests(unittest.TestCase):
   self.assertIn('LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}',W)
   self.assertIn("workflows: ['Hosted LibreEcho build and release']", PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'push'", PUBLISH)
+  self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
+  self.assertIn("github.event.workflow_run.event == 'schedule'", PUBLISH)
   self.assertIn("github.event.workflow_run.head_branch == 'main'", PUBLISH)
   self.assertIn('prepare-dev-release.py', PUBLISH)
   self.assertIn('make_latest=false', PUBLISH)
@@ -337,7 +339,7 @@ class Tests(unittest.TestCase):
 
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
-  self.assertIn('nightly-[0-9a-f-]+', installer)
+  self.assertIn('(?:nightly|build)-[0-9a-f-]+', installer)
   # Concurrency is scoped per event and ref (independent PR lanes), and
   # running builds are never cancelled.
   self.assertIn('github.head_ref || github.ref',W); self.assertIn('cancel-in-progress: false',W)
