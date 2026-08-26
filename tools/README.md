@@ -104,3 +104,13 @@ successful checksum, build, or release publication does not establish hardware
 acceptance. Preserve the release identity, Amonet log, fastboot/ADB output,
 readback hashes, runtime checks, and UART evidence separately under the project
 evidence directory.
+
+## Echo Gen 2 pogo-pin carrier (v5)
+
+[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip) contains the printable six-pin carrier used to make a repeatable development/service jig for the Echo 2nd Gen base contacts. It replaces the original rounded-rectangle rubber plug while positioning six spring probes over the 2 × 3 contact array.
+
+The model is based on measured hardware dimensions: 3.0 mm pin pitch, approximately 0.66 mm pogo barrels, a 10.0 × 7.6 mm clearance lid, an 8.8 × 6.0 mm insert body, a 5.0 mm insert depth and a 2.0 mm lid. The gold contacts were estimated to sit roughly another 2 mm below the top of the pogo cage, so verify tip projection and compression against the physical device before wiring or powering the jig.
+
+v5 is specifically designed for a 0.4 mm FDM nozzle. Instead of relying on marginal 0.68–0.75 mm printed holes, it uses flared through-channels and provides 0.80, 0.90, 1.00, 1.10 and 1.20 mm bore variants plus a calibration coupon. Print the coupon first; 1.00 mm is the recommended starting carrier for the measured 0.66 mm pins. If adhesive is required, use only a small amount at the wiring-side pocket and keep it clear of the moving plunger.
+
+This is a hardware-development aid, not a required part of the LibreEcho software installation path.
