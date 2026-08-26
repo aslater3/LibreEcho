@@ -685,7 +685,7 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
     records = _checksums(checksums, None)
     optional = {"libreecho-radar-puffin-dev.ota.tar"}
     if release_tag.startswith(("radar-puffin-nightly-", "radar-puffin-build-")):
-        optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt"})
+        optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt", f"{prefix}-run-one-shot.sh"})
     unexpected = set(records) - expected - optional
     if not expected.issubset(records) or unexpected:
         raise InstallerError("checksum inventory mismatch")
@@ -864,6 +864,7 @@ def continue_one_shot(
     cache_root: Path | str,
     state_root: Path | str,
     install_id: str,
+    release_tag: str,
     fastboot_bin: str,
     adb_bin: str,
     fastboot_serial: str,
@@ -879,6 +880,12 @@ def continue_one_shot(
     require_host_commands("bash", fastboot_bin, adb_bin)
     state_path = _state_path(Path(state_root), install_id)
     state = _read_state(state_path)
+    if not RELEASE.fullmatch(release_tag):
+        raise InstallerError("invalid continuation release tag")
+    if state["release"] != release_tag:
+        raise InstallerError(
+            f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
+        )
     if state["phase"] not in {"AMONET_HANDOFF", "ADB_READY", "READBACK_VERIFIED"}:
         raise InstallerError(f"continuation requires AMONET_HANDOFF, ADB_READY, or READBACK_VERIFIED state, got {state['phase']}")
     release = state["release"]
@@ -1104,7 +1111,8 @@ def main() -> None:
         elif args.action == "continue-one-shot":
             result = continue_one_shot(
                 cache_root=args.cache_root, state_root=args.state_root,
-                install_id=args.install_id, fastboot_bin=args.fastboot_bin,
+                install_id=args.install_id, release_tag=args.release_tag,
+                fastboot_bin=args.fastboot_bin,
                 adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
                 slots=args.slots, fastboot_timeout=args.fastboot_timeout,
                 adb_timeout=args.adb_timeout, local_port=args.local_port,

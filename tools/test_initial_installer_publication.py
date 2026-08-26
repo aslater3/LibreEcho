@@ -30,10 +30,14 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("def download_amonet", source)
         self.assertIn("release_dir = download_release", source)
 
+    def test_run_one_shot_wrapper_is_packaged_in_complete_release(self) -> None:
+        source = (ROOT / "build/ci/prepare-dev-release.py").read_text(encoding="utf-8")
+        self.assertIn("run-one-shot.sh", source)
+
     def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
         readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
         for marker in (
-            "downloads the release assets itself",
+            "release checksum inventory",
             "download and verify pinned Amonet",
             "--release-tag \"$TAG\"",
             "--execute-hardware",
@@ -42,7 +46,21 @@ class InstallerPublicationTests(unittest.TestCase):
         ):
             self.assertIn(marker, readme)
 
-    def test_installer_is_python_source_with_no_private_path(self) -> None:
+    def test_run_one_shot_bootstrap_is_shell_and_checksum_gated(self) -> None:
+        wrapper = ROOT / "tools" / "run-one-shot.sh"
+        self.assertTrue(wrapper.is_file())
+        self.assertFalse(wrapper.is_symlink())
+        source = wrapper.read_text(encoding="utf-8")
+        self.assertIn("SHA256SUMS", source)
+        self.assertIn("sha256sum -c", source)
+        self.assertIn("exec python3", source)
+        self.assertIn("--release-tag \"$TAG\"", source)
+
+    def test_continuation_validates_the_requested_release_tag(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("state[\"release\"] != release_tag", source)
+        self.assertIn("continuation release tag does not match saved state", source)
+
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertTrue(source.startswith("#!/usr/bin/env python3\n"))
         self.assertNotIn("/home/andy", source)

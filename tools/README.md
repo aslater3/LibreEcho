@@ -1,5 +1,9 @@
 # LibreEcho initial-install tool
 
+`run-one-shot.sh` is the recommended entry point because it downloads the
+release checksum inventory and installer, verifies the installer before
+executing Python, and then lets the Python installer download/verify the rest.
+
 `libreecho-install.py` is the Product-side mirror of the verified LibreEcho
 initial-install orchestrator. It is intentionally a single standard-library
 Python file with a checksum sidecar:
@@ -35,21 +39,22 @@ handoff and LibreEcho installation after that point.
 
 ## User command
 
-Download only the installer from the exact Product release, then pass the exact
-release tag. The installer downloads the release assets itself, including the
-boot image, `initial-install.tar`, OTA key, five feature payloads/manifests,
-and checksums. It also downloads and verifies the pinned Amonet commit and its
-Git LFS objects.
+Download the release bootstrap from the exact Product release, then pass the
+exact release tag. The bootstrap verifies the installer against the release
+`SHA256SUMS` inventory **before executing Python**. The verified Python installer
+then downloads the remaining release assets itself, including the boot image,
+`initial-install.tar`, OTA key, five feature payloads/manifests, and checksums.
+It also downloads and verifies the pinned Amonet commit and its Git LFS objects.
 
 For a development build:
 
 ```bash
 TAG=radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>
-curl -fL -o "libreecho-${TAG}-installer.py" \
-  "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-installer.py"
+curl -fL -o "libreecho-${TAG}-run-one-shot.sh" \
+  "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
+chmod +x "libreecho-${TAG}-run-one-shot.sh"
 
-python3 "libreecho-${TAG}-installer.py" one-shot \
-  --release-tag "$TAG" \
+./"libreecho-${TAG}-run-one-shot.sh" "$TAG" \
   --fastboot-serial auto \
   --slots both \
   --execute-hardware
