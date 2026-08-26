@@ -321,8 +321,8 @@
       "license": "NOASSERTION",
       "release_status": "not-redistributed",
       "distribution_scope": "external-user-supplied",
-      "download_location": "https://github.com/amonet-kamakiri/amonet",
-      "source_offer": "https://github.com/amonet-kamakiri/amonet",
+      "download_location": "https://github.com/aslater3/amonet-k32",
+      "source_offer": "https://github.com/aslater3/amonet-k32",
       "evidence": [
         "release/README.md"
       ]
