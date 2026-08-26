@@ -34,7 +34,7 @@ on:
       amonet_repository:
         description: Reviewed Amonet repository for the installer manifest
         required: false
-        default: https://github.com/amonet-kamakiri/amonet
+        default: https://github.com/aslater3/amonet-k32
         type: string
       amonet_tag:
         description: Reviewed Amonet tag for the installer manifest
