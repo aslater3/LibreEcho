@@ -56,7 +56,7 @@ def find_run(root: Path) -> Path:
     return matches[0]
 
 
-def prepare_nightly_initial_install(
+def prepare_complete_initial_install(
     run: Path,
     output: Path,
     candidate: dict[str, str],
@@ -65,8 +65,9 @@ def prepare_nightly_initial_install(
     ota: Path,
     source_set_id: str,
     artifact_set_id: str,
+    release_kind: str,
 ) -> tuple[str, int]:
-    """Add the complete one-shot asset set to a nightly release."""
+    """Add the complete one-shot asset set to a dev or nightly release."""
     product = Path(__file__).resolve().parents[2]
     installer = product / "tools" / "libreecho-install.py"
     ota_key = run / "ota-public-key.hex"
@@ -74,7 +75,8 @@ def prepare_nightly_initial_install(
         fail("nightly candidate is missing ota-public-key.hex")
     if not installer.is_file():
         fail("Product installer source is missing")
-    release_tag = f"radar-puffin-nightly-{candidate['product_git_head'][:7]}-{source_set_id}-{artifact_set_id}"
+    tag_prefix = "radar-puffin-nightly" if release_kind == "nightly" else "radar-puffin-build"
+    release_tag = f"{tag_prefix}-{candidate['product_git_head'][:7]}-{source_set_id}-{artifact_set_id}"
     prefix = f"libreecho-{release_tag}"
     sources_dir = run / "features"
     if not sources_dir.is_dir():
@@ -166,7 +168,7 @@ def prepare_nightly_initial_install(
         "artifact_set_id": artifact_set_id,
         "board": "radar_puffin",
         "channel": "dev",
-        "kind": "nightly",
+        "kind": release_kind,
         "status": "PREPARED_NOT_FLASHED",
         "signed": True,
         "ota_bundle": True,
@@ -178,8 +180,8 @@ def prepare_nightly_initial_install(
     (output / f"{prefix}-build.json").write_text(json.dumps(build_manifest, indent=2, sort_keys=True) + "\n")
     notes = output / f"{prefix}-release-notes.md"
     notes.write_text(
-        f"# LibreEcho nightly {release_tag}\n\n"
-        "This is a signed development nightly for controlled hardware testing. "
+        f"# LibreEcho {release_kind} {release_tag}\n\n"
+        "This is a signed development build for controlled hardware testing. "
         "It includes the complete one-shot installer asset set. Status: "
         "PREPARED_NOT_FLASHED; no hardware acceptance is implied.\n"
     )
@@ -366,15 +368,15 @@ def main() -> int:
     sums.write_text("".join(
         f"{sha256(path)}  {path.name}\n" for path in sorted(copied)
     ), encoding="ascii")
-    if args.release_kind == "nightly":
-        if not signed or len(ota_bundles) != 1:
-            fail("nightly one-shot artifact requires exactly one signed OTA")
+    if args.release_kind in {"development", "nightly"} and signed:
+        if len(ota_bundles) != 1:
+            fail(f"{args.release_kind} one-shot artifact requires exactly one signed OTA")
         for path in output.iterdir():
             if path.is_file():
                 path.unlink()
-        release_tag, asset_count = prepare_nightly_initial_install(
+        release_tag, asset_count = prepare_complete_initial_install(
             run, output, candidate, sources, verification, ota_bundles[0],
-            source_set_id, artifact_set_id,
+            source_set_id, artifact_set_id, args.release_kind,
         )
         print(f"release_dir={output}")
         print(f"release_tag={release_tag}")
