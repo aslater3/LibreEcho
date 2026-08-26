@@ -31,6 +31,10 @@ validation, but the project is not yet presented as a general-purpose upstream
 Linux port or a stable public OTA release. Hardware fixes and service
 integration continue on review branches.
 
+## Getting Started
+
+- **Echo Gen 2 disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
+
 ## Start Here
 
 - **Website:** [libreecho.org](https://libreecho.org/)
