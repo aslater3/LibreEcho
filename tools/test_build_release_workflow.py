@@ -259,6 +259,12 @@ class Tests(unittest.TestCase):
   self.assertIn('--tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity"', B)
   # The vendored path must not invoke the musl toolchain rebuild anymore.
   self.assertNotIn('build_connectivity_helpers.sh', B)
+ def test_reviewed_signing_dependencies_are_downloaded_before_install(self):
+  build_image = W.index('  build-image:')
+  download = W.index('name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}', build_image)
+  install = W.index('Install reviewed OTA signing dependency closure', build_image)
+  self.assertLess(download, install)
+
  def test_triggers_and_jobs(self):
   self.assertIn("branches: [main, 'release/**']",W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertIn('update_channel:',W); self.assertIn('release_version:',W); self.assertIn('signing_mode:',W)
   self.assertIn("SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}", W)

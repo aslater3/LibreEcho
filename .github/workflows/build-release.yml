@@ -407,6 +407,18 @@ jobs:
           path: sources/product
           fetch-depth: 1
           persist-credentials: false
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/public-deps
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/toolchain
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/armhf-root
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
@@ -457,18 +469,6 @@ jobs:
           test -n "$SSH_ROOT_PASSWORD_HASH"
           umask 077
           printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
-        with:
-          name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
-          path: ${{ runner.temp }}/public-deps
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
-        with:
-          name: public-toolchain-${{ needs.resolve-and-preflight.outputs.source_set_id }}
-          path: ${{ runner.temp }}/toolchain
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
-        with:
-          name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
-          path: ${{ runner.temp }}/armhf-root
       - name: Derive reviewed TTS voice models
         run: |
           set -euo pipefail
