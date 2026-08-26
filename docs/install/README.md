@@ -165,6 +165,51 @@ debugging only; it is not part of the normal installation process.
 - Repeat the installation instructions' power/USB order.
 - Try another USB cable or USB port without a hub.
 
+### The payload loads, then the installer fails to read the eMMC
+
+The clearest sign is that everything looks *right* until the very last moment:
+
+```
+Send payload
+Let's rock
+Wait for the payload to come online...
+all good
+Clear preloader header
+eMMC read failed; lift the BROM short if it is still on, retrying
+...
+RuntimeError: read fail
+```
+
+**The short is still on.** `Clear preloader header` is printed immediately
+before the installer's first read of the eMMC. The short works by preventing
+the eMMC from being read, which is what stops the preloader starting and drops
+the chip into BROM -- and it blocks the installer's own reads in exactly the
+same way. So the exploit succeeds, the payload runs, and the first thing it
+tries to do with the flash fails.
+
+Nothing is wrong with the download, the USB connection, or the eMMC. No data
+has been written at this point.
+
+Fix it by removing the short as soon as the BROM device appears over USB
+(step 4.6), before the installer gets this far. Then confirm it actually
+lifted: solder residue, flux, or a wire resting against the pad still shorts
+while looking clear. Check with a multimeter in continuity mode against the
+marked ground point.
+
+If the run stalls after `Clear preloader header`, you do not need to re-apply
+the short to try again -- that step clears the preloader header specifically so
+the board falls into BROM on its own. Re-shorting an already-cleared board is a
+common way to end up back at this same error.
+
+### BROM appears and disappears repeatedly
+
+Cycles of `Waiting for bootrom` -> `Found port` -> `Handshake` that return to
+`Waiting for bootrom` without ever reaching `Send payload`, or two `Found port`
+lines in a row, mean the contact is making and breaking. That is an unstable
+probe rather than a wrong location: a correct-but-intermittent short produces
+this, and so does a probe that drifts as the board warms. Use a jig rather than
+a handheld probe, and stop and re-seat rather than retrying dozens of times.
+
 ### Installer reports a write failure
 
 Stop and note the error message. Do not try a different partition or image. Ask
