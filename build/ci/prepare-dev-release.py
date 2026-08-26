@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import shutil
+import tarfile
 from pathlib import Path
 
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -52,6 +54,139 @@ def find_run(root: Path) -> Path:
     if len(matches) != 1:
         fail(f"expected one hosted run, found {len(matches)}")
     return matches[0]
+
+
+def prepare_nightly_initial_install(
+    run: Path,
+    output: Path,
+    candidate: dict[str, str],
+    sources: dict[str, str],
+    verification: Path,
+    ota: Path,
+    source_set_id: str,
+    artifact_set_id: str,
+) -> tuple[str, int]:
+    """Add the complete one-shot asset set to a nightly release."""
+    product = Path(__file__).resolve().parents[2]
+    installer = product / "tools" / "libreecho-install.py"
+    ota_key = run / "ota-public-key.hex"
+    if not ota_key.is_file():
+        fail("nightly candidate is missing ota-public-key.hex")
+    if not installer.is_file():
+        fail("Product installer source is missing")
+    release_tag = f"radar-puffin-nightly-{candidate['product_git_head'][:7]}-{source_set_id}-{artifact_set_id}"
+    prefix = f"libreecho-{release_tag}"
+    sources_dir = run / "features"
+    if not sources_dir.is_dir():
+        fail("nightly candidate is missing its features directory")
+    files: list[tuple[str, Path]] = [
+        (f"{prefix}-boot.img", run / "boot.img"),
+        (f"{prefix}.ota.tar", ota),
+        (f"{prefix}-installer.py", installer),
+        (f"{prefix}-ota-public-key.hex", ota_key),
+        (f"{prefix}-verification.txt", verification),
+    ]
+    for feature in FEATURES:
+        files.extend((
+            (f"{prefix}-{feature}.squashfs", sources_dir / f"{feature}.squashfs"),
+            (f"{prefix}-{feature}.manifest.json", sources_dir / f"{feature}.manifest.json"),
+        ))
+    for target_name, source in files:
+        regular(source)
+        expected = ""
+        if target_name.endswith("-boot.img"):
+            expected = candidate.get("boot_image_sha256", "")
+        elif target_name.endswith(".ota.tar"):
+            expected = candidate.get("ota_bundle_sha256", "")
+        elif target_name.endswith("-installer.py"):
+            expected = sha256(source)
+        elif target_name.endswith("-ota-public-key.hex"):
+            expected = sha256(source)
+        elif target_name.endswith("-verification.txt"):
+            expected = sha256(source)
+        else:
+            if target_name.endswith(".squashfs"):
+                feature = target_name.removeprefix(prefix + "-").removesuffix(".squashfs")
+                key = "airplay" if feature == "airplay2" else feature
+                expected = candidate.get(f"{key}_payload_sha256", "")
+            else:
+                feature = target_name.removeprefix(prefix + "-").removesuffix(".manifest.json")
+                key = "airplay" if feature == "airplay2" else feature
+                expected = candidate.get(f"{key}_feature_manifest_sha256", "")
+        expect_hash(source, expected)
+        shutil.copyfile(source, output / target_name)
+
+    records = {
+        name: {"name": name, "size": (output / name).stat().st_size, "sha256": sha256(output / name)}
+        for name, _ in files
+    }
+    manifest = {
+        "schema": "libreecho-initial-install-v1",
+        "release": release_tag,
+        "board": "radar_puffin",
+        "soc": "mt8163",
+        "image_profile": "ota",
+        "service_profile": "production",
+        "boot": records[f"{prefix}-boot.img"],
+        "ota_public_key": records[f"{prefix}-ota-public-key.hex"],
+        "features": [
+            {"name": feature, "payload": records[f"{prefix}-{feature}.squashfs"],
+             "manifest": records[f"{prefix}-{feature}.manifest.json"]}
+            for feature in FEATURES
+        ],
+        "amonet": {
+            "repository": "https://github.com/aslater3/amonet-k32",
+            "tag": "dfefe52f0eed7296012707cfff1f753b0ea33257",
+            "commit": "dfefe52f0eed7296012707cfff1f753b0ea33257",
+        },
+    }
+    bundle = output / f"{prefix}-initial-install.tar"
+    bundle_members = [
+        f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex",
+        *[f"{prefix}-{feature}.{suffix}" for feature in FEATURES for suffix in ("squashfs", "manifest.json")],
+    ]
+    manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    with tarfile.open(bundle, "w") as archive:
+        info = tarfile.TarInfo("manifest.json")
+        info.size = len(manifest_bytes)
+        info.mode = 0o644
+        archive.addfile(info, io.BytesIO(manifest_bytes))
+        for name in bundle_members:
+            path = output / name
+            info = tarfile.TarInfo(name)
+            info.size = path.stat().st_size
+            info.mode = 0o644
+            with path.open("rb") as stream:
+                archive.addfile(info, stream)
+
+    build_manifest = {
+        "schema": "libreecho-development-build-v1",
+        "build_id": f"{source_set_id}-{artifact_set_id}",
+        "source_set_id": source_set_id,
+        "artifact_set_id": artifact_set_id,
+        "board": "radar_puffin",
+        "channel": "dev",
+        "kind": "nightly",
+        "status": "PREPARED_NOT_FLASHED",
+        "signed": True,
+        "ota_bundle": True,
+        "hardware_accepted": False,
+        "feature_policy": "community-noncommercial",
+        "sources": sources,
+        "artifacts": [records[name] for name, _ in files],
+    }
+    (output / f"{prefix}-build.json").write_text(json.dumps(build_manifest, indent=2, sort_keys=True) + "\n")
+    notes = output / f"{prefix}-release-notes.md"
+    notes.write_text(
+        f"# LibreEcho nightly {release_tag}\n\n"
+        "This is a signed development nightly for controlled hardware testing. "
+        "It includes the complete one-shot installer asset set. Status: "
+        "PREPARED_NOT_FLASHED; no hardware acceptance is implied.\n"
+    )
+    all_files = sorted(path for path in output.iterdir() if path.is_file())
+    sums = output / f"{prefix}-SHA256SUMS"
+    sums.write_text("".join(f"{sha256(path)}  {path.name}\n" for path in all_files), encoding="ascii")
+    return release_tag, len(all_files) + 1
 
 
 def main() -> int:
@@ -231,6 +366,25 @@ def main() -> int:
     sums.write_text("".join(
         f"{sha256(path)}  {path.name}\n" for path in sorted(copied)
     ), encoding="ascii")
+    if args.release_kind == "nightly":
+        if not signed or len(ota_bundles) != 1:
+            fail("nightly one-shot artifact requires exactly one signed OTA")
+        for path in output.iterdir():
+            if path.is_file():
+                path.unlink()
+        release_tag, asset_count = prepare_nightly_initial_install(
+            run, output, candidate, sources, verification, ota_bundles[0],
+            source_set_id, artifact_set_id,
+        )
+        print(f"release_dir={output}")
+        print(f"release_tag={release_tag}")
+        print(f"release_prefix=libreecho-{release_tag}")
+        print(f"source_set_id={source_set_id}")
+        print(f"artifact_set_id={artifact_set_id}")
+        print(f"asset_count={asset_count}")
+        print("signed=1")
+        print("ota_bundle=1")
+        return 0
     print(f"release_dir={output}")
     print(f"release_tag={release_tag_prefix}-{args.product_commit[:7]}-{source_set_id}-{artifact_set_id}")
     print(f"release_prefix={prefix}")

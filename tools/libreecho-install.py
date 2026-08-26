@@ -25,7 +25,7 @@ from typing import Any
 PHASE = "RELEASE_READY"
 SCHEMA = "libreecho-initial-install-v1"
 SHA256 = re.compile(r"[0-9a-f]{64}")
-RELEASE = re.compile(r"radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+")
+RELEASE = re.compile(r"radar-puffin-(?:v[0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9a-f-]+)")
 PUBLIC_NAME = re.compile(r"[A-Za-z0-9._-]+")
 
 
@@ -684,6 +684,8 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
         expected.add(ota_asset.name)
     records = _checksums(checksums, None)
     optional = {"libreecho-radar-puffin-dev.ota.tar"}
+    if release_tag.startswith("radar-puffin-nightly-"):
+        optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt"})
     unexpected = set(records) - expected - optional
     if not expected.issubset(records) or unexpected:
         raise InstallerError("checksum inventory mismatch")
