@@ -23,6 +23,25 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertEqual(len(expected[0]), 64)
         self.assertEqual(expected[0], hashlib.sha256(INSTALLER.read_bytes()).hexdigest())
 
+    def test_installer_accepts_build_release_checksum_inventory(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("radar-puffin-build-", source)
+        self.assertIn("def download_release", source)
+        self.assertIn("def download_amonet", source)
+        self.assertIn("release_dir = download_release", source)
+
+    def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
+        readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
+        for marker in (
+            "downloads the release assets itself",
+            "download and verify pinned Amonet",
+            "--release-tag \"$TAG\"",
+            "--execute-hardware",
+            "initial-install.tar",
+            "stage and verify all five feature payloads",
+        ):
+            self.assertIn(marker, readme)
+
     def test_installer_is_python_source_with_no_private_path(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertTrue(source.startswith("#!/usr/bin/env python3\n"))
