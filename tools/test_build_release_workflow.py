@@ -298,6 +298,7 @@ class Tests(unittest.TestCase):
   self.assertIn("'.object.type == \"commit\" and .object.sha == $sha'", PUBLISH)
   self.assertIn('expected_asset_count=14', PUBLISH)
   self.assertIn('expected_asset_count=15', PUBLISH)
+  self.assertIn('expected_asset_count=19', PUBLISH)
   self.assertIn('prepare-stable-release.py', PUBLISH)
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
@@ -334,7 +335,9 @@ class Tests(unittest.TestCase):
   self.assertIn('CC-BY-NC-SA-4.0', (ROOT/'build/ci/generate-release-notes.py').read_text())
   self.assertIn('No local release command', (ROOT/'build/README.md').read_text())
 
- def test_boundaries(self):
+ def test_nightly_release_tag_is_accepted(self):
+  installer = (ROOT/'tools/libreecho-install.py').read_text()
+  self.assertIn('nightly-[0-9a-f-]+', installer)
   # Concurrency is scoped per event and ref (independent PR lanes), and
   # running builds are never cancelled.
   self.assertIn('github.head_ref || github.ref',W); self.assertIn('cancel-in-progress: false',W)
