@@ -383,7 +383,16 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
         if log_path.exists():
             with log_path.open("r", encoding="utf-8", errors="replace") as stream:
                 stream.seek(log_offset)
-                for line in stream:
+                # Iterating a text file reads ahead, so tell() inside a
+                # `for line in stream` loop reports the end of the buffer
+                # rather than the end of this line. log_offset then jumped
+                # past lines that had not been examined yet and the next
+                # seek() skipped them, silently dropping progress states.
+                # readline() keeps tell() meaningful.
+                while True:
+                    line = stream.readline()
+                    if not line:
+                        break
                     log_offset = stream.tell()
                     message = _amonet_progress_message(line)
                     if message and message != last_state:
@@ -929,6 +938,11 @@ def stage_device_features(
     root_script = cache_root / "stage-feature-root.sh"
     root_script.write_text(ROOT_FEATURE_STAGER, encoding="utf-8")
     root_script.chmod(0o755)
+    # The stager has to exist ON THE DEVICE before `adb shell sh` can run it.
+    # Everything else here is pushed to /tmp first; this file was not, so the
+    # shell was handed a laptop path and every feature failed to stage.
+    remote_script = "/tmp/libreecho-stage-feature-root.sh"
+    _run_command([adb_bin, "-s", serial, "push", str(root_script), remote_script], timeout)
     for feature in manifest["features"]:
         name = feature["name"]
         payload = payload_root / feature["payload"]["name"]
@@ -951,7 +965,7 @@ def stage_device_features(
         )
         config.chmod(0o600)
         _run_command([adb_bin, "-s", serial, "push", str(config), "/tmp/libreecho-feature-stage.conf"], timeout)
-        result = _run_command([adb_bin, "-s", serial, "shell", "sh", str(root_script)], timeout, check=False)
+        result = _run_command([adb_bin, "-s", serial, "shell", "sh", remote_script], timeout, check=False)
         if result.returncode != 0 or f"FEATURE_STAGE_OK:{name}" not in result.stdout:
             detail = (result.stderr or result.stdout).strip()[-500:]
             raise InstallerError(f"feature staging failed for {name}: {detail}")
