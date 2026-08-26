@@ -300,7 +300,7 @@ class Tests(unittest.TestCase):
   self.assertIn("'.object.type == \"commit\" and .object.sha == $sha'", PUBLISH)
   self.assertIn('expected_asset_count=14', PUBLISH)
   self.assertIn('expected_asset_count=15', PUBLISH)
-  self.assertIn('expected_asset_count=19', PUBLISH)
+  self.assertIn('expected_asset_count=20', PUBLISH)
   self.assertIn('prepare-stable-release.py', PUBLISH)
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)

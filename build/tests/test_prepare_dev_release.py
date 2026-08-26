@@ -134,10 +134,10 @@ class Tests(unittest.TestCase):
             ], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             files = {path.name for path in output.iterdir()}
-            self.assertEqual(len(files), 19)
+            self.assertEqual(len(files), 20)
             self.assertIn("-initial-install.tar", next(name for name in files if name.endswith("-initial-install.tar")))
             self.assertTrue(any(name.endswith("-installer.py") for name in files))
-            self.assertIn("asset_count=19", result.stdout)
+            self.assertIn("asset_count=20", result.stdout)
 
     def test_prepares_bounded_development_initial_install_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -162,10 +162,10 @@ class Tests(unittest.TestCase):
             ], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             files = {path.name for path in output.iterdir()}
-            self.assertEqual(len(files), 19)
+            self.assertEqual(len(files), 20)
             self.assertTrue(any(name.startswith("libreecho-radar-puffin-build-") and name.endswith("-initial-install.tar") for name in files))
             self.assertTrue(any(name.startswith("libreecho-radar-puffin-build-") and name.endswith("-installer.py") for name in files))
-            self.assertIn("asset_count=19", result.stdout)
+            self.assertIn("asset_count=20", result.stdout)
 
     def test_prepares_signed_dev_release_with_ota_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

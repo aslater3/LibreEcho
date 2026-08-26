@@ -132,7 +132,7 @@ jobs:
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -printf '%p\n' | sort)
           expected_asset_count=14
           if [[ "$RELEASE_KIND" == nightly || "$RELEASE_KIND" == development ]]; then
-            expected_asset_count=19
+            expected_asset_count=20
           elif [[ "$RELEASE_SIGNED" == 1 ]]; then
             expected_asset_count=15
           fi

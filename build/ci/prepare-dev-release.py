@@ -87,6 +87,7 @@ def prepare_complete_initial_install(
         (f"{prefix}-installer.py", installer),
         (f"{prefix}-ota-public-key.hex", ota_key),
         (f"{prefix}-verification.txt", verification),
+        (f"{prefix}-run-one-shot.sh", product / "tools" / "run-one-shot.sh"),
     ]
     for feature in FEATURES:
         files.extend((
@@ -105,6 +106,8 @@ def prepare_complete_initial_install(
         elif target_name.endswith("-ota-public-key.hex"):
             expected = sha256(source)
         elif target_name.endswith("-verification.txt"):
+            expected = sha256(source)
+        elif target_name.endswith("-run-one-shot.sh"):
             expected = sha256(source)
         else:
             if target_name.endswith(".squashfs"):
