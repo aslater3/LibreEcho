@@ -377,12 +377,27 @@ git commit -m "feat: add zero-write BROM inventory backups"
 **Interfaces:**
 - Produces: `InstallPlan(target_slot: str, target_partition: Partition, expected_boot_sha256: str, original_misc_sector: bytes, updated_misc_sector: bytes)`.
 - Produces: `plan_install(inventory: dict, release: VerifiedRelease, live_gpt, live_guid, live_wrapper_evidence) -> InstallPlan`.
-- Produces: `execute_install(dev, plan: InstallPlan, boot_image: bytes, result_dir: Path) -> dict`.
+- Produces: `execute_install(dev, plan: InstallPlan, boot_image: bytes, result_dir: Path) -> InstallOutcome`.
+- Produces: `InstallOutcome(attempted: list[int], acknowledged: list[int], verified: list[int])`, three separate sector lists rather than a boolean.
+- Produces: `reconcile(dev, plan: InstallPlan) -> ReconciliationReport`, a read-only path constructed with no writer at all.
 - `execute_install` accepts an `AllowlistedWriter` constructed with exactly one target LBA range and one misc LBA.
+
+The transport sends a complete sector before waiting for its acknowledgement, so a lost or timed-out ACK is indistinguishable at the host from a sector that was committed and never confirmed. `attempted` minus `acknowledged` is therefore **indeterminate**, not failed, and must never be reported as either success or failure. The writer must not retry automatically: a retry after a lost ACK can rewrite a sector the device already holds, and on a desynchronised transport it may not land where the first one did. Recovery from an indeterminate outcome is a reconnect followed by `reconcile()`, which re-reads the affected range and reports which state each sector actually reached.
 
 - [ ] **Step 1: Write failing planning tests**
 
-Cover backup hash mismatch, live GPT mismatch, wrapper mismatch, malformed BCB, current slot not successful, target ambiguity, release mismatch, and already-active target. Assert all failures occur before constructing a writer.
+Cover backup hash mismatch, live GPT mismatch, wrapper mismatch, malformed BCB, target ambiguity, release mismatch, and already-active target. Assert all failures occur before constructing a writer.
+
+Also cover the indeterminate outcome, which the fake transport must be able to produce on demand:
+
+```python
+def test_lost_ack_is_reported_indeterminate_not_failed(self): ...
+def test_indeterminate_outcome_performs_no_further_writes(self): ...
+def test_indeterminate_outcome_is_never_retried_automatically(self): ...
+def test_reconcile_has_no_writer_and_reports_per_sector_state(self): ...
+```
+
+The fake must model the real failure honestly: the sector reaches the device and only the acknowledgement is lost, so a test that simply drops the write would prove nothing.
 
 - [ ] **Step 2: Run planning tests and observe failure**
 

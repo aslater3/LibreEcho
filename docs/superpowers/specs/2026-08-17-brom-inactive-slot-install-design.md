@@ -212,6 +212,47 @@ If image writing or verification fails, the BCB is not changed. If the process
 stops after the image succeeds but before BCB activation, the new image remains
 inactive. No automatic retry may broaden the write set.
 
+## Write Outcome Model
+
+A write that reports an error has not necessarily failed. The Amonet transport
+sends a complete sector and then waits for its acknowledgement, so a lost,
+truncated or timed-out ACK is indistinguishable at the host from a sector that
+was committed and simply never confirmed. Treating that as "the write did not
+happen" is wrong, and treating it as "the write happened" is equally wrong.
+
+Every write is therefore tracked in three separate states, and the tool must
+never collapse them:
+
+| State | Meaning |
+| --- | --- |
+| `attempted` | the sector was sent |
+| `acknowledged` | the device confirmed it |
+| `verified` | the sector was read back and its contents matched |
+
+Only `verified` counts as done. `attempted` without `acknowledged` is
+**indeterminate**: the on-device state is unknown and cannot be inferred from
+the host's view.
+
+On an indeterminate outcome the tool must:
+
+1. stop immediately, performing no further writes;
+2. report the outcome as unknown -- never as success or as failure;
+3. **never retry automatically.** A retry after a lost ACK can write a sector
+   the device already holds, and if the transport has desynchronised it may not
+   land where the first one did; and
+4. require a reconnect followed by a **read-only reconciliation** run, which
+   re-reads the affected range and compares it against both the intended
+   contents and the inventory copy, before any further write is permitted.
+
+Reconciliation is read-only by construction: it is the inventory code path with
+the target range added, and has no writer at all. Its output says which of the
+three states each sector actually reached, which is the only sound basis for
+deciding what to do next.
+
+The exit report must state the outcome in these terms rather than as a boolean,
+and the operator-facing summary must distinguish "no writes occurred" from "the
+outcome of one or more writes is unknown".
+
 ## Write Allowlist
 
 An install run may write only:
@@ -327,8 +368,10 @@ Stop without writing when any of these occurs:
 - BCB sector changed since inventory; or
 - any requested operation falls outside the write allowlist.
 
-The tool must print whether zero writes, image-only writes, or image-plus-BCB
-writes occurred before exiting after an error.
+The tool must print, before exiting after an error, which of these occurred:
+zero writes; image-only writes; image-plus-BCB writes; or **an indeterminate
+outcome**, naming the exact sectors whose state is unknown. A run that cannot
+tell which of those applies is itself a defect.
 
 ## Non-Goals
 
