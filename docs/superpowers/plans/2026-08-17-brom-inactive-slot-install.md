@@ -1,14 +1,30 @@
 # BROM Inactive-Slot LibreEcho Installation Implementation Plan
 
+## Status
+
+**Proposed.** A plan under review. No step in it has been executed, and the
+first live operation must be inventory-only.
+
+The code this plan describes belongs in **LibreEcho-Platform**, not in this
+repository, which carries the design and the plan only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build and validate a BROM-native installer that first inventories and backs up the Echo with zero writes, then can install the signed LibreEcho development boot image into one inactive redirected slot and activate it with one verified BCB-sector write.
 
-**Architecture:** A small Python package under `tools/brom-install/` owns pure release, GPT, BCB, inventory, and transaction logic. A thin live adapter imports only the hash-pinned Amonet transport primitives, while a shell launcher on nixtop creates the Nix environment, runs all preflight checks, and admits only USB BROM ID `0e8d:0003`. All device behavior is tested against an operation-logging fake before the launcher is copied to nixtop.
+**Architecture:** A small Python package under `tools/brom-install/` owns pure release, GPT, BCB, inventory, and transaction logic. A thin live adapter imports only the hash-pinned Amonet transport primitives, while a shell launcher on the operator workstation creates the Nix environment, runs all preflight checks, and admits only USB BROM ID `0e8d:0003`. All device behavior is tested against an operation-logging fake before the launcher is copied to the operator workstation.
 
 **Tech Stack:** Python 3 standard library, PyNaCl for Ed25519 verification, `unittest`, Bash, Nix/PySerial, existing Amonet K32 Python transport.
 
 **Spec:** `docs/superpowers/specs/2026-08-17-brom-inactive-slot-install-design.md`
+
+## Conventions
+
+`$OPERATOR_HOST` is the SSH destination of the workstation with the device
+cabled to it, and `$WORKDIR` the directory on that host holding the runnable
+copies and the private backups. Both are supplied by the operator. They are
+placeholders on purpose: the artifacts they name include full device backups,
+and neither the paths nor the host belong in a public repository.
 
 ## Global Constraints
 
@@ -20,7 +36,7 @@
 - Never invoke Amonet `main()` or any full-install helper that writes GPT, wrappers, vendor boot-chain partitions, RPMB, userdata, or eMMC boot areas.
 - An invalid or ambiguous Amazon `ABB` BCB stops installation before all writes; BCB migration is out of scope.
 - Feature payloads, owner-local firmware, Wi-Fi, slot confirmation, and custom image builds are out of scope.
-- Source files are committed in this repository; runnable copies and private backups live under `/home/lucaspick/Downloads` on nixtop and are never committed.
+- Source files are committed in this repository; runnable copies and private backups live under `$WORKDIR` on the operator workstation and are never committed.
 
 ---
 
@@ -103,7 +119,7 @@ git commit -m "test: add BROM installer fake transport"
 **Interfaces:**
 - Produces: `VerifiedRelease(archive_path: Path, manifest: dict[str, str], boot_image: bytes, archive_sha256: str, boot_sha256: str)`.
 - Produces: `verify_release(path: Path, public_key_path: Path) -> VerifiedRelease`.
-- Consumes PyNaCl `VerifyKey.verify(message, signature)`; the nixtop Nix environment must provide `pynacl`.
+- Consumes PyNaCl `VerifyKey.verify(message, signature)`; the operator workstation's Nix environment must provide `pynacl`.
 
 - [ ] **Step 1: Add failing tests for every release gate**
 
@@ -510,7 +526,7 @@ git add tools/brom-install
 git commit -m "feat: add BROM installer CLI"
 ```
 
-### Task 7: NixOS Launcher, Documentation, and nixtop Deployment
+### Task 7: NixOS Launcher, Documentation, and Operator-Workstation Deployment
 
 **Files:**
 - Create: `tools/brom-install/run-libreecho-brom-install.sh`
@@ -521,7 +537,7 @@ git commit -m "feat: add BROM installer CLI"
 
 **Interfaces:**
 - Launcher usage: `./run-libreecho-brom-install.sh --inventory-only` and `./run-libreecho-brom-install.sh --install BACKUP_DIR OTA_PATH`.
-- Deployment copies the complete `tools/brom-install/` directory to `/home/lucaspick/Downloads/libreecho-brom-install/` without modifying `/home/lucaspick/amonet-k32`.
+- Deployment copies the complete `tools/brom-install/` directory to `$WORKDIR/libreecho-brom-install/` without modifying `$WORKDIR/amonet-k32`.
 
 - [ ] **Step 1: Write failing launcher contract tests**
 
@@ -551,26 +567,26 @@ git diff --check
 
 Expected: all exit 0.
 
-- [ ] **Step 5: Deploy to nixtop Downloads**
+- [ ] **Step 5: Deploy to the operator workstation**
 
 Run:
 
 ```bash
 rsync -a tools/brom-install/ \
-  lucaspick@192.168.68.2:/home/lucaspick/Downloads/libreecho-brom-install/
-ssh lucaspick@192.168.68.2 \
-  'chmod 755 /home/lucaspick/Downloads/libreecho-brom-install/run-libreecho-brom-install.sh /home/lucaspick/Downloads/libreecho-brom-install/libreecho-brom-install.py'
+  $OPERATOR_HOST:$WORKDIR/libreecho-brom-install/
+ssh $OPERATOR_HOST \
+  'chmod 755 $WORKDIR/libreecho-brom-install/run-libreecho-brom-install.sh $WORKDIR/libreecho-brom-install/libreecho-brom-install.py'
 ```
 
 Expected: files exist only beneath the named Downloads directory.
 
-- [ ] **Step 6: Run nixtop offline verification without device access**
+- [ ] **Step 6: Run offline verification on the operator workstation, without device access**
 
 Run:
 
 ```bash
-ssh lucaspick@192.168.68.2 \
-  'cd /home/lucaspick/Downloads/libreecho-brom-install && ./run-libreecho-brom-install.sh --preflight-only'
+ssh $OPERATOR_HOST \
+  'cd $WORKDIR/libreecho-brom-install && ./run-libreecho-brom-install.sh --preflight-only'
 ```
 
 Expected: source hashes, tests, PyNaCl signature check, and Amonet preflight pass; output states `no device access`.
@@ -579,14 +595,14 @@ Expected: source hashes, tests, PyNaCl signature check, and Amonet preflight pas
 
 ```bash
 git add tools/brom-install
-git commit -m "docs: add nixtop BROM installer launcher"
+git commit -m "docs: add BROM installer launcher"
 ```
 
 ### Task 8: Review and First Live Inventory Checkpoint
 
 **Files:**
 - No source changes expected.
-- Creates remotely: `/home/lucaspick/Downloads/libreecho-backups/<timestamp>/...`
+- Creates remotely: `$WORKDIR/libreecho-backups/<timestamp>/...`
 
 **Interfaces:**
 - Consumes the deployed launcher and physical operator action.
@@ -594,7 +610,7 @@ git commit -m "docs: add nixtop BROM installer launcher"
 
 - [ ] **Step 1: Perform fresh pre-live verification**
 
-Run local and nixtop test suites, syntax checks, source hashes, real OTA signature verification, and Amonet preflight. Record exact outputs. Do not claim readiness from an earlier run.
+Run the test suites locally and on the operator workstation, syntax checks, source hashes, real OTA signature verification, and Amonet preflight. Record exact outputs. Do not claim readiness from an earlier run.
 
 - [ ] **Step 2: Request the physical BROM operation**
 
@@ -609,11 +625,11 @@ The user power-cycles while grounding the documented BROM point, keeps it ground
 
 - [ ] **Step 3: Monitor without issuing writes**
 
-Observe nixtop USB state and the launcher. If USB disconnects or re-enumerates, stop and preserve partial logs. Inventory mode must report `writes=0` on every exit path.
+Observe USB state on the operator workstation, and the launcher. If USB disconnects or re-enumerates, stop and preserve partial logs. Inventory mode must report `writes=0` on every exit path.
 
 - [ ] **Step 4: Verify backup outputs independently**
 
-On nixtop, re-run SHA-256 over every backup and compare with `inventory.json`. Confirm BCB raw bytes, selected slot, both boot image headers/hashes, wrapper evidence, disk GUID, and exact GPT geometry.
+On the operator workstation, re-run SHA-256 over every backup and compare with `inventory.json`. Confirm BCB raw bytes, selected slot, both boot image headers/hashes, wrapper evidence, disk GUID, and exact GPT geometry.
 
 - [ ] **Step 5: Stop for human review**
 

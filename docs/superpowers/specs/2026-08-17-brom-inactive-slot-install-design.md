@@ -2,9 +2,24 @@
 
 ## Status
 
-Approved for implementation on 2026-08-17. The first live operation must be
-inventory-only. Installation remains disabled until the inventory output and
-backups have been reviewed.
+**Proposed.** This document is a design under review, not an approved
+implementation plan, and nothing in it has been executed against a device.
+
+The first live operation must be inventory-only. Installation remains disabled
+until the inventory output and backups have been reviewed.
+
+## Where the implementation lands
+
+This repository holds the design and the plan. The code they describe does not
+belong here:
+
+- the installer, its tests and its launcher belong in **LibreEcho-Platform**,
+  alongside the existing OTA and image tooling;
+- any device-side or UI-visible behaviour belongs in **LibreEcho-UI**.
+
+Splitting the documents from the implementation is deliberate. These are
+recovery-safety contracts, and they should be reviewable without the diff that
+implements them.
 
 ## Objective
 
@@ -107,8 +122,8 @@ consistent; the pin proves it is the release this document was written against.
 
 ### Launcher
 
-A shell launcher in `/home/lucaspick/Downloads` on nixtop provides the operator
-entry point. It:
+A shell launcher in `$WORKDIR` on the operator workstation provides the entry
+point. It:
 
 1. Confirms the active user and `dialout` membership.
 2. Creates the temporary Nix Python/PySerial environment.
@@ -135,10 +150,10 @@ been corrupted would validate against its backup and be reported healthy. Amonet
 may be used to read the sectors; parsing and validation are ours, operate on raw
 bytes, and treat the two copies as independent evidence.
 
-### Artifacts on nixtop
+### Artifacts on the operator workstation
 
 The installer, tests, launcher, README, downloaded OTA, and per-device backup
-directory live under `/home/lucaspick/Downloads`. Backups use a timestamped
+directory live under `$WORKDIR`. Backups use a timestamped
 directory and are never uploaded.
 
 ## Inventory-Only Transaction
@@ -388,7 +403,7 @@ prove:
 The test suite must demonstrate red-green behavior for each safety contract.
 Before any live run, shell syntax, Python compilation, unit tests, release
 verification, pinned artifact hashes, and the existing Amonet preflight must all
-pass freshly on nixtop.
+pass freshly on the operator workstation.
 
 ## Operational Stop Conditions
 
