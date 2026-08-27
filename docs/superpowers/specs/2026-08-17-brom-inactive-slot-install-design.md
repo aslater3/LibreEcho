@@ -56,7 +56,17 @@ The only accepted first-boot input is the published development-channel OTA:
   `5ca302c958c1449a569db646b4b743ae5be5baaf8ec58a2eb86161ab1c286e15`
 
 The installer must verify the manifest's Ed25519 signature using the published
-OTA public key. It must also require these manifest values:
+OTA public key.
+
+Both the public key and `manifest.sig` are stored **hex-encoded** and must be
+decoded before PyNaCl sees them. In the published bundle the key file is 64 hex
+characters and the signature file is 128, each with a trailing newline that must
+be stripped, decoding to the 32-byte key and 64-byte signature Ed25519 requires.
+Verification is over the exact manifest bytes as they appear in the archive.
+
+The manifest carries two kinds of field, and conflating them is what makes an
+allowlist reject a genuine release. These are **fixed** and compared against
+constants:
 
 ```text
 format=libreecho-ota-v1
@@ -72,8 +82,22 @@ service_profile=production
 update_channel=dev
 ```
 
-It must validate the Android boot magic and compare the extracted image hash
-with both the signed manifest and the pinned expected hash.
+These are **per-release**: they must be present and well-formed, but their
+values are properties of the build rather than constants.
+
+```text
+version         # [A-Za-z0-9._+~-]+
+boot_sha256     # 64 lowercase hex characters
+```
+
+`boot_sha256` is required, not optional. It is part of every manifest the
+production tooling emits, so a strict allowlist that does not know about it
+rejects the real OTA rather than accepting it.
+
+It must validate the Android boot magic, and compare the extracted image hash
+against both the signed `boot_sha256` and the pinned expected hash above, using
+constant-time comparisons. The signed value proves the archive is internally
+consistent; the pin proves it is the release this document was written against.
 
 ## Architecture
 

@@ -117,9 +117,18 @@ def test_rejects_bad_signature(self): ...
 def test_rejects_unknown_or_duplicate_manifest_keys(self): ...
 def test_rejects_wrong_board_soc_arch_profile_policy_or_channel(self): ...
 def test_rejects_wrong_boot_size_hash_or_android_magic(self): ...
+def test_requires_boot_sha256_and_version(self): ...
+def test_rejects_boot_sha256_not_matching_the_extracted_image(self): ...
+def test_requires_hex_decoded_key_and_signature(self): ...
 ```
 
 The happy-path test patches only `EXPECTED_ARCHIVE_SHA256` to the fixture archive hash; every signed manifest field and embedded-image check remains real.
+
+The last three exist because the first version of this contract would have rejected the real OTA. `test_requires_boot_sha256_and_version` must use a manifest whose key set matches production exactly, so that a future tightening of the allowlist fails here rather than on a device.
+
+**Also add a positive fixture taken from the published bundle**, not only from locally generated tars. Generate it with the existing production bundle tooling, or copy the `manifest` and `manifest.sig` members out of a published `.ota.tar`, and assert that the parser accepts them and reproduces the field set. A synthetic fixture signed by a test key proves the code is self-consistent; only a production-derived one proves it agrees with what the release process actually emits.
+
+This has been checked against the published bundle. `manifest` is 415 bytes with 13 keys -- the 11 fixed ones plus `version` and `boot_sha256`; `manifest.sig` is 128 hex characters plus a newline, and the public-key file 64 plus a newline. After stripping and `unhexlify`, `VerifyKey(key).verify(manifest_bytes, signature)` succeeds; passing the undecoded bytes raises `ValueError`.
 
 - [ ] **Step 2: Run release tests and observe failure**
 
@@ -131,8 +140,14 @@ Expected: FAIL because `verify_release` is missing.
 
 Use streaming SHA-256 before tar parsing, `tarfile.getmembers()` for exact ordered names, regular-file/type/size checks, strict ASCII `key=value` parsing with duplicate rejection, `VerifyKey`, `hmac.compare_digest`, and exact manifest allowlists. Never call `extractall()`.
 
+**Decode the key and signature before verifying.** Both are stored hex-encoded. In the published bundle the public-key file is 64 hex characters and `manifest.sig` is 128, each with a trailing newline, decoding to the 32-byte key and 64-byte signature Ed25519 requires. Strip whitespace and `binascii.unhexlify` both before they reach PyNaCl, and verify over the exact manifest bytes as read from the archive. Passing the undecoded bytes raises `ValueError` rather than returning a verification failure, so this is not a silent weakening -- but it does mean an implementation that skips it has never run against a real bundle.
+
+**Separate fixed fields from per-release fields.** Comparing every field against a constant is what makes a strict allowlist reject a genuine release: the production manifest also carries `boot_sha256` and `version`, and unknown-key rejection would refuse it.
+
 ```python
 EXPECTED_MEMBERS = ("manifest", "manifest.sig", "boot.img")
+
+# Fixed: compared against these exact values.
 EXPECTED_MANIFEST = {
     "format": "libreecho-ota-v1",
     "manifest_version": "1",
@@ -146,9 +161,16 @@ EXPECTED_MANIFEST = {
     "service_profile": "production",
     "update_channel": "dev",
 }
+
+# Per-release: required to be present and well-formed; the value is a
+# property of the build, not a constant.
+REQUIRED_RELEASE_FIELDS = {
+    "version": re.compile(r"\A[A-Za-z0-9._+~-]+\Z"),
+    "boot_sha256": re.compile(r"\A[0-9a-f]{64}\Z"),
+}
 ```
 
-Allow the signed `version` field but require `[A-Za-z0-9._+~-]+`.
+A manifest is accepted only when its key set is exactly `EXPECTED_MANIFEST | REQUIRED_RELEASE_FIELDS`: no unknown keys, and no missing ones. `boot_sha256` is then compared against the SHA-256 of the extracted image with `hmac.compare_digest`, so the manifest must agree with the artifact it describes.
 
 - [ ] **Step 4: Run release tests and verify all pass**
 
@@ -169,6 +191,8 @@ print(r.archive_sha256, r.boot_sha256, len(r.boot_image))'
 ```
 
 Expected: the two globally pinned hashes and `16777216`.
+
+This step is the one that catches an allowlist that has drifted from the release process: it runs the parser against the real published archive, so a missing per-release field fails here, offline, rather than in front of a device in BROM mode.
 
 - [ ] **Step 6: Commit release verification**
 
