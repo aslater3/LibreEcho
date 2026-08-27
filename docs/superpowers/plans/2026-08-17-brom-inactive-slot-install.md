@@ -210,7 +210,10 @@ git commit -m "feat: verify signed LibreEcho development OTA"
 - Test: `tools/brom-install/tests/test_bcb.py`
 
 **Interfaces:**
-- Produces: `validate_layout(parts: dict[str, tuple[int, int]], disk_guid: str) -> dict[str, Partition]`.
+- Produces: `parse_gpt(header_sector: bytes, entry_array: bytes) -> RawGpt`, operating on raw bytes and performing no name-keyed lookup.
+- Produces: `validate_layout(primary: RawGpt, backup: RawGpt, expected_guid: str) -> dict[str, Partition]`.
+
+The mapping is an **output**, never an input. Accepting `dict[str, tuple[int, int]]` meant duplicate partition names had already been collapsed by whoever built the dict, so the duplicate-name test this task calls for could not be written, and a disk carrying two `boot_a_x` entries would have validated. Names are checked for uniqueness on the raw entry array, and the mapping is constructed only once that check has passed.
 - Produces: `BootControl(slot_a: SlotMetadata, slot_b: SlotMetadata)` and `SlotMetadata(priority: int, tries: int, successful: bool)`.
 - Produces: `decode_bcb(record: bytes) -> BootControl`, `selected_slot(control: BootControl) -> str`, and `activate_inactive(record: bytes, target: str) -> bytes`.
 - BCB functions operate on exactly seven bytes; sector preservation belongs to the transaction task.
@@ -254,6 +257,19 @@ with self.assertRaisesRegex(LayoutError, "boot_b_x"):
 Run: `PYTHONPATH=tools/brom-install python3 -m unittest tools/brom-install/tests/test_layout.py -v`
 
 Expected: FAIL because `validate_layout` is missing.
+
+Duplicate names, duplicate unique GUIDs and overlapping ranges must be expressed as raw entry arrays, since none of them can be represented in a name-keyed mapping:
+
+```python
+def test_rejects_duplicate_partition_names(self): ...
+def test_rejects_duplicate_unique_guids(self): ...
+def test_rejects_overlapping_partition_ranges(self): ...
+def test_rejects_entries_outside_the_usable_lba_range(self): ...
+def test_rejects_bad_header_crc(self): ...
+def test_rejects_bad_entry_array_crc(self): ...
+def test_rejects_non_reciprocal_my_lba_and_alternate_lba(self): ...
+def test_rejects_primary_and_backup_disagreeing(self): ...
+```
 
 - [ ] **Step 3: Implement exact immutable layout validation**
 

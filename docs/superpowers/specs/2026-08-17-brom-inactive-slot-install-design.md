@@ -22,7 +22,11 @@ The public release does not contain the initial-install bundle required by the
 installation guide. The current device has already passed through the Amonet
 K32 flow and has the modified 18-partition Biscuit GPT:
 
-The expected disk GUID is `081BEED7-DF86-4A71-864E-435385BA18D9`.
+The disk GUID observed on the current device is
+`081BEED7-DF86-4A71-864E-435385BA18D9`. This constant is a convenience check
+for that one device only. **An install binds to the GUID recorded by its own
+inventory run**, not to this value, so the tool cannot be pointed at a second
+device and silently accept it because someone edited a constant.
 
 | Purpose | GPT name | Start LBA | Sectors |
 | --- | --- | ---: | ---: |
@@ -121,9 +125,15 @@ from the live Amonet transport. Pure functions accept byte strings, parsed GPT
 records, and manifests so their behavior can be exhaustively tested without a
 device.
 
-The live layer reuses only the verified Amonet `Device`, handshake, payload
-loader, and GPT parser. It must never invoke Amonet's full installer entry
-point.
+The live layer reuses only the verified Amonet `Device`, handshake, and payload
+loader. It must never invoke Amonet's full installer entry point.
+
+It must **not** reuse Amonet's GPT parser for validation. That parser accepts
+the primary *or* the backup table, whichever it can read, which is precisely
+the substitution this design needs to detect: a device whose primary table has
+been corrupted would validate against its backup and be reported healthy. Amonet
+may be used to read the sectors; parsing and validation are ours, operate on raw
+bytes, and treat the two copies as independent evidence.
 
 ### Artifacts on nixtop
 
@@ -137,8 +147,17 @@ Inventory is the mandatory first live run and has no write-capable code path.
 After the BROM handshake and payload upload, it performs these steps:
 
 1. Switch to the eMMC user area.
-2. Read and validate the primary GPT, backup GPT, disk GUID, partition count,
-   exact names, start LBAs, and sizes.
+2. Read the primary and backup GPTs as raw bytes and validate each
+   **independently** before either is trusted, then require them to agree.
+   Reusing a parser that accepts the primary *or* the backup hides exactly the
+   corruption this step exists to detect. For each copy: signature, revision,
+   header size, header CRC32 computed with the CRC field zeroed, entry-array
+   CRC32, entry size and count, reciprocal `my_lba`/`alternate_lba`, and
+   first/last usable LBA. Then, over the raw entry array: no duplicate
+   partition names, no duplicate unique GUIDs, no overlapping ranges, and no
+   entry outside the usable range. Only once all of that passes may a
+   name-keyed mapping be constructed, and the disk GUID, partition count,
+   exact names, start LBAs and sizes compared against the expected layout.
 3. Save the primary and backup GPT sectors.
 4. Save the complete `misc` partition.
 5. Save complete 16 MiB images from `boot_a_x` and `boot_b_x`.
@@ -166,7 +185,7 @@ Installation requires:
 
 - a previously successful inventory report;
 - all backup files and hashes matching that report;
-- the live GPT and wrapper boundary evidence matching the inventory;
+- the live GPT, disk GUID and wrapper boundary evidence matching the inventory report, byte for byte, rather than matching a compiled-in constant;
 - a valid Amazon `ABB` BCB;
 - one currently selected slot and the other inactive slot;
 - the signed OTA passing every release-input check; and
