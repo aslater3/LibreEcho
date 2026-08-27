@@ -181,7 +181,26 @@ input to a later install run.
 
 ## Install Transaction
 
-Installation requires:
+### Two modes, deliberately separate
+
+This design previously required the currently selected slot to be `successful`
+while also claiming to cover devices where neither slot is known to boot. Those
+cannot both hold, so the operation is split in two. The mode is chosen
+explicitly by the operator and recorded in the transaction report; it is never
+inferred.
+
+**Mode A -- known-good inactive-slot update.** The currently selected slot has
+actually booted and been confirmed. It is preserved untouched as a genuine
+rollback target, and BCB rollback safety may be claimed, because there is
+something known-good to roll back to.
+
+**Mode B -- no-known-good BROM recovery.** Neither slot is proven. This is the
+mode that applies to the current device, whose two redirected slots both hold
+an unproven diagnostic image. **Mode B must not claim rollback safety**, and
+must not encode any unverified image as `successful`. Its recovery path is BROM
+plus the local backups, not the BCB.
+
+Both modes require:
 
 - a previously successful inventory report;
 - all backup files and hashes matching that report;
@@ -189,7 +208,12 @@ Installation requires:
 - a valid Amazon `ABB` BCB;
 - one currently selected slot and the other inactive slot;
 - the signed OTA passing every release-input check; and
-- typed operator confirmation containing the target slot and short image hash.
+- typed operator confirmation containing the mode, the target slot and the short image hash.
+
+Mode A additionally requires the currently selected slot to already read
+`successful=1` in the live BCB. Mode B requires that it does not, and refuses to
+run if it does -- a device with a known-good slot must be updated as Mode A, so
+that the rollback target is preserved as one.
 
 The transaction is ordered to remain recoverable:
 
@@ -201,7 +225,11 @@ The transaction is ordered to remain recoverable:
 5. Re-read the 512-byte `misc` sector containing the BCB and require it to equal
    the inventory copy.
 6. Preserve every byte in that sector except the seven-byte BCB record.
-7. Encode the existing slot as priority 14, zero tries, successful.
+7. Encode the existing slot as priority 14, zero tries, and **preserve its
+   existing `successful` bit exactly as read**. Mode A will therefore leave a
+   known-good slot marked successful; Mode B will leave an unproven one marked
+   unsuccessful. The tool never sets this bit: doing so would assert, on the
+   device, a fact about bootability that nothing has established.
 8. Encode the target slot as priority 15, three tries, not successful.
 9. Write exactly one 512-byte `misc` sector.
 10. Read back and verify the complete sector.
@@ -281,9 +309,19 @@ own evidence and approval.
 ## Recovery Model
 
 The BCB gives the target three attempts and should return to the priority-14
-successful slot after exhaustion. However, both redirected slots currently
-contain an unproven diagnostic image. The preserved slot is therefore not a
-known-good runtime rollback.
+slot after exhaustion. Whether that constitutes a rollback depends entirely on
+the mode.
+
+In **Mode A** the preserved slot has booted and been confirmed, so BCB
+exhaustion is a real rollback and may be described as one.
+
+In **Mode B** it is not. Both redirected slots on the current device contain an
+unproven diagnostic image, so exhaustion returns to something that has never
+been shown to boot. Mode B must not describe this as rollback safety, and must
+not mark the preserved slot successful in order to make it look like one -- that
+would encode a claim about bootability that no evidence supports, and would make
+a device that cannot boot either slot look, to the boot control library, like
+one that can.
 
 BROM and the local backups are the authoritative recovery path. A recovery
 operation must be a separate mode that restores only artifacts previously
