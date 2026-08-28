@@ -5,6 +5,7 @@ import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
 PUBLISH=(ROOT/'.github/workflows/publish-release.yml').read_text()
+GATE=(ROOT/'.github/workflows/release-gate.yml').read_text()
 PUBLIC_WRAPPER=(ROOT/'build/ci/build-public-release.sh').read_text()
 STABLE_PUBLISHER=(ROOT/'build/ci/publish-stable-release.sh').read_text()
 TOOLCHAIN=(ROOT/'build/ci/build-public-toolchain.sh').read_text()
@@ -318,6 +319,15 @@ class Tests(unittest.TestCase):
   self.assertIn('UI VERSION=', W)
   self.assertIn('"$GITHUB_BASE_REF" == release/*', W)
   self.assertIn('component_ref="$GITHUB_BASE_REF"', W)
+
+ def test_release_gate_triggers_cover_gate_inputs(self):
+  # Files consumed by the release gate must trigger it when changed directly;
+  # otherwise a checker or bootstrap change can bypass its own validation.
+  for path in (
+    "tools/check-public-metadata.py",
+    "tools/run-one-shot.sh",
+  ):
+   self.assertEqual(GATE.count(f"- '{path}'"), 2)
  def test_release_lanes_and_ota_boundaries(self):
   self.assertIn('LIBREECHO_OTA_SIGNING_MODE', W)
   self.assertIn('LIBREECHO_OTA_SIGNING_KEY_HEX', W)
