@@ -76,10 +76,12 @@ class HostFastbootPreflightTests(unittest.TestCase):
             fake_executable(root, "mke2fs")
             fake_executable(root, "img2simg")
             commands: list[list[str]] = []
+            timeouts: list[float] = []
 
             def fake_run(argv, timeout, *, check=True):
                 command = list(argv)
                 commands.append(command)
+                timeouts.append(timeout)
                 if Path(command[0]).name == "img2simg":
                     Path(command[2]).write_bytes(sparse_header(INSTALLER.USERDATA_BYTES))
                 return subprocess.CompletedProcess(command, 0, "", "")
@@ -99,6 +101,7 @@ class HostFastbootPreflightTests(unittest.TestCase):
             flash = commands[-1]
             self.assertEqual(flash[:5], [str(fastboot), "-s", "SERIAL", "flash", "userdata"])
             self.assertTrue(flash[5].endswith("userdata.sparse.img"))
+            self.assertEqual(timeouts[-1], INSTALLER.USERDATA_FLASH_TIMEOUT)
 
     def test_sparse_header_validation_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
