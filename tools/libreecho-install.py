@@ -273,6 +273,50 @@ def _run_command(argv: list[str], timeout: float, *, check: bool = True) -> subp
     return result
 
 
+def _run_command_with_heartbeat(
+    argv: list[str],
+    timeout: float,
+    message: str,
+    *,
+    interval: float = 15,
+) -> subprocess.CompletedProcess[str]:
+    """Run a quiet long command while printing honest elapsed-time heartbeats."""
+    _append_log(f"COMMAND start timeout={timeout:g}: {argv!r}")
+    started = time.monotonic()
+    try:
+        process = subprocess.Popen(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as error:
+        _append_log(f"COMMAND exception: {type(error).__name__}: {error}")
+        raise InstallerError(f"command failed or timed out: {' '.join(argv)}") from error
+    while True:
+        elapsed = time.monotonic() - started
+        remaining = timeout - elapsed
+        if remaining <= 0:
+            process.kill()
+            stdout, stderr = process.communicate()
+            _append_log(f"COMMAND timeout after {timeout:g}s: {argv!r}")
+            if stdout:
+                _append_log("COMMAND stdout:\n" + stdout.rstrip("\n"))
+            if stderr:
+                _append_log("COMMAND stderr:\n" + stderr.rstrip("\n"))
+            raise InstallerError(f"command timed out after {timeout:g}s: {' '.join(argv)}")
+        try:
+            stdout, stderr = process.communicate(timeout=min(interval, remaining))
+            break
+        except subprocess.TimeoutExpired:
+            print(f"{message} ({int(time.monotonic() - started)}s elapsed)", flush=True)
+    result = subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+    _append_log(f"COMMAND result rc={result.returncode}: {argv!r}")
+    if result.stdout:
+        _append_log("COMMAND stdout:\n" + result.stdout.rstrip("\n"))
+    if result.stderr:
+        _append_log("COMMAND stderr:\n" + result.stderr.rstrip("\n"))
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()[-500:]
+        raise InstallerError(f"command failed ({result.returncode}): {' '.join(argv)}: {detail}")
+    return result
+
+
 def _download_url(url: str, destination: Path, label: str) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + ".part")
@@ -513,14 +557,13 @@ def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
         raise InstallerError("fastboot product is not BISCUIT")
 
 
-def _validate_android_sparse_image(path: Path, expected_bytes: int) -> None:
-    """Validate the fixed Android sparse header before authorizing a flash."""
-    with path.open("rb") as stream:
-        header = stream.read(28)
-    if len(header) != 28:
+def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
+    """Validate sparse geometry and bound the bytes LK must physically program."""
+    data = path.read_bytes()
+    if len(data) < 28:
         raise InstallerError("generated userdata sparse image has a truncated header")
-    magic, major, minor, file_header_size, chunk_header_size, block_size, total_blocks, total_chunks, _ = struct.unpack(
-        "<IHHHHIIII", header
+    magic, major, minor, file_header_size, chunk_header_size, block_size, total_blocks, total_chunks, _ = struct.unpack_from(
+        "<IHHHHIIII", data
     )
     if block_size == 0:
         raise InstallerError("generated userdata image has a zero sparse block size")
@@ -537,6 +580,43 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> None:
         or total_chunks < 1
     ):
         raise InstallerError("generated userdata image has an invalid Android sparse header")
+    offset = file_header_size
+    expanded_blocks = 0
+    programmed_bytes = 0
+    has_dont_care = False
+    for _ in range(total_chunks):
+        if offset + chunk_header_size > len(data):
+            raise InstallerError("generated userdata image has a truncated sparse chunk")
+        chunk_type, _, chunk_blocks, total_size = struct.unpack_from("<HHII", data, offset)
+        payload_size = total_size - chunk_header_size
+        if total_size < chunk_header_size or offset + total_size > len(data):
+            raise InstallerError("generated userdata image has an invalid sparse chunk size")
+        if chunk_type == 0xCAC1:  # RAW
+            if payload_size != chunk_blocks * block_size:
+                raise InstallerError("generated userdata image has an invalid RAW chunk")
+            programmed_bytes += chunk_blocks * block_size
+        elif chunk_type == 0xCAC2:  # FILL
+            if payload_size != 4:
+                raise InstallerError("generated userdata image has an invalid FILL chunk")
+            programmed_bytes += chunk_blocks * block_size
+        elif chunk_type == 0xCAC3:  # DONT_CARE
+            if payload_size != 0:
+                raise InstallerError("generated userdata image has an invalid DONT_CARE chunk")
+            has_dont_care = True
+        elif chunk_type == 0xCAC4:  # CRC32
+            if payload_size != 4 or chunk_blocks != 0:
+                raise InstallerError("generated userdata image has an invalid CRC32 chunk")
+        else:
+            raise InstallerError("generated userdata image has an unknown sparse chunk type")
+        expanded_blocks += chunk_blocks
+        offset += total_size
+    if offset != len(data) or expanded_blocks != total_blocks:
+        raise InstallerError("generated userdata image has inconsistent sparse geometry")
+    if not has_dont_care or programmed_bytes > 16 * 1024 * 1024:
+        raise InstallerError(
+            "generated userdata image would make LK program too much data; sparse skip mode failed"
+        )
+    return programmed_bytes
 
 
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
@@ -584,16 +664,17 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         )
         if raw.stat().st_size != size:
             raise InstallerError("generated userdata filesystem has the wrong raw size")
-        _run_command([str(img2simg), str(raw), str(sparse)], max(timeout, 300))
-        _validate_android_sparse_image(sparse, size)
+        _run_command([str(img2simg), "-s", str(raw), str(sparse)], max(timeout, 300))
+        programmed_bytes = _validate_android_sparse_image(sparse, size)
         print(
             f"FASTBOOT STAGE: generated validated sparse ext4 image ({sparse.stat().st_size} bytes); "
-            "flashing only userdata. LK may remain silent for up to 15 minutes; do not disconnect USB.",
+            f"LK will program only {programmed_bytes} bytes. Flashing only userdata.",
             flush=True,
         )
-        _run_command(
+        _run_command_with_heartbeat(
             [fastboot_bin, "-s", serial, "flash", "userdata", str(sparse)],
             max(timeout, USERDATA_FLASH_TIMEOUT),
+            "FASTBOOT STAGE: userdata write still in progress; do not disconnect USB",
         )
     print("FASTBOOT STAGE: userdata filesystem format complete.", flush=True)
 

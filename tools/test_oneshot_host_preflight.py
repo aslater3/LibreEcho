@@ -34,6 +34,7 @@ def fake_executable(root: Path, name: str) -> Path:
 
 
 def sparse_header(expected_bytes: int) -> bytes:
+    blocks = expected_bytes // 4096
     return struct.pack(
         "<IHHHHIIII",
         0xED26FF3A,
@@ -42,10 +43,10 @@ def sparse_header(expected_bytes: int) -> bytes:
         28,
         12,
         4096,
-        expected_bytes // 4096,
+        blocks,
         1,
         0,
-    )
+    ) + struct.pack("<HHII", 0xCAC3, 0, blocks, 12)
 
 
 class HostFastbootPreflightTests(unittest.TestCase):
@@ -78,12 +79,12 @@ class HostFastbootPreflightTests(unittest.TestCase):
             commands: list[list[str]] = []
             timeouts: list[float] = []
 
-            def fake_run(argv, timeout, *, check=True):
+            def fake_run(argv, timeout, *args, check=True):
                 command = list(argv)
                 commands.append(command)
                 timeouts.append(timeout)
                 if Path(command[0]).name == "img2simg":
-                    Path(command[2]).write_bytes(sparse_header(INSTALLER.USERDATA_BYTES))
+                    Path(command[-1]).write_bytes(sparse_header(INSTALLER.USERDATA_BYTES))
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
@@ -92,16 +93,44 @@ class HostFastbootPreflightTests(unittest.TestCase):
                      "_fastboot_partition_size",
                      return_value=INSTALLER.USERDATA_BYTES,
                  ), \
-                 mock.patch.object(INSTALLER, "_run_command", side_effect=fake_run):
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=fake_run), \
+                 mock.patch.object(
+                     INSTALLER, "_run_command_with_heartbeat", side_effect=fake_run
+                 ):
                 INSTALLER.format_userdata_in_fastboot(str(fastboot), "SERIAL", 120)
 
             mke2fs = next(command for command in commands if Path(command[0]).name == "mke2fs")
             self.assertIn("^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file", mke2fs)
+            img2simg = next(command for command in commands if Path(command[0]).name == "img2simg")
+            self.assertEqual(img2simg[1], "-s")
             self.assertFalse(any("format:ext4" in command for command in commands))
             flash = commands[-1]
             self.assertEqual(flash[:5], [str(fastboot), "-s", "SERIAL", "flash", "userdata"])
             self.assertTrue(flash[5].endswith("userdata.sparse.img"))
             self.assertEqual(timeouts[-1], INSTALLER.USERDATA_FLASH_TIMEOUT)
+
+    def test_long_command_prints_elapsed_heartbeat(self) -> None:
+        with mock.patch("builtins.print") as output:
+            result = INSTALLER._run_command_with_heartbeat(
+                ["/bin/sh", "-c", "sleep 0.08"],
+                1,
+                "still working",
+                interval=0.02,
+            )
+        self.assertEqual(result.returncode, 0)
+        messages = [str(call.args[0]) for call in output.call_args_list]
+        self.assertTrue(any("still working" in message and "elapsed" in message for message in messages))
+
+    def test_sparse_validator_rejects_full_partition_fill(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            image = Path(temporary) / "slow.sparse.img"
+            blocks = INSTALLER.USERDATA_BYTES // 4096
+            header = struct.pack(
+                "<IHHHHIIII", 0xED26FF3A, 1, 0, 28, 12, 4096, blocks, 1, 0
+            )
+            image.write_bytes(header + struct.pack("<HHII", 0xCAC2, 0, blocks, 16) + b"\0" * 4)
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "program too much data"):
+                INSTALLER._validate_android_sparse_image(image, INSTALLER.USERDATA_BYTES)
 
     def test_sparse_header_validation_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
