@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import grp
 import hashlib
 import json
 import os
@@ -365,7 +366,148 @@ def _amonet_progress_message(line: str) -> str | None:
     return None
 
 
+def _tty_nodes():
+    return sorted(pathlib.Path("/dev").glob("ttyACM*"))
+
+
+def _tty_is_media_tek(node: Path) -> bool:
+    """True if /dev/ttyACMn traces to USB vendor 0e8d via sysfs."""
+    try:
+        resolved = (pathlib.Path("/sys/class/tty") / node.name / "device").resolve(strict=True)
+    except OSError:
+        return False
+    for parent in (resolved,) + tuple(resolved.parents):
+        vendor = parent / "idVendor"
+        if vendor.is_file():
+            try:
+                return vendor.read_text(encoding="ascii").strip().lower() == "0e8d"
+            except OSError:
+                return False
+    return False
+
+
+def brom_permission_preflight() -> None:
+    """Fail fast if any MediaTek CDC node is not openable read/write.
+
+    A MediaTek BROM device appears as /dev/ttyACM* owned root:dialout (or
+    root:uucp on some distros) with 0660 mode. When the running user cannot
+    open it, Amonet's port scan silently skips it and the user is stranded on
+    'waiting for BROM' with no error. The only reliable check is the same
+    read/write open the session will later perform. Nodes belonging to other
+    vendors are ignored - they are never the install target.
+    """
+    if os.geteuid() == 0:
+        return  # root always wins; no false alarm
+    blocked = []
+    for node in _tty_nodes():
+        if not _tty_is_media_tek(node):
+            continue
+        try:
+            fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+        except PermissionError:
+            blocked.append(node.name)
+        except FileNotFoundError:
+            continue  # vanished between enumeration and open
+        except OSError as error:
+            # Node exists but cannot service an open (ENXIO before carrier,
+            # EBUSY under another driver). Not a permissions failure; Amonet
+            # classifies those itself, so surface and continue.
+            print(f"note: {node.name} read/write preflight hit OSError: {error}", flush=True)
+        else:
+            os.close(fd)
+    if not blocked:
+        return
+    lines = [
+        "cannot open MediaTek serial device(s) {} for read/write: permission denied for uid {}.".format(
+            ", ".join(blocked), os.getuid()
+        ),
+        "A BROM session needs read/write access to /dev/ttyACM*.",
+        "Fix (persistent): add this user to the serial group and start a NEW login session:",
+        "    sudo usermod -aG dialout $USER   # Debian/Ubuntu (uucp on Arch; lock on some distros)",
+        "Fix (this command only):",
+        "    sudo python3 <installer> one-shot ...",
+    ]
+    raise InstallerError("\n".join(lines))
+
+
+def _running_process_names():
+    names = set()
+    for entry in pathlib.Path("/proc").glob("[0-9]*/comm"):
+        try:
+            names.add(entry.read_text(encoding="utf-8").strip())
+        except OSError:
+            continue
+    return names
+
+
+def _print_brom_transport_diagnostics() -> None:
+    """Classify host-side BROM transport state; best-effort, never raises."""
+    try:
+        media_tek = {}
+        for vendor_path in pathlib.Path("/sys/bus/usb/devices").glob("*/idVendor"):
+            try:
+                product_path = vendor_path.with_name("idProduct")
+                media_tek[vendor_path.parent.name] = (
+                    vendor_path.read_text(encoding="ascii").strip(),
+                    product_path.read_text(encoding="ascii").strip(),
+                )
+            except OSError:
+                continue
+        mt = {slot: vidpid for slot, vidpid in media_tek.items() if vidpid[0] == "0e8d"}
+        brom_present = any(pid == "0003" for _, pid in mt.values())
+        all_nodes = [node.name for node in _tty_nodes()]
+        nodes = [name for name in all_nodes if _tty_is_media_tek(pathlib.Path("/dev") / name)]
+        unrelated = [name for name in all_nodes if name not in nodes]
+        print("--- BROM transport diagnostics ---", flush=True)
+        if not mt:
+            print("no MediaTek USB device is currently enumerated.", flush=True)
+        for slot, (vid, pid) in sorted(mt.items()):
+            meaning = {
+                ("0e8d", "0003"): "MediaTek BROM (correct state)",
+                ("0e8d", "2000"): "stock preloader, NOT BROM (short/power-on sequence did not hold)",
+                ("0e8d", "2001"): "preloader, NOT BROM",
+                ("0e8d", "2008"): "AEOOT (deep error state; see docs)",
+            }.get((vid, pid), "MediaTek device in an unrecognized state")
+            print(f"usb {slot}: {vid}:{pid} - {meaning}", flush=True)
+        if nodes:
+            print(f"MediaTek serial nodes present: {', '.join(nodes)}", flush=True)
+        elif brom_present and unrelated:
+            print(
+                "the /dev/ttyACM* nodes present ({}) are NOT MediaTek devices - "
+                "BROM has no usable serial node.".format(", ".join(unrelated)),
+                flush=True,
+            )
+        elif brom_present:
+            print("no /dev/ttyACM* node exists on this host.", flush=True)
+        elif unrelated:
+            print(f"(unrelated serial nodes ignored: {', '.join(unrelated)})", flush=True)
+        else:
+            print("no /dev/ttyACM* node exists on this host.", flush=True)
+        if brom_present and not nodes:
+            print(
+                "BROM is enumerated but has no CDC serial node: check 'lsmod | grep cdc_acm', "
+                "check dmesg for 'usb ... attached', and confirm no other service grabbed the port.",
+                flush=True,
+            )
+        if "ModemManager" in _running_process_names():
+            print(
+                "ModemManager is running; it can open and hold new ttyACM ports. "
+                "If it repeatedly probes the BROM port, consider temporarily stopping it "
+                "(sudo systemctl stop ModemManager) during the handoff.",
+                flush=True,
+            )
+        print(
+            "remedy if nothing helps: cold power-off, apply the CLK-to-GND short, keep it applied "
+            "while reconnecting power/USB, and only then start the installer.",
+            flush=True,
+        )
+        print("--- end BROM diagnostics ---", flush=True)
+    except Exception as error:  # diagnostics must never mask the real failure
+        print(f"(BROM transport diagnostics unavailable: {error})", flush=True)
+
+
 def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
+    brom_permission_preflight()
     print("Amonet handoff started; monitoring its live progress.", flush=True)
     print("ACTION: power off the Echo, hold the marked CLK-to-GND short while applying power/USB, then release after BROM enumerates.", flush=True)
     print("Amonet status: waiting for BROM/USB...", flush=True)
@@ -379,6 +521,8 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
     last_notice = time.monotonic()
     deadline = time.monotonic() + timeout
     next_notice = time.monotonic() + 10
+    usb_stall_reported = False
+    last_permission_check = 0.0
     while True:
         if log_path.exists():
             with log_path.open("r", encoding="utf-8", errors="replace") as stream:
@@ -400,12 +544,33 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
                         last_state = message
                         last_notice = time.monotonic()
                         next_notice = last_notice + 10
+                        usb_stall_reported = False
         returncode = process.poll()
         if returncode is not None:
             if returncode != 0:
+                _print_brom_transport_diagnostics()
                 raise InstallerError(f"Amonet handoff failed with exit code {returncode}")
             return
         now = time.monotonic()
+        if now - last_permission_check >= 5:
+            # The device is connected AFTER the script starts, so this must
+            # re-check during the wait, not just once at launch. If the user
+            # cannot open a freshly enumerated MediaTek CDC node, stop now
+            # with an actionable message instead of a silent 900s hang.
+            last_permission_check = now
+            try:
+                brom_permission_preflight()
+            except InstallerError:
+                process.kill()
+                process.wait()
+                _print_brom_transport_diagnostics()
+                raise
+        if not usb_stall_reported and now - last_notice >= 30:
+            # Still at 'waiting for BROM' after 30s: classify what the host
+            # actually sees so the user learns WHY, instead of staring at the
+            # spinner until the 900s timeout.
+            _print_brom_transport_diagnostics()
+            usb_stall_reported = True
         if now >= deadline:
             process.kill()
             process.wait()
