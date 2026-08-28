@@ -23,11 +23,22 @@ def load_installer():
 INSTALLER = load_installer()
 
 
+def fake_executable(root: Path, name: str) -> Path:
+    path = root / name
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    path.chmod(0o755)
+    return path
+
+
 class HostFastbootPreflightTests(unittest.TestCase):
     def test_stages_fastboot_with_mke2fs_sibling(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            staged = Path(INSTALLER.prepare_fastboot_tools("fastboot", Path(temporary)))
-            self.assertEqual(staged, Path(temporary) / "host-tools" / "fastboot")
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            mke2fs = fake_executable(root, "mke2fs")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=mke2fs):
+                staged = Path(INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache"))
+            self.assertEqual(staged, root / "cache" / "host-tools" / "fastboot")
             helper = staged.with_name("mke2fs")
             self.assertTrue(staged.is_file())
             self.assertTrue(helper.is_file())
@@ -37,12 +48,14 @@ class HostFastbootPreflightTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
 
     def test_missing_mke2fs_fails_before_any_device_operation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary, \
-             mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
-             mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as install:
-            with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
-                INSTALLER.prepare_fastboot_tools("fastboot", Path(temporary))
-        install.assert_not_called()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
+                 mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as install:
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
+                    INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
+            install.assert_not_called()
 
     def test_missing_dependency_install_is_opt_in(self) -> None:
         source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")

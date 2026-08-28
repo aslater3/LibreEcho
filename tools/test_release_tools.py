@@ -41,35 +41,51 @@ PUBLIC_METADATA = load_module(
 INSTALLER = load_module("libreecho_install", ROOT / "tools/libreecho-install.py")
 
 
+def fake_executable(root: Path, name: str) -> Path:
+    path = root / name
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    path.chmod(0o755)
+    return path
+
+
 class OneShotFastbootTests(unittest.TestCase):
     def test_prepare_fastboot_tools_stages_mke2fs_sibling(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            staged = INSTALLER.prepare_fastboot_tools("fastboot", Path(temporary))
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            mke2fs = fake_executable(root, "mke2fs")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=mke2fs):
+                staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
             staged_path = Path(staged)
-            self.assertEqual(staged_path.parent, Path(temporary) / "host-tools")
+            self.assertEqual(staged_path.parent, root / "cache" / "host-tools")
             self.assertTrue(staged_path.is_file())
             self.assertTrue((staged_path.parent / "mke2fs").is_file())
             result = subprocess.run([staged, "--version"], text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 0)
 
     def test_prepare_fastboot_tools_fails_before_device_when_helper_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary, \
-             mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
-             mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as installer:
-            with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
-                INSTALLER.prepare_fastboot_tools("fastboot", Path(temporary))
-        installer.assert_not_called()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
+                 mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as installer:
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
+                    INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
+            installer.assert_not_called()
 
     def test_prepare_fastboot_tools_can_request_missing_dependency_install(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary, \
-             mock.patch.object(INSTALLER, "_find_mke2fs", side_effect=[None, Path("/usr/sbin/mke2fs")]), \
-             mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as installer:
-            with mock.patch.object(INSTALLER, "_copy_executable") as copier, \
-                 mock.patch.object(INSTALLER, "_run_command", return_value=subprocess.CompletedProcess([], 0, "", "")):
-                staged = INSTALLER.prepare_fastboot_tools("fastboot", Path(temporary), install_host_deps=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            mke2fs = fake_executable(root, "mke2fs")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", side_effect=[None, mke2fs]), \
+                 mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as installer:
+                staged = INSTALLER.prepare_fastboot_tools(
+                    str(fastboot), root / "cache", install_host_deps=True
+                )
         installer.assert_called_once_with()
         self.assertTrue(staged.endswith("/host-tools/fastboot"))
-        self.assertEqual(copier.call_count, 2)
+        self.assertEqual(Path(staged).with_name("mke2fs").name, "mke2fs")
 
     def test_state_accepts_legacy_without_userdata_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
