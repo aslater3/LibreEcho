@@ -90,6 +90,9 @@ BOOT_BYTES = 16 * 1024 * 1024
 # The reviewed post-Amonet GPT gives userdata 0x209c00 sectors of 512 bytes.
 # This is used only to validate the exact target before formatting userdata.
 USERDATA_BYTES = 0x209C00 * 512
+# Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
+# control-command timeout to this bounded eMMC operation.
+USERDATA_FLASH_TIMEOUT = 900
 BOOTOPT = b"bootopt=64S3,32N2,32N2"
 AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 AMONET_LAUNCHER = "bootrom-k32-native-diag-step.sh"
@@ -588,7 +591,10 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
             "flashing only userdata.",
             flush=True,
         )
-        _run_command([fastboot_bin, "-s", serial, "flash", "userdata", str(sparse)], timeout)
+        _run_command(
+            [fastboot_bin, "-s", serial, "flash", "userdata", str(sparse)],
+            max(timeout, USERDATA_FLASH_TIMEOUT),
+        )
     print("FASTBOOT STAGE: userdata filesystem format complete.", flush=True)
 
 
