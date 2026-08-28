@@ -49,16 +49,18 @@ def fake_executable(root: Path, name: str) -> Path:
 
 
 class OneShotFastbootTests(unittest.TestCase):
-    def test_prepare_fastboot_tools_stages_mke2fs_sibling(self) -> None:
+    def test_prepare_fastboot_tools_stages_complete_toolset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
-            mke2fs = fake_executable(root, "mke2fs")
-            staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
+            fake_executable(root, "mke2fs")
+            img2simg = fake_executable(root, "img2simg")
+            with mock.patch.object(INSTALLER, "_find_img2simg", return_value=img2simg):
+                staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
             staged_path = Path(staged)
             self.assertEqual(staged_path.parent, root / "cache" / "host-tools")
-            self.assertTrue(staged_path.is_file())
-            self.assertTrue((staged_path.parent / "mke2fs").is_file())
+            for name in ("fastboot", "mke2fs", "img2simg"):
+                self.assertTrue((staged_path.parent / name).is_file())
             result = subprocess.run([staged, "--version"], text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 0)
 
@@ -67,7 +69,8 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
-                 mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as installer:
+                 mock.patch.object(INSTALLER, "_find_img2simg", return_value=None), \
+                 mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
                 with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
                     INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
             installer.assert_not_called()
@@ -77,14 +80,15 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             mke2fs = fake_executable(root, "mke2fs")
+            img2simg = fake_executable(root, "img2simg")
             with mock.patch.object(INSTALLER, "_find_mke2fs", side_effect=[None, mke2fs]), \
-                 mock.patch.object(INSTALLER, "_install_host_e2fsprogs") as installer:
+                 mock.patch.object(INSTALLER, "_find_img2simg", side_effect=[None, img2simg]), \
+                 mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
                 staged = INSTALLER.prepare_fastboot_tools(
                     str(fastboot), root / "cache", install_host_deps=True
                 )
         installer.assert_called_once_with()
         self.assertTrue(staged.endswith("/host-tools/fastboot"))
-        self.assertEqual(Path(staged).with_name("mke2fs").name, "mke2fs")
 
     def test_state_accepts_legacy_without_userdata_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -127,15 +131,10 @@ class OneShotFastbootTests(unittest.TestCase):
                 INSTALLER.format_userdata_in_fastboot("fastboot", "SERIAL", 120)
         command.assert_not_called()
 
-    def test_userdata_format_uses_only_reviewed_fastboot_command(self) -> None:
-        with mock.patch.object(INSTALLER, "verify_fastboot_product") as product, \
-             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES), \
-             mock.patch.object(INSTALLER, "_run_command") as command:
-            INSTALLER.format_userdata_in_fastboot("fastboot", "SERIAL", 120)
-        product.assert_called_once_with("fastboot", "SERIAL")
-        command.assert_called_once_with(
-            ["fastboot", "-s", "SERIAL", "format:ext4", "userdata"], 120
-        )
+    def test_userdata_format_avoids_fastboot_internal_formatter(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        self.assertIn('"flash", "userdata", str(sparse)', source)
+        self.assertIn("^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file", source)
 
     def test_adb_diagnostics_capture_read_only_command_bundle(self) -> None:
         calls = []

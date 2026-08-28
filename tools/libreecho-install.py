@@ -169,23 +169,40 @@ def _find_mke2fs(fastboot_source: Path) -> Path | None:
     return None
 
 
-def _install_host_e2fsprogs() -> None:
+def _find_img2simg() -> Path | None:
+    candidate = shutil.which("img2simg")
+    if candidate is None:
+        return None
+    resolved = Path(candidate).resolve()
+    if resolved.is_file() and os.access(resolved, os.X_OK):
+        return resolved
+    return None
+
+
+def _install_host_format_tools() -> None:
     apt_get = shutil.which("apt-get")
     if apt_get is None:
         raise InstallerError(
-            "mke2fs is missing and apt-get is unavailable; install e2fsprogs manually "
-            "before starting a hardware run"
+            "userdata image tools are missing and apt-get is unavailable; install "
+            "e2fsprogs and android-sdk-libsparse-utils manually before starting a hardware run"
         )
     prefix = [] if os.geteuid() == 0 else ([shutil.which("sudo")] if shutil.which("sudo") else None)
     if prefix is None:
         raise InstallerError(
-            "mke2fs is missing and sudo is unavailable; install e2fsprogs manually "
-            "before starting a hardware run"
+            "userdata image tools are missing and sudo is unavailable; install e2fsprogs "
+            "and android-sdk-libsparse-utils manually before starting a hardware run"
         )
     command_prefix = [item for item in prefix if item]
-    print("HOST PREFLIGHT: installing missing e2fsprogs (mke2fs) before device access.", flush=True)
+    print(
+        "HOST PREFLIGHT: installing missing userdata image tools before device access.",
+        flush=True,
+    )
     _run_command(command_prefix + [apt_get, "update"], 300)
-    _run_command(command_prefix + [apt_get, "install", "-y", "e2fsprogs"], 300)
+    _run_command(
+        command_prefix
+        + [apt_get, "install", "-y", "e2fsprogs", "android-sdk-libsparse-utils"],
+        300,
+    )
 
 
 def prepare_fastboot_tools(
@@ -194,56 +211,42 @@ def prepare_fastboot_tools(
     *,
     install_host_deps: bool = False,
 ) -> str:
-    """Stage fastboot and its sibling mke2fs so format is self-contained."""
+    """Stage the complete host toolset before any device access."""
     fastboot_source = _executable_path(fastboot_bin)
     helper = _find_mke2fs(fastboot_source)
-    if helper is None and install_host_deps:
-        _install_host_e2fsprogs()
+    img2simg = _find_img2simg()
+    if (helper is None or img2simg is None) and install_host_deps:
+        _install_host_format_tools()
         helper = _find_mke2fs(fastboot_source)
-    if helper is None:
+        img2simg = _find_img2simg()
+    if helper is None or img2simg is None:
+        missing = ", ".join(
+            name for name, path in (("mke2fs", helper), ("img2simg", img2simg)) if path is None
+        )
         raise InstallerError(
-            "HOST PREFLIGHT: mke2fs is required for fastboot format:ext4 userdata but "
-            "was not found. Re-run with --install-host-deps or install e2fsprogs "
-            "manually (for Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y e2fsprogs)."
+            f"HOST PREFLIGHT: {missing} required for userdata image generation but not found. "
+            "Re-run with --install-host-deps or install e2fsprogs and "
+            "android-sdk-libsparse-utils manually."
         )
     tool_root = cache_root / "host-tools"
     staged_fastboot = tool_root / "fastboot"
     staged_mke2fs = tool_root / "mke2fs"
+    staged_img2simg = tool_root / "img2simg"
     _copy_executable(fastboot_source, staged_fastboot)
     _copy_executable(helper, staged_mke2fs)
-    # GNU e2fsprogs >= 1.47 enables 64bit + metadata_csum by default on large
-    # filesystems, but AOSP fastboot's bundled ext2fs parser does not implement
-    # those library functions; format:ext4 then dies with "Unimplemented ext2
-    # library function while setting up superblock". Ship a staged mke2fs.conf
-    # that disables the unsupported feature set (matching the reviewed
-    # build_userdata_image.sh contract) and point MKE2FS_CONFIG at it.
-    staged_conf = tool_root / "mke2fs.conf"
-    staged_conf.write_text(
-        "[defaults]\n"
-        "	base_features = sparse_super,large_file,filetype,resize_inode,dir_index,ext_attr\n"
-        "	default_mntopts = acl,user_xattr\n"
-        "	enable_periodic_fsck = 0\n"
-        "	blocksize = 4096\n"
-        "	inode_size = 256\n"
-        "[fs_types]\n"
-        "	ext4 = {\n"
-        "		features = has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize\n"
-        "		inode_size = 256\n"
-        "	}\n",
-        encoding="ascii",
-    )
-    staged_conf.chmod(0o644)
+    _copy_executable(img2simg, staged_img2simg)
     version = _run_command([str(staged_fastboot), "--version"], 20, check=False)
     if version.returncode != 0:
         raise InstallerError("HOST PREFLIGHT: staged fastboot did not run successfully")
-    mke2fs_version = _run_command(
-        [str(staged_mke2fs), "-V"], 20, check=False
-    )
+    mke2fs_version = _run_command([str(staged_mke2fs), "-V"], 20, check=False)
     if mke2fs_version.returncode not in (0, 1):
         raise InstallerError("HOST PREFLIGHT: staged mke2fs did not run successfully")
+    img2simg_probe = _run_command([str(staged_img2simg)], 20, check=False)
+    if img2simg_probe.returncode not in (0, 1, 2):
+        raise InstallerError("HOST PREFLIGHT: staged img2simg did not run successfully")
     print(
-        f"HOST PREFLIGHT: fastboot={staged_fastboot} with mke2fs={staged_mke2fs}; "
-        "format helper ready before device access.",
+        f"HOST PREFLIGHT: fastboot={staged_fastboot}, mke2fs={staged_mke2fs}, "
+        f"img2simg={staged_img2simg}; userdata image tools ready before device access.",
         flush=True,
     )
     return str(staged_fastboot)
@@ -507,8 +510,34 @@ def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
         raise InstallerError("fastboot product is not BISCUIT")
 
 
+def _validate_android_sparse_image(path: Path, expected_bytes: int) -> None:
+    """Validate the fixed Android sparse header before authorizing a flash."""
+    with path.open("rb") as stream:
+        header = stream.read(28)
+    if len(header) != 28:
+        raise InstallerError("generated userdata sparse image has a truncated header")
+    magic, major, minor, file_header_size, chunk_header_size, block_size, total_blocks, total_chunks, _ = struct.unpack(
+        "<IHHHHIIII", header
+    )
+    if block_size == 0:
+        raise InstallerError("generated userdata image has a zero sparse block size")
+    expected_blocks, remainder = divmod(expected_bytes, block_size)
+    if (
+        magic != 0xED26FF3A
+        or major != 1
+        or minor != 0
+        or file_header_size != 28
+        or chunk_header_size != 12
+        or block_size != 4096
+        or remainder
+        or total_blocks != expected_blocks
+        or total_chunks < 1
+    ):
+        raise InstallerError("generated userdata image has an invalid Android sparse header")
+
+
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
-    """Recreate the userdata ext4 filesystem after Amonet's deliberate wipe."""
+    """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
     verify_fastboot_product(fastboot_bin, serial)
     size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
@@ -521,22 +550,45 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         "boot, system, persist, and expdb are not being formatted.",
         flush=True,
     )
-    # fastboot invokes its sibling mke2fs with MKE2FS_CONFIG pointing at our
-    # staged conf (fastboot sets the variable relative to its own directory),
-    # which disables the 64bit/metadata_csum features that AOSP fastboot's ext4
-    # image parser cannot handle. Keep the conf beside the staged fastboot.
     tool_root = Path(fastboot_bin).resolve().parent
-    environment = dict(os.environ)
-    environment["MKE2FS_CONFIG"] = str(tool_root / "mke2fs.conf")
-    previous = os.environ.get("MKE2FS_CONFIG")
-    os.environ["MKE2FS_CONFIG"] = environment["MKE2FS_CONFIG"]
-    try:
-        _run_command([fastboot_bin, "-s", serial, "format:ext4", "userdata"], timeout)
-    finally:
-        if previous is None:
-            os.environ.pop("MKE2FS_CONFIG", None)
-        else:
-            os.environ["MKE2FS_CONFIG"] = previous
+    mke2fs = tool_root / "mke2fs"
+    img2simg = tool_root / "img2simg"
+    if not (mke2fs.is_file() and img2simg.is_file()):
+        raise InstallerError("staged userdata image tools disappeared after host preflight")
+    with tempfile.TemporaryDirectory(prefix="userdata-image-", dir=tool_root) as temporary:
+        root = Path(temporary)
+        raw = root / "userdata.ext4"
+        sparse = root / "userdata.sparse.img"
+        with raw.open("wb") as stream:
+            stream.truncate(size)
+        _run_command(
+            [
+                str(mke2fs),
+                "-F",
+                "-t",
+                "ext4",
+                "-L",
+                "LIBREECHO_DATA",
+                "-m",
+                "0",
+                "-O",
+                "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
+                "-E",
+                "lazy_itable_init=0,lazy_journal_init=0",
+                str(raw),
+            ],
+            max(timeout, 300),
+        )
+        if raw.stat().st_size != size:
+            raise InstallerError("generated userdata filesystem has the wrong raw size")
+        _run_command([str(img2simg), str(raw), str(sparse)], max(timeout, 300))
+        _validate_android_sparse_image(sparse, size)
+        print(
+            f"FASTBOOT STAGE: generated validated sparse ext4 image ({sparse.stat().st_size} bytes); "
+            "flashing only userdata.",
+            flush=True,
+        )
+        _run_command([fastboot_bin, "-s", serial, "flash", "userdata", str(sparse)], timeout)
     print("FASTBOOT STAGE: userdata filesystem format complete.", flush=True)
 
 
