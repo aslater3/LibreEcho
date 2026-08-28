@@ -5,6 +5,7 @@ import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
 PUBLISH=(ROOT/'.github/workflows/publish-release.yml').read_text()
+GATE=(ROOT/'.github/workflows/release-gate.yml').read_text()
 PUBLIC_WRAPPER=(ROOT/'build/ci/build-public-release.sh').read_text()
 STABLE_PUBLISHER=(ROOT/'build/ci/publish-stable-release.sh').read_text()
 TOOLCHAIN=(ROOT/'build/ci/build-public-toolchain.sh').read_text()
@@ -181,7 +182,10 @@ class Tests(unittest.TestCase):
   # digest-pinned into host-bin: xxd (AirPlay) and mksquashfs/unsquashfs
   # (feature payloads), plus the mksquashfs runtime libraries.
   self.assertIn('Stage host build tools (xxd, mksquashfs, cpio)', W)
-  self.assertIn('6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc', W)
+  self.assertIn('xxd_9.1.0016-1ubuntu7.20_amd64.deb', W)
+  self.assertIn('abe2a776ec6472e6b9b0a8497d3c2e8007f9863092dfd1448f4a68d0c25af750', W)
+  self.assertNotIn('xxd_9.1.0016-1ubuntu7.19_amd64.deb', W)
+  self.assertNotIn('6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc', W)
   self.assertIn('87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb', W)
   self.assertIn('e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e', W)
   self.assertIn('b3c7bb97baf1a5dabe0c672ebdc94724bdcd7251790152cfa4314efda5696817', W)
@@ -318,6 +322,15 @@ class Tests(unittest.TestCase):
   self.assertIn('UI VERSION=', W)
   self.assertIn('"$GITHUB_BASE_REF" == release/*', W)
   self.assertIn('component_ref="$GITHUB_BASE_REF"', W)
+
+ def test_release_gate_triggers_cover_gate_inputs(self):
+  # Files consumed by the release gate must trigger it when changed directly;
+  # otherwise a checker or bootstrap change can bypass its own validation.
+  for path in (
+    "tools/check-public-metadata.py",
+    "tools/run-one-shot.sh",
+  ):
+   self.assertEqual(GATE.count(f"- '{path}'"), 2)
  def test_release_lanes_and_ota_boundaries(self):
   self.assertIn('LIBREECHO_OTA_SIGNING_MODE', W)
   self.assertIn('LIBREECHO_OTA_SIGNING_KEY_HEX', W)
