@@ -15,6 +15,7 @@ on:
       - 'tools/libreecho-install.py'
       - 'tools/libreecho-install.py.sha256'
       - 'tools/test_initial_installer_publication.py'
+      - 'tools/test_brom_preflight.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -32,6 +33,7 @@ on:
       - 'tools/libreecho-install.py'
       - 'tools/libreecho-install.py.sha256'
       - 'tools/test_initial_installer_publication.py'
+      - 'tools/test_brom_preflight.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -66,7 +68,8 @@ jobs:
             tools/check-public-metadata.py \
             tools/test_release_tools.py \
             tools/libreecho-install.py \
-            tools/test_initial_installer_publication.py
+            tools/test_initial_installer_publication.py \
+            tools/test_brom_preflight.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
       - name: Enforce full component and SBOM gate
@@ -82,3 +85,5 @@ jobs:
             --release-scope community-noncommercial
       - name: Verify public installer mirror
         run: python -B -m unittest tools.test_initial_installer_publication -v
+      - name: Verify BROM permission preflight suite
+        run: python -B -m unittest tools.test_brom_preflight -v

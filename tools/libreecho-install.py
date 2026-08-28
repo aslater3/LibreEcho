@@ -454,7 +454,10 @@ def _print_brom_transport_diagnostics() -> None:
             except OSError:
                 continue
         mt = {slot: vidpid for slot, vidpid in media_tek.items() if vidpid[0] == "0e8d"}
-        nodes = [node.name for node in _tty_nodes()]
+        brom_present = any(pid == "0003" for _, pid in mt.values())
+        all_nodes = [node.name for node in _tty_nodes()]
+        nodes = [name for name in all_nodes if _tty_is_media_tek(pathlib.Path("/dev") / name)]
+        unrelated = [name for name in all_nodes if name not in nodes]
         print("--- BROM transport diagnostics ---", flush=True)
         if not mt:
             print("no MediaTek USB device is currently enumerated.", flush=True)
@@ -467,12 +470,20 @@ def _print_brom_transport_diagnostics() -> None:
             }.get((vid, pid), "MediaTek device in an unrecognized state")
             print(f"usb {slot}: {vid}:{pid} - {meaning}", flush=True)
         if nodes:
-            print(f"serial nodes present: {', '.join(nodes)}", flush=True)
-            if not mt:
-                print("note: an enumerated BROM is missing - those serial nodes are unrelated devices.", flush=True)
+            print(f"MediaTek serial nodes present: {', '.join(nodes)}", flush=True)
+        elif brom_present and unrelated:
+            print(
+                "the /dev/ttyACM* nodes present ({}) are NOT MediaTek devices - "
+                "BROM has no usable serial node.".format(", ".join(unrelated)),
+                flush=True,
+            )
+        elif brom_present:
+            print("no /dev/ttyACM* node exists on this host.", flush=True)
+        elif unrelated:
+            print(f"(unrelated serial nodes ignored: {', '.join(unrelated)})", flush=True)
         else:
             print("no /dev/ttyACM* node exists on this host.", flush=True)
-        if any(pid == "0003" for _, pid in mt.values()) and not nodes:
+        if brom_present and not nodes:
             print(
                 "BROM is enumerated but has no CDC serial node: check 'lsmod | grep cdc_acm', "
                 "check dmesg for 'usb ... attached', and confirm no other service grabbed the port.",
