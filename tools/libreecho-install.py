@@ -1636,11 +1636,14 @@ def main() -> None:
     parser.add_argument("--execute-hardware", action="store_true")
     parser.add_argument(
         "--install-host-deps", action="store_true",
-        help="install missing e2fsprogs before any device operation (uses apt-get/sudo)",
+        help=(
+            "install missing e2fsprogs and android-sdk-libsparse-utils before any "
+            "device operation (uses apt-get/sudo)"
+        ),
     )
     parser.add_argument(
         "--repair-userdata", action="store_true",
-        help="explicitly format userdata via fastboot when resuming an old failed run",
+        help="explicitly rebuild and flash only userdata when resuming an old failed run",
     )
     parser.add_argument("--emulator-root", type=Path, help="explicit disk-backed BROM/QEMU emulator root")
     parser.add_argument("--emulator-kernel", type=Path)
