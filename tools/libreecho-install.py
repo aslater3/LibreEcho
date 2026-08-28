@@ -90,6 +90,9 @@ BOOT_BYTES = 16 * 1024 * 1024
 # The reviewed post-Amonet GPT gives userdata 0x209c00 sectors of 512 bytes.
 # This is used only to validate the exact target before formatting userdata.
 USERDATA_BYTES = 0x209C00 * 512
+# Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
+# control-command timeout to this bounded eMMC operation.
+USERDATA_FLASH_TIMEOUT = 900
 BOOTOPT = b"bootopt=64S3,32N2,32N2"
 AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 AMONET_LAUNCHER = "bootrom-k32-native-diag-step.sh"
@@ -265,6 +268,50 @@ def _run_command(argv: list[str], timeout: float, *, check: bool = True) -> subp
     if result.stderr:
         _append_log("COMMAND stderr:\n" + result.stderr.rstrip("\n"))
     if check and result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()[-500:]
+        raise InstallerError(f"command failed ({result.returncode}): {' '.join(argv)}: {detail}")
+    return result
+
+
+def _run_command_with_heartbeat(
+    argv: list[str],
+    timeout: float,
+    message: str,
+    *,
+    interval: float = 15,
+) -> subprocess.CompletedProcess[str]:
+    """Run a quiet long command while printing honest elapsed-time heartbeats."""
+    _append_log(f"COMMAND start timeout={timeout:g}: {argv!r}")
+    started = time.monotonic()
+    try:
+        process = subprocess.Popen(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as error:
+        _append_log(f"COMMAND exception: {type(error).__name__}: {error}")
+        raise InstallerError(f"command failed or timed out: {' '.join(argv)}") from error
+    while True:
+        elapsed = time.monotonic() - started
+        remaining = timeout - elapsed
+        if remaining <= 0:
+            process.kill()
+            stdout, stderr = process.communicate()
+            _append_log(f"COMMAND timeout after {timeout:g}s: {argv!r}")
+            if stdout:
+                _append_log("COMMAND stdout:\n" + stdout.rstrip("\n"))
+            if stderr:
+                _append_log("COMMAND stderr:\n" + stderr.rstrip("\n"))
+            raise InstallerError(f"command timed out after {timeout:g}s: {' '.join(argv)}")
+        try:
+            stdout, stderr = process.communicate(timeout=min(interval, remaining))
+            break
+        except subprocess.TimeoutExpired:
+            print(f"{message} ({int(time.monotonic() - started)}s elapsed)", flush=True)
+    result = subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+    _append_log(f"COMMAND result rc={result.returncode}: {argv!r}")
+    if result.stdout:
+        _append_log("COMMAND stdout:\n" + result.stdout.rstrip("\n"))
+    if result.stderr:
+        _append_log("COMMAND stderr:\n" + result.stderr.rstrip("\n"))
+    if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()[-500:]
         raise InstallerError(f"command failed ({result.returncode}): {' '.join(argv)}: {detail}")
     return result
@@ -510,14 +557,13 @@ def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
         raise InstallerError("fastboot product is not BISCUIT")
 
 
-def _validate_android_sparse_image(path: Path, expected_bytes: int) -> None:
-    """Validate the fixed Android sparse header before authorizing a flash."""
-    with path.open("rb") as stream:
-        header = stream.read(28)
-    if len(header) != 28:
+def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
+    """Validate sparse geometry and bound the bytes LK must physically program."""
+    data = path.read_bytes()
+    if len(data) < 28:
         raise InstallerError("generated userdata sparse image has a truncated header")
-    magic, major, minor, file_header_size, chunk_header_size, block_size, total_blocks, total_chunks, _ = struct.unpack(
-        "<IHHHHIIII", header
+    magic, major, minor, file_header_size, chunk_header_size, block_size, total_blocks, total_chunks, _ = struct.unpack_from(
+        "<IHHHHIIII", data
     )
     if block_size == 0:
         raise InstallerError("generated userdata image has a zero sparse block size")
@@ -534,6 +580,43 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> None:
         or total_chunks < 1
     ):
         raise InstallerError("generated userdata image has an invalid Android sparse header")
+    offset = file_header_size
+    expanded_blocks = 0
+    programmed_bytes = 0
+    has_dont_care = False
+    for _ in range(total_chunks):
+        if offset + chunk_header_size > len(data):
+            raise InstallerError("generated userdata image has a truncated sparse chunk")
+        chunk_type, _, chunk_blocks, total_size = struct.unpack_from("<HHII", data, offset)
+        payload_size = total_size - chunk_header_size
+        if total_size < chunk_header_size or offset + total_size > len(data):
+            raise InstallerError("generated userdata image has an invalid sparse chunk size")
+        if chunk_type == 0xCAC1:  # RAW
+            if payload_size != chunk_blocks * block_size:
+                raise InstallerError("generated userdata image has an invalid RAW chunk")
+            programmed_bytes += chunk_blocks * block_size
+        elif chunk_type == 0xCAC2:  # FILL
+            if payload_size != 4:
+                raise InstallerError("generated userdata image has an invalid FILL chunk")
+            programmed_bytes += chunk_blocks * block_size
+        elif chunk_type == 0xCAC3:  # DONT_CARE
+            if payload_size != 0:
+                raise InstallerError("generated userdata image has an invalid DONT_CARE chunk")
+            has_dont_care = True
+        elif chunk_type == 0xCAC4:  # CRC32
+            if payload_size != 4 or chunk_blocks != 0:
+                raise InstallerError("generated userdata image has an invalid CRC32 chunk")
+        else:
+            raise InstallerError("generated userdata image has an unknown sparse chunk type")
+        expanded_blocks += chunk_blocks
+        offset += total_size
+    if offset != len(data) or expanded_blocks != total_blocks:
+        raise InstallerError("generated userdata image has inconsistent sparse geometry")
+    if not has_dont_care or programmed_bytes > 64 * 1024 * 1024:
+        raise InstallerError(
+            "generated userdata image would make LK program too much data; sparse skip mode failed"
+        )
+    return programmed_bytes
 
 
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
@@ -581,14 +664,62 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         )
         if raw.stat().st_size != size:
             raise InstallerError("generated userdata filesystem has the wrong raw size")
-        _run_command([str(img2simg), str(raw), str(sparse)], max(timeout, 300))
-        _validate_android_sparse_image(sparse, size)
+        # img2simg -s may skip only blocks ext4 itself marks free. Materialize
+        # every allocated block (including zeroed inode tables) so stale device
+        # contents cannot become live filesystem metadata.
+        metadata = _run_command(
+            ["dumpe2fs", str(raw)], max(timeout, 300)
+        ).stdout
+        free_blocks = bytearray(size // 4096)
+        for line in metadata.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("Free blocks:"):
+                continue
+            for item in stripped.split(":", 1)[1].split(","):
+                item = item.strip()
+                if not item:
+                    continue
+                try:
+                    start, end = (
+                        (int(value) for value in item.split("-", 1))
+                        if "-" in item
+                        else (int(item), int(item))
+                    )
+                except ValueError as error:
+                    raise InstallerError("dumpe2fs reported an invalid free-block range") from error
+                if start < 0 or end < start or end >= len(free_blocks):
+                    raise InstallerError("dumpe2fs free-block range exceeds userdata geometry")
+                free_blocks[start : end + 1] = b"\1" * (end - start + 1)
+        if not any(free_blocks):
+            raise InstallerError("dumpe2fs did not report any free userdata blocks")
+        descriptor = os.open(raw, os.O_RDWR)
+        try:
+            block = 0
+            while block < len(free_blocks):
+                if free_blocks[block]:
+                    block += 1
+                    continue
+                end = block + 1
+                while end < len(free_blocks) and not free_blocks[end]:
+                    end += 1
+                offset = block * 4096
+                length = (end - block) * 4096
+                os.pwrite(descriptor, os.pread(descriptor, length, offset), offset)
+                block = end
+        finally:
+            os.close(descriptor)
+        _run_command([str(img2simg), "-s", str(raw), str(sparse)], max(timeout, 300))
+        programmed_bytes = _validate_android_sparse_image(sparse, size)
         print(
             f"FASTBOOT STAGE: generated validated sparse ext4 image ({sparse.stat().st_size} bytes); "
-            "flashing only userdata.",
+            f"LK will program only {programmed_bytes} bytes. Flashing only userdata.",
             flush=True,
         )
-        _run_command([fastboot_bin, "-s", serial, "flash", "userdata", str(sparse)], timeout)
+        _run_command_with_heartbeat(
+            [fastboot_bin, "-s", serial, "flash", "userdata", str(sparse)],
+            max(timeout, USERDATA_FLASH_TIMEOUT),
+            "FASTBOOT STAGE: userdata write still in progress; do not disconnect USB",
+        )
     print("FASTBOOT STAGE: userdata filesystem format complete.", flush=True)
 
 
