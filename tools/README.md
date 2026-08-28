@@ -23,19 +23,26 @@ verify/download Product release
 → download and verify pinned Amonet + Git LFS inputs
 → run the Amonet BROM handoff
 → wait for unlocked BISCUIT fastboot
+→ validate the exact BISCUIT product and reviewed userdata geometry
+→ format only userdata as ext4 (Amonet has cleared its old filesystem header)
 → flash the verified boot image to logical boot_a and boot_b
 → erase only expdb
 → reboot and wait for ADB
+→ collect read-only ADB bring-up diagnostics
 → verify boot_a_x and boot_b_x readback hashes
 → stage and verify all five feature payloads in userdata via the root runner
 → forward the Web UI over ADB
 → open the first-boot setup page
 ```
 
-It does not flash Amonet wrapper partitions directly, rewrite GPT or RPMB,
-format userdata, invent credentials, or confirm a boot slot. The Amonet exploit
-owns the stock-to-Amonet conversion; this tool orchestrates the verified
-handoff and LibreEcho installation after that point.
+The installer writes a complete console/command/ADB diagnostic log to
+`./libreecho-installer.log` by default, relative to the directory where the
+command is launched. Use `--log-file PATH` to choose another location.
+
+It does not flash Amonet wrapper partitions directly or invent credentials. The
+Amonet exploit owns the stock-to-Amonet conversion; this tool validates the
+handoff, recreates the reviewed userdata filesystem, and completes LibreEcho
+installation after that point.
 
 ## User command
 
@@ -85,17 +92,24 @@ terminal open and follow the live Amonet progress messages.
 ## Resuming
 
 The installer stores private cached downloads and resumable state under the
-user's home directory. If a hardware run stops after Amonet handoff or ADB
-returns, use `continue-one-shot` with the same cache/state roots and release
-identity. It will not reflash when the state is already at ADB or readback:
+user's home directory. If a legacy run stopped after ADB/readback before the userdata-format fix,
+`continue-one-shot` refuses to guess. Pass `--repair-userdata` to explicitly
+reboot the exact ADB device into fastboot, validate it, format only userdata,
+reboot, recollect diagnostics, verify boot readback, and continue feature
+staging without repeating the BROM/Amonet conversion:
 
 ```bash
 python3 "libreecho-${TAG}-installer.py" continue-one-shot \
   --release-tag "$TAG" \
   --fastboot-serial auto \
   --slots both \
+  --repair-userdata \
   --execute-hardware
 ```
+
+Every run leaves its shareable log in `./libreecho-installer.log` unless
+`--log-file PATH` is supplied. Do not rerun `one-shot` after Amonet has already
+completed unless a fresh conversion is explicitly intended.
 
 ## Safety boundary
 
