@@ -54,8 +54,7 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             mke2fs = fake_executable(root, "mke2fs")
-            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=mke2fs):
-                staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
+            staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
             staged_path = Path(staged)
             self.assertEqual(staged_path.parent, root / "cache" / "host-tools")
             self.assertTrue(staged_path.is_file())

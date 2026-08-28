@@ -36,8 +36,7 @@ class HostFastbootPreflightTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             mke2fs = fake_executable(root, "mke2fs")
-            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=mke2fs):
-                staged = Path(INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache"))
+            staged = Path(INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache"))
             self.assertEqual(staged, root / "cache" / "host-tools" / "fastboot")
             helper = staged.with_name("mke2fs")
             self.assertTrue(staged.is_file())
