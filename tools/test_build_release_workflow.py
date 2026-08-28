@@ -182,7 +182,10 @@ class Tests(unittest.TestCase):
   # digest-pinned into host-bin: xxd (AirPlay) and mksquashfs/unsquashfs
   # (feature payloads), plus the mksquashfs runtime libraries.
   self.assertIn('Stage host build tools (xxd, mksquashfs, cpio)', W)
-  self.assertIn('6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc', W)
+  self.assertIn('xxd_9.1.0016-1ubuntu7.20_amd64.deb', W)
+  self.assertIn('abe2a776ec6472e6b9b0a8497d3c2e8007f9863092dfd1448f4a68d0c25af750', W)
+  self.assertNotIn('xxd_9.1.0016-1ubuntu7.19_amd64.deb', W)
+  self.assertNotIn('6e78203acd7886ee1b91e1e80f673d02e6dc3b55b04e64ebcd6bedc42b9d16bc', W)
   self.assertIn('87fae263846bab255d4a51ad9fc623685497ad830db60758dde39589c9fdadcb', W)
   self.assertIn('e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e', W)
   self.assertIn('b3c7bb97baf1a5dabe0c672ebdc94724bdcd7251790152cfa4314efda5696817', W)
