@@ -183,6 +183,26 @@ class PublicMetadataTests(unittest.TestCase):
             )
             self.assertEqual(PUBLIC_METADATA.violations(root), [])
 
+    def test_wildcard_serial_device_documentation_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "installer.py").write_text(
+                "scan /dev/ttyACM* and /dev/ttyUSB*; do not use a concrete node\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(PUBLIC_METADATA.violations(root), [])
+
+    def test_concrete_serial_device_path_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "metadata.txt").write_text(
+                "captured from /dev/ttyACM0 and /dev/ttyUSB1\n",
+                encoding="utf-8",
+            )
+            failures = PUBLIC_METADATA.violations(root)
+            self.assertEqual(len(failures), 2)
+            self.assertTrue(all("concrete serial device path" in item for item in failures))
+
     def test_private_identifiers_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -220,6 +240,34 @@ class PublicMetadataTests(unittest.TestCase):
                 with self.subTest(run_id=run_id):
                     self.assertTrue(any(f"{run_id}.json" in item for item in failures))
             self.assertTrue(any("20260811T214603Z/metadata.json" in item for item in failures))
+
+    def test_prepare_release_allows_wildcard_serial_documentation(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = dict(next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga"))
+        audio["download_location"] = "documented device class /dev/ttyACM*"
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            (repository / "release/THIRD_PARTY_NOTICES.md").write_text("notices\n")
+            (repository / "release/FPGA-PROVENANCE.md").write_text("documented\n")
+            catalog = repository / "release/components.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            self.assertEqual(PREPARE_RELEASE.load_components(catalog), [audio])
+
+    def test_prepare_release_rejects_concrete_serial_device_path(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = dict(next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga"))
+        audio["download_location"] = "captured from /dev/ttyACM0"
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            (repository / "release/THIRD_PARTY_NOTICES.md").write_text("notices\n")
+            (repository / "release/FPGA-PROVENANCE.md").write_text("documented\n")
+            catalog = repository / "release/components.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            with self.assertRaises(SystemExit) as failure:
+                PREPARE_RELEASE.load_components(catalog)
+        self.assertIn("private value", str(failure.exception))
 
 
 class ComponentGateTests(unittest.TestCase):
