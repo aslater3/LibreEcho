@@ -588,7 +588,7 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         _validate_android_sparse_image(sparse, size)
         print(
             f"FASTBOOT STAGE: generated validated sparse ext4 image ({sparse.stat().st_size} bytes); "
-            "flashing only userdata.",
+            "flashing only userdata. LK may remain silent for up to 15 minutes; do not disconnect USB.",
             flush=True,
         )
         _run_command(
