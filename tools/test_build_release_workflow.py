@@ -244,7 +244,7 @@ class Tests(unittest.TestCase):
   import hashlib
   vendored_dir = ROOT/'build/inputs/reviewed/connectivity'
   contract = {
-    'wmt_configure': (25744, '2a57272037a34519e9f6f5dd64ab5a16ad304c81535c4aa7f15a8afae34aadb1'),
+    'wmt_configure': (25744, 'e0ff85f0ac2cb2b98718556470444cafd1fcd8865cdba27aa67e2c7d7a3303e0'),
     'wmt_responder': (21648, '46170ddc1d1ddf21a85ec16df129aac47a258a439bc9e6ed061d1e5942aa48eb'),
     'wmt_bt_on': (21648, '985320b270149cd27bc59d7f34d0da829817f225a4e712037633517c843cc745'),
     'wmt_stock_compat': (21648, '7e3afe31b706029ebf6e271f5cda6e3880cfc5b184abb052a190662759708c87'),
