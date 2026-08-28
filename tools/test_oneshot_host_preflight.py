@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import tempfile
 import unittest
@@ -43,8 +44,45 @@ class HostFastbootPreflightTests(unittest.TestCase):
             self.assertTrue(helper.is_file())
             self.assertTrue(staged.stat().st_mode & 0o111)
             self.assertTrue(helper.stat().st_mode & 0o111)
+            conf = staged.with_name("mke2fs.conf")
+            self.assertTrue(conf.is_file())
+            conf_text = conf.read_text(encoding="ascii")
+            self.assertIn("large_file", conf_text)
+            self.assertNotIn("64bit", conf_text)
+            self.assertNotIn("metadata_csum", conf_text)
             result = subprocess.run([str(staged), "--version"], capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0)
+
+    def test_format_userdata_pins_mke2fs_config_to_staged_conf(self) -> None:
+        captured = {}
+
+        def fake_run(argv, timeout, *, check=True):
+            captured["argv"] = list(argv)
+            captured["env_config"] = os.environ.get("MKE2FS_CONFIG")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        original = os.environ.get("MKE2FS_CONFIG")
+        with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES), \
+             mock.patch.object(INSTALLER, "_run_command", side_effect=fake_run):
+            try:
+                INSTALLER.format_userdata_in_fastboot(
+                    "/tmp/fake-host-tools/fastboot", "SERIAL", 120
+                )
+            finally:
+                if original is None:
+                    os.environ.pop("MKE2FS_CONFIG", None)
+                else:
+                    os.environ["MKE2FS_CONFIG"] = original
+        self.assertEqual(
+            captured["argv"],
+            ["/tmp/fake-host-tools/fastboot", "-s", "SERIAL", "format:ext4", "userdata"],
+        )
+        self.assertEqual(
+            captured["env_config"], "/tmp/fake-host-tools/mke2fs.conf"
+        )
+        # restored after the operation
+        self.assertEqual(os.environ.get("MKE2FS_CONFIG"), original)
 
     def test_missing_mke2fs_fails_before_any_device_operation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

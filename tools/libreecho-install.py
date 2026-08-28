@@ -211,10 +211,34 @@ def prepare_fastboot_tools(
     staged_mke2fs = tool_root / "mke2fs"
     _copy_executable(fastboot_source, staged_fastboot)
     _copy_executable(helper, staged_mke2fs)
+    # GNU e2fsprogs >= 1.47 enables 64bit + metadata_csum by default on large
+    # filesystems, but AOSP fastboot's bundled ext2fs parser does not implement
+    # those library functions; format:ext4 then dies with "Unimplemented ext2
+    # library function while setting up superblock". Ship a staged mke2fs.conf
+    # that disables the unsupported feature set (matching the reviewed
+    # build_userdata_image.sh contract) and point MKE2FS_CONFIG at it.
+    staged_conf = tool_root / "mke2fs.conf"
+    staged_conf.write_text(
+        "[defaults]\n"
+        "	base_features = sparse_super,large_file,filetype,resize_inode,dir_index,ext_attr\n"
+        "	default_mntopts = acl,user_xattr\n"
+        "	enable_periodic_fsck = 0\n"
+        "	blocksize = 4096\n"
+        "	inode_size = 256\n"
+        "[fs_types]\n"
+        "	ext4 = {\n"
+        "		features = has_journal,extent,huge_file,flex_bg,dir_nlink,extra_isize\n"
+        "		inode_size = 256\n"
+        "	}\n",
+        encoding="ascii",
+    )
+    staged_conf.chmod(0o644)
     version = _run_command([str(staged_fastboot), "--version"], 20, check=False)
     if version.returncode != 0:
         raise InstallerError("HOST PREFLIGHT: staged fastboot did not run successfully")
-    mke2fs_version = _run_command([str(staged_mke2fs), "-V"], 20, check=False)
+    mke2fs_version = _run_command(
+        [str(staged_mke2fs), "-V"], 20, check=False
+    )
     if mke2fs_version.returncode not in (0, 1):
         raise InstallerError("HOST PREFLIGHT: staged mke2fs did not run successfully")
     print(
@@ -497,7 +521,22 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         "boot, system, persist, and expdb are not being formatted.",
         flush=True,
     )
-    _run_command([fastboot_bin, "-s", serial, "format:ext4", "userdata"], timeout)
+    # fastboot invokes its sibling mke2fs with MKE2FS_CONFIG pointing at our
+    # staged conf (fastboot sets the variable relative to its own directory),
+    # which disables the 64bit/metadata_csum features that AOSP fastboot's ext4
+    # image parser cannot handle. Keep the conf beside the staged fastboot.
+    tool_root = Path(fastboot_bin).resolve().parent
+    environment = dict(os.environ)
+    environment["MKE2FS_CONFIG"] = str(tool_root / "mke2fs.conf")
+    previous = os.environ.get("MKE2FS_CONFIG")
+    os.environ["MKE2FS_CONFIG"] = environment["MKE2FS_CONFIG"]
+    try:
+        _run_command([fastboot_bin, "-s", serial, "format:ext4", "userdata"], timeout)
+    finally:
+        if previous is None:
+            os.environ.pop("MKE2FS_CONFIG", None)
+        else:
+            os.environ["MKE2FS_CONFIG"] = previous
     print("FASTBOOT STAGE: userdata filesystem format complete.", flush=True)
 
 
