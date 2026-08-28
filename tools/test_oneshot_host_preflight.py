@@ -83,6 +83,10 @@ class HostFastbootPreflightTests(unittest.TestCase):
                 command = list(argv)
                 commands.append(command)
                 timeouts.append(timeout)
+                if Path(command[0]).name == "dumpe2fs":
+                    return subprocess.CompletedProcess(
+                        command, 0, "Free blocks: 1-267135\n", ""
+                    )
                 if Path(command[0]).name == "img2simg":
                     Path(command[-1]).write_bytes(sparse_header(INSTALLER.USERDATA_BYTES))
                 return subprocess.CompletedProcess(command, 0, "", "")

@@ -612,7 +612,7 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
         offset += total_size
     if offset != len(data) or expanded_blocks != total_blocks:
         raise InstallerError("generated userdata image has inconsistent sparse geometry")
-    if not has_dont_care or programmed_bytes > 16 * 1024 * 1024:
+    if not has_dont_care or programmed_bytes > 64 * 1024 * 1024:
         raise InstallerError(
             "generated userdata image would make LK program too much data; sparse skip mode failed"
         )
@@ -664,6 +664,50 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         )
         if raw.stat().st_size != size:
             raise InstallerError("generated userdata filesystem has the wrong raw size")
+        # img2simg -s may skip only blocks ext4 itself marks free. Materialize
+        # every allocated block (including zeroed inode tables) so stale device
+        # contents cannot become live filesystem metadata.
+        metadata = _run_command(
+            ["dumpe2fs", str(raw)], max(timeout, 300)
+        ).stdout
+        free_blocks = bytearray(size // 4096)
+        for line in metadata.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("Free blocks:"):
+                continue
+            for item in stripped.split(":", 1)[1].split(","):
+                item = item.strip()
+                if not item:
+                    continue
+                try:
+                    start, end = (
+                        (int(value) for value in item.split("-", 1))
+                        if "-" in item
+                        else (int(item), int(item))
+                    )
+                except ValueError as error:
+                    raise InstallerError("dumpe2fs reported an invalid free-block range") from error
+                if start < 0 or end < start or end >= len(free_blocks):
+                    raise InstallerError("dumpe2fs free-block range exceeds userdata geometry")
+                free_blocks[start : end + 1] = b"\1" * (end - start + 1)
+        if not any(free_blocks):
+            raise InstallerError("dumpe2fs did not report any free userdata blocks")
+        descriptor = os.open(raw, os.O_RDWR)
+        try:
+            block = 0
+            while block < len(free_blocks):
+                if free_blocks[block]:
+                    block += 1
+                    continue
+                end = block + 1
+                while end < len(free_blocks) and not free_blocks[end]:
+                    end += 1
+                offset = block * 4096
+                length = (end - block) * 4096
+                os.pwrite(descriptor, os.pread(descriptor, length, offset), offset)
+                block = end
+        finally:
+            os.close(descriptor)
         _run_command([str(img2simg), "-s", str(raw), str(sparse)], max(timeout, 300))
         programmed_bytes = _validate_android_sparse_image(sparse, size)
         print(
