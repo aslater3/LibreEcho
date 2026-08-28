@@ -186,6 +186,7 @@ jobs:
             tools.test_build_release_workflow \
             tools.test_brom_preflight \
             tools.test_initial_installer_publication \
+            tools.test_oneshot_host_preflight \
             tools.test_release_tools
       - name: Validate tracked source syntax
         run: |

@@ -132,6 +132,99 @@ def require_host_commands(*commands: str) -> None:
         raise InstallerError("required host command(s) missing: " + ", ".join(missing))
 
 
+def _executable_path(command: str) -> Path:
+    resolved = shutil.which(command)
+    if resolved is None:
+        raise InstallerError(f"required host executable is missing: {command}")
+    path = Path(resolved).resolve()
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise InstallerError(f"required host executable is not runnable: {path}")
+    return path
+
+
+def _copy_executable(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".part")
+    shutil.copy2(source, temporary)
+    temporary.chmod(0o755)
+    os.replace(temporary, destination)
+
+
+def _find_mke2fs(fastboot_source: Path) -> Path | None:
+    path_from_path = shutil.which("mke2fs")
+    candidates = (
+        fastboot_source.parent / "mke2fs",
+        Path(path_from_path) if path_from_path else None,
+        Path("/usr/sbin/mke2fs"),
+        Path("/usr/bin/mke2fs"),
+    )
+    for candidate in candidates:
+        if candidate is not None:
+            try:
+                candidate = candidate.resolve()
+            except OSError:
+                continue
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
+def _install_host_e2fsprogs() -> None:
+    apt_get = shutil.which("apt-get")
+    if apt_get is None:
+        raise InstallerError(
+            "mke2fs is missing and apt-get is unavailable; install e2fsprogs manually "
+            "before starting a hardware run"
+        )
+    prefix = [] if os.geteuid() == 0 else ([shutil.which("sudo")] if shutil.which("sudo") else None)
+    if prefix is None:
+        raise InstallerError(
+            "mke2fs is missing and sudo is unavailable; install e2fsprogs manually "
+            "before starting a hardware run"
+        )
+    command_prefix = [item for item in prefix if item]
+    print("HOST PREFLIGHT: installing missing e2fsprogs (mke2fs) before device access.", flush=True)
+    _run_command(command_prefix + [apt_get, "update"], 300)
+    _run_command(command_prefix + [apt_get, "install", "-y", "e2fsprogs"], 300)
+
+
+def prepare_fastboot_tools(
+    fastboot_bin: str,
+    cache_root: Path,
+    *,
+    install_host_deps: bool = False,
+) -> str:
+    """Stage fastboot and its sibling mke2fs so format is self-contained."""
+    fastboot_source = _executable_path(fastboot_bin)
+    helper = _find_mke2fs(fastboot_source)
+    if helper is None and install_host_deps:
+        _install_host_e2fsprogs()
+        helper = _find_mke2fs(fastboot_source)
+    if helper is None:
+        raise InstallerError(
+            "HOST PREFLIGHT: mke2fs is required for fastboot format:ext4 userdata but "
+            "was not found. Re-run with --install-host-deps or install e2fsprogs "
+            "manually (for Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y e2fsprogs)."
+        )
+    tool_root = cache_root / "host-tools"
+    staged_fastboot = tool_root / "fastboot"
+    staged_mke2fs = tool_root / "mke2fs"
+    _copy_executable(fastboot_source, staged_fastboot)
+    _copy_executable(helper, staged_mke2fs)
+    version = _run_command([str(staged_fastboot), "--version"], 20, check=False)
+    if version.returncode != 0:
+        raise InstallerError("HOST PREFLIGHT: staged fastboot did not run successfully")
+    mke2fs_version = _run_command([str(staged_mke2fs), "-V"], 20, check=False)
+    if mke2fs_version.returncode not in (0, 1):
+        raise InstallerError("HOST PREFLIGHT: staged mke2fs did not run successfully")
+    print(
+        f"HOST PREFLIGHT: fastboot={staged_fastboot} with mke2fs={staged_mke2fs}; "
+        "format helper ready before device access.",
+        flush=True,
+    )
+    return str(staged_fastboot)
+
+
 def _run_command(argv: list[str], timeout: float, *, check: bool = True) -> subprocess.CompletedProcess[str]:
     _append_log(f"COMMAND start timeout={timeout:g}: {argv!r}")
     try:
@@ -507,20 +600,30 @@ def _running_process_names():
     return names
 
 
+def _media_tek_usb_devices(root=None):
+    """Return {sysfs_slot: (vid, pid)} for enumerated MediaTek devices."""
+    base = pathlib.Path("/sys/bus/usb/devices") if root is None else root
+    found = {}
+    try:
+        vendor_paths = list(base.glob("*/idVendor"))
+    except OSError:
+        return found
+    for vendor_path in vendor_paths:
+        try:
+            product_path = vendor_path.with_name("idProduct")
+            vid = vendor_path.read_text(encoding="ascii").strip().lower()
+            pid = product_path.read_text(encoding="ascii").strip().lower()
+        except OSError:
+            continue
+        if vid == "0e8d":
+            found[vendor_path.parent.name] = (vid, pid)
+    return found
+
+
 def _print_brom_transport_diagnostics() -> None:
     """Classify host-side BROM transport state; best-effort, never raises."""
     try:
-        media_tek = {}
-        for vendor_path in pathlib.Path("/sys/bus/usb/devices").glob("*/idVendor"):
-            try:
-                product_path = vendor_path.with_name("idProduct")
-                media_tek[vendor_path.parent.name] = (
-                    vendor_path.read_text(encoding="ascii").strip(),
-                    product_path.read_text(encoding="ascii").strip(),
-                )
-            except OSError:
-                continue
-        mt = {slot: vidpid for slot, vidpid in media_tek.items() if vidpid[0] == "0e8d"}
+        mt = _media_tek_usb_devices()
         brom_present = any(pid == "0003" for _, pid in mt.values())
         all_nodes = [node.name for node in _tty_nodes()]
         nodes = [name for name in all_nodes if _tty_is_media_tek(pathlib.Path("/dev") / name)]
@@ -538,6 +641,10 @@ def _print_brom_transport_diagnostics() -> None:
             print(f"usb {slot}: {vid}:{pid} - {meaning}", flush=True)
         if nodes:
             print(f"MediaTek serial nodes present: {', '.join(nodes)}", flush=True)
+            if brom_present:
+                print("BROM transport is healthy; no transport action is needed.", flush=True)
+                print("--- end BROM diagnostics ---", flush=True)
+                return
         elif brom_present and unrelated:
             print(
                 "the /dev/ttyACM* nodes present ({}) are NOT MediaTek devices - "
@@ -615,7 +722,8 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
         returncode = process.poll()
         if returncode is not None:
             if returncode != 0:
-                _print_brom_transport_diagnostics()
+                if last_state == "Waiting for BROM/USB...":
+                    _print_brom_transport_diagnostics()
                 raise InstallerError(f"Amonet handoff failed with exit code {returncode}")
             return
         now = time.monotonic()
@@ -632,7 +740,7 @@ def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
                 process.wait()
                 _print_brom_transport_diagnostics()
                 raise
-        if not usb_stall_reported and now - last_notice >= 30:
+        if not usb_stall_reported and last_state == "Waiting for BROM/USB..." and now - last_notice >= 30:
             # Still at 'waiting for BROM' after 30s: classify what the host
             # actually sees so the user learns WHY, instead of staring at the
             # spinner until the 900s timeout.
@@ -1022,6 +1130,7 @@ def one_shot(
     adb_timeout: float = 180,
     open_browser: bool = True,
     execute_hardware: bool = False,
+    install_host_deps: bool = False,
     emulator_root: Path | str | None = None,
     emulator_kernel: Path | str | None = None,
     emulator_initramfs: Path | str | None = None,
@@ -1029,6 +1138,9 @@ def one_shot(
     """Run Amonet, install logical boot payloads, and open first-boot setup."""
     if not execute_hardware:
         raise InstallerError("one-shot requires --execute-hardware")
+    cache_root = Path(cache_root)
+    state_root = Path(state_root)
+    cache_root.mkdir(parents=True, exist_ok=True)
     if emulator_root is not None:
         emulator_root = Path(emulator_root)
         tool = emulator_root / "emulator_tool.py"
@@ -1040,7 +1152,9 @@ def one_shot(
         require_host_commands("bash", str(tool))
     else:
         require_host_commands("bash", fastboot_bin, adb_bin)
-    cache_root = Path(cache_root)
+        fastboot_bin = prepare_fastboot_tools(
+            fastboot_bin, cache_root, install_host_deps=install_host_deps
+        )
     state_root = Path(state_root)
     cache_root.mkdir(parents=True, exist_ok=True)
     lock_path = cache_root / ".lock"
@@ -1168,10 +1282,16 @@ def continue_one_shot(
     open_browser: bool,
     execute_hardware: bool,
     repair_userdata: bool = False,
+    install_host_deps: bool = False,
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
     require_host_commands("bash", fastboot_bin, adb_bin)
+    cache_root = Path(cache_root)
+    cache_root.mkdir(parents=True, exist_ok=True)
+    fastboot_bin = prepare_fastboot_tools(
+        fastboot_bin, cache_root, install_host_deps=install_host_deps
+    )
     state_path = _state_path(Path(state_root), install_id)
     state = _read_state(state_path)
     if not RELEASE.fullmatch(release_tag):
@@ -1424,6 +1544,10 @@ def main() -> None:
     parser.add_argument("--no-open-browser", action="store_true")
     parser.add_argument("--execute-hardware", action="store_true")
     parser.add_argument(
+        "--install-host-deps", action="store_true",
+        help="install missing e2fsprogs before any device operation (uses apt-get/sudo)",
+    )
+    parser.add_argument(
         "--repair-userdata", action="store_true",
         help="explicitly format userdata via fastboot when resuming an old failed run",
     )
@@ -1472,6 +1596,7 @@ def main() -> None:
                             amonet_timeout=args.amonet_timeout, fastboot_timeout=args.fastboot_timeout,
                             adb_timeout=args.adb_timeout, open_browser=not args.no_open_browser,
                             execute_hardware=args.execute_hardware or args.emulator_root is not None,
+                            install_host_deps=args.install_host_deps,
                             emulator_root=args.emulator_root,
                             emulator_kernel=args.emulator_kernel,
                             emulator_initramfs=args.emulator_initramfs,
@@ -1487,6 +1612,7 @@ def main() -> None:
                             open_browser=not args.no_open_browser,
                             execute_hardware=args.execute_hardware,
                             repair_userdata=args.repair_userdata,
+                            install_host_deps=args.install_host_deps,
                         )
                     elif args.action == "resume":
                         result = resume(args.cache_root, args.state_root, args.install_id)

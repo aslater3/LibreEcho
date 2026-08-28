@@ -18,6 +18,7 @@ on:
       - 'tools/run-one-shot.sh'
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
+      - 'tools/test_oneshot_host_preflight.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -38,6 +39,7 @@ on:
       - 'tools/run-one-shot.sh'
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
+      - 'tools/test_oneshot_host_preflight.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -73,7 +75,8 @@ jobs:
             tools/test_release_tools.py \
             tools/libreecho-install.py \
             tools/test_initial_installer_publication.py \
-            tools/test_brom_preflight.py
+            tools/test_brom_preflight.py \
+            tools/test_oneshot_host_preflight.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
       - name: Enforce full component and SBOM gate
@@ -91,3 +94,5 @@ jobs:
         run: python -B -m unittest tools.test_initial_installer_publication -v
       - name: Verify BROM permission preflight suite
         run: python -B -m unittest tools.test_brom_preflight -v
+      - name: Verify host fastboot preflight suite
+        run: python -B -m unittest tools.test_oneshot_host_preflight -v
