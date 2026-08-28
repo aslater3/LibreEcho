@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import grp
 import hashlib
@@ -13,6 +14,7 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -34,6 +36,43 @@ class InstallerError(RuntimeError):
     """The bundle, cache, or resumable state does not meet the install contract."""
 
 
+ACTIVE_LOG_PATH: Path | None = None
+
+
+class _Tee:
+    """Write visible output to both the terminal and the per-run log."""
+
+    def __init__(self, console, logfile):
+        self.console = console
+        self.logfile = logfile
+
+    def write(self, text: str) -> int:
+        self.console.write(text)
+        self.logfile.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        self.console.flush()
+        self.logfile.flush()
+
+    def isatty(self) -> bool:
+        return self.console.isatty()
+
+
+def _append_log(text: str) -> None:
+    if ACTIVE_LOG_PATH is None:
+        return
+    try:
+        with ACTIVE_LOG_PATH.open("a", encoding="utf-8") as stream:
+            stream.write(text)
+            if not text.endswith("\n"):
+                stream.write("\n")
+    except OSError:
+        # Logging must not prevent the guarded install from reporting its real
+        # result; console output remains available through _Tee.
+        pass
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -48,6 +87,9 @@ def _safe_regular(path: Path) -> None:
 
 
 BOOT_BYTES = 16 * 1024 * 1024
+# The reviewed post-Amonet GPT gives userdata 0x209c00 sectors of 512 bytes.
+# This is used only to validate the exact target before formatting userdata.
+USERDATA_BYTES = 0x209C00 * 512
 BOOTOPT = b"bootopt=64S3,32N2,32N2"
 AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 AMONET_LAUNCHER = "bootrom-k32-native-diag-step.sh"
@@ -91,10 +133,17 @@ def require_host_commands(*commands: str) -> None:
 
 
 def _run_command(argv: list[str], timeout: float, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    _append_log(f"COMMAND start timeout={timeout:g}: {argv!r}")
     try:
         result = subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
+        _append_log(f"COMMAND exception: {type(error).__name__}: {error}")
         raise InstallerError(f"command failed or timed out: {' '.join(argv)}") from error
+    _append_log(f"COMMAND result rc={result.returncode}: {argv!r}")
+    if result.stdout:
+        _append_log("COMMAND stdout:\n" + result.stdout.rstrip("\n"))
+    if result.stderr:
+        _append_log("COMMAND stderr:\n" + result.stderr.rstrip("\n"))
     if check and result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()[-500:]
         raise InstallerError(f"command failed ({result.returncode}): {' '.join(argv)}: {detail}")
@@ -339,6 +388,24 @@ def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
     output = f"{result.stdout}\n{result.stderr}"
     if not re.search(r"product:\s*BISCUIT\b", output, re.IGNORECASE):
         raise InstallerError("fastboot product is not BISCUIT")
+
+
+def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
+    """Recreate the userdata ext4 filesystem after Amonet's deliberate wipe."""
+    print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
+    verify_fastboot_product(fastboot_bin, serial)
+    size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
+    if size != USERDATA_BYTES:
+        raise InstallerError(
+            f"userdata partition size mismatch: expected {USERDATA_BYTES:#x}, got {size:#x}"
+        )
+    print(
+        f"FASTBOOT STAGE: formatting only userdata as ext4 ({size} bytes); "
+        "boot, system, persist, and expdb are not being formatted.",
+        flush=True,
+    )
+    _run_command([fastboot_bin, "-s", serial, "format:ext4", "userdata"], timeout)
+    print("FASTBOOT STAGE: userdata filesystem format complete.", flush=True)
 
 
 def _amonet_progress_message(line: str) -> str | None:
@@ -602,11 +669,40 @@ def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_s
         raise InstallerError(f"{expected_name} readback hash mismatch")
 
 
+def collect_adb_diagnostics(adb_bin: str, serial: str, timeout: float = 30, reason: str = "post-ADB") -> None:
+    """Capture read-only target state for sharing after bring-up or failure."""
+    _append_log(f"ADB_DIAGNOSTICS begin reason={reason!r} serial={serial!r}")
+    commands = (
+        ("id", ["id"]),
+        ("uname", ["uname", "-a"]),
+        ("cmdline", ["cat", "/proc/cmdline"]),
+        ("mounts", ["cat", "/proc/mounts"]),
+        ("userdata-node", ["ls", "-l", "/dev/mmcblk0p16", "/data"]),
+        ("userdata-blkid", ["blkid", "/dev/mmcblk0p16"]),
+        ("partitions", ["cat", "/proc/partitions"]),
+        ("dmesg-storage", ["dmesg"]),
+    )
+    for label, remote in commands:
+        result = _run_command([adb_bin, "-s", serial, "shell", *remote], timeout, check=False)
+        _append_log(f"ADB_DIAGNOSTIC {label} rc={result.returncode}")
+        if label == "dmesg-storage":
+            lines = [
+                line for line in (result.stdout + "\n" + result.stderr).splitlines()
+                if re.search(r"mmc|ext4|f2fs|userdata|mount|superblock|I/O error", line, re.IGNORECASE)
+            ]
+            _append_log("ADB_DIAGNOSTIC dmesg-storage-filtered:\n" + "\n".join(lines[-200:]))
+    _append_log("ADB_DIAGNOSTICS end")
+
+
 def wait_for_transport(probe: list[str], expected: str, timeout: float, label: str) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        result = subprocess.run(probe, text=True, capture_output=True, timeout=min(10, max(1, deadline - time.monotonic())))
-        if result.returncode == 0 and result.stdout.strip() == expected:
+        remaining = max(1.0, deadline - time.monotonic())
+        try:
+            result = subprocess.run(probe, text=True, capture_output=True, timeout=remaining)
+        except subprocess.TimeoutExpired:
+            result = None
+        if result is not None and result.returncode == 0 and result.stdout.strip() == expected:
             return
         time.sleep(1)
     raise InstallerError(f"timed out waiting for {label}")
@@ -792,15 +888,29 @@ def _read_state(path: Path) -> dict[str, str]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise InstallerError("malformed installer state") from error
-    if (not isinstance(value, dict) or set(value) != {"phase", "release", "bundle_sha256"}
+    if (not isinstance(value, dict) or not {"phase", "release", "bundle_sha256"}.issubset(value)
+            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted"}
             or value["phase"] not in ONE_SHOT_PHASES or not isinstance(value["release"], str)
             or not RELEASE.fullmatch(value["release"])
-            or not isinstance(value["bundle_sha256"], str) or not SHA256.fullmatch(value["bundle_sha256"])):
+            or not isinstance(value["bundle_sha256"], str) or not SHA256.fullmatch(value["bundle_sha256"])
+            or ("userdata_formatted" in value and not isinstance(value["userdata_formatted"], bool))):
         raise InstallerError("malformed installer state")
     return value
 
 
-def _write_state(path: Path, state: dict[str, str]) -> None:
+def _write_state(path: Path, state: dict[str, Any]) -> None:
+    # Preserve the durable userdata-format marker through later phase updates,
+    # but never carry it into a newly-started release state unless the caller
+    # explicitly sets it.
+    if "userdata_formatted" not in state and path.exists():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+        if (previous.get("release") == state.get("release")
+                and previous.get("userdata_formatted") is True):
+            state = dict(state)
+            state["userdata_formatted"] = True
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(path.parent, 0o700)
     temporary = path.with_name(path.name + ".part")
@@ -950,7 +1060,7 @@ def one_shot(
         validate_public_boot_image(boot, manifest["boot"]["sha256"])
         state_path = _state_path(state_root, install_id)
         bundle_sha = _sha256(bundle)
-        _write_state(state_path, {"phase": "RELEASE_READY", "release": release_tag, "bundle_sha256": bundle_sha})
+        _write_state(state_path, {"phase": "RELEASE_READY", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": False})
         expected_amonet = manifest["amonet"]["commit"]
         if emulator_root is not None:
             emulator_root = Path(emulator_root)
@@ -982,23 +1092,41 @@ def one_shot(
         if slots not in {"a", "b", "both"}:
             raise InstallerError("slots must be a, b, or both")
         selected = ("a", "b") if slots == "both" else (slots,)
+        print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
         serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
-        verify_fastboot_product(fastboot_bin, serial)
+        print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
+        format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
+        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": True})
+        print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
+        _verify_fastboot_payload_geometry(fastboot_bin, serial)
         _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release_tag, "bundle_sha256": bundle_sha})
         for slot in selected:
+            print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
             _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+        print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
         _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
         _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release_tag, "bundle_sha256": bundle_sha})
+        print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
         try:
             subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
         except subprocess.TimeoutExpired:
             print("Amonet fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+        print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
         wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+        print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
+        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
         _write_state(state_path, {"phase": "ADB_READY", "release": release_tag, "bundle_sha256": bundle_sha})
+        print("PAYLOAD STAGE: verifying boot_a_x and boot_b_x readback.", flush=True)
         for slot in selected:
             verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
         _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release_tag, "bundle_sha256": bundle_sha})
-        stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+        print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
+        try:
+            stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+        except InstallerError:
+            print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
+            raise
         _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release_tag, "bundle_sha256": bundle_sha})
         _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
         url = f"http://127.0.0.1:{local_port}/setup.html"
@@ -1011,7 +1139,7 @@ def one_shot(
 def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> int:
     result = _run_command([fastboot_bin, "-s", serial, "getvar", f"partition-size:{partition}"], 20, check=False)
     output = f"{result.stdout}\n{result.stderr}"
-    match = re.search(rf"partition-size:{re.escape(partition)}:\s*([0-9a-fA-F]+)", output, re.IGNORECASE)
+    match = re.search(rf"partition-size:{re.escape(partition)}:\s*(?:0x)?([0-9a-fA-F]+)", output, re.IGNORECASE)
     if match is None:
         raise InstallerError(f"fastboot did not report partition size: {partition}")
     return int(match.group(1), 16)
@@ -1039,6 +1167,7 @@ def continue_one_shot(
     local_port: int,
     open_browser: bool,
     execute_hardware: bool,
+    repair_userdata: bool = False,
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
@@ -1067,21 +1196,68 @@ def continue_one_shot(
         raise InstallerError("slots must be a, b, or both")
     selected = ("a", "b") if slots == "both" else (slots,)
     phase = state["phase"]
-    if phase == "AMONET_HANDOFF":
+    userdata_formatted = state.get("userdata_formatted", False)
+    if phase in {"ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted:
+        if not repair_userdata:
+            raise InstallerError(
+                "saved run reached ADB before userdata was formatted; "
+                "rerun continue-one-shot with --repair-userdata to perform "
+                "the explicit fastboot userdata format before feature staging"
+            )
+        serial = select_adb_serial(adb_bin, fastboot_serial)
+        print(
+            f"RECOVERY STAGE: exact ADB device {serial} selected; "
+            "rebooting to fastboot to repair userdata.",
+            flush=True,
+        )
+        _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20)
+        print("FASTBOOT STAGE: waiting for the repaired device.", flush=True)
+        fastboot = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
+        print(f"FASTBOOT STAGE: detected device {fastboot}; formatting userdata.", flush=True)
+        format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
+        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+        print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
+        try:
+            subprocess.run([fastboot_bin, "-s", fastboot, "reboot"], text=True, capture_output=True, timeout=20)
+        except subprocess.TimeoutExpired:
+            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+        print("ADB STAGE: waiting for ADB after userdata repair.", flush=True)
+        wait_for_transport([adb_bin, "-s", fastboot, "get-state"], "device", adb_timeout, "ADB")
+        serial = select_adb_serial(adb_bin, fastboot)
+        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-userdata repair")
+        for slot in selected:
+            verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+    elif phase == "AMONET_HANDOFF":
+        print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
         serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
-        verify_fastboot_product(fastboot_bin, serial)
+        print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
+        format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
+        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+        print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
         _verify_fastboot_payload_geometry(fastboot_bin, serial)
         _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
         for slot in selected:
+            print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
             _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+        print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
         _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
         _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
         try:
             subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
         except subprocess.TimeoutExpired:
             print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+        print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
         wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+        print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
+        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
         _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        print("PAYLOAD STAGE: verifying boot_a_x and boot_b_x readback.", flush=True)
+        for slot in selected:
+            verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
     else:
         serial = select_adb_serial(adb_bin, fastboot_serial)
         print(f"Resuming from {phase}; no flash or reboot will be attempted ({serial}).", flush=True)
@@ -1089,8 +1265,12 @@ def continue_one_shot(
             for slot in selected:
                 verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
             _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-    stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
-    _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+    try:
+        stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+    except InstallerError:
+        print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
+        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
+        raise
     _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
     url = f"http://127.0.0.1:{local_port}/setup.html"
     _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
@@ -1243,54 +1423,81 @@ def main() -> None:
     parser.add_argument("--adb-timeout", type=float, default=180)
     parser.add_argument("--no-open-browser", action="store_true")
     parser.add_argument("--execute-hardware", action="store_true")
+    parser.add_argument(
+        "--repair-userdata", action="store_true",
+        help="explicitly format userdata via fastboot when resuming an old failed run",
+    )
     parser.add_argument("--emulator-root", type=Path, help="explicit disk-backed BROM/QEMU emulator root")
     parser.add_argument("--emulator-kernel", type=Path)
     parser.add_argument("--emulator-initramfs", type=Path)
     parser.add_argument("--cache-root", type=Path, default=Path.home() / ".cache/libreecho-installer")
     parser.add_argument("--state-root", type=Path, default=Path.home() / ".local/state/libreecho-installer")
     parser.add_argument("--install-id", default="default")
+    parser.add_argument(
+        "--log-file", type=Path,
+        help="persistent console/command log (default: ./libreecho-installer.log)",
+    )
     args = parser.parse_args()
+    global ACTIVE_LOG_PATH
+    ACTIVE_LOG_PATH = args.log_file or Path.cwd() / "libreecho-installer.log"
+    log_path = ACTIVE_LOG_PATH
+    assert log_path is not None
+    if log_path.is_symlink():
+        raise SystemExit(f"ERROR: refusing symlink log path: {log_path}")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        if args.action == "install":
-            if args.release_dir is None or args.release_tag is None:
-                raise InstallerError("install requires --release-dir and --release-tag")
-            result = install(args.release_dir, args.cache_root, args.state_root, args.install_id, args.release_tag)
-        elif args.action == "one-shot":
-            if args.release_tag is None:
-                raise InstallerError("one-shot requires --release-tag")
-            result = one_shot(
-                args.release_dir, args.amonet_root,
-                release_repository=args.release_repository, download_root=args.download_root,
-                cache_root=args.cache_root,
-                state_root=args.state_root, install_id=args.install_id,
-                release_tag=args.release_tag, fastboot_bin=args.fastboot_bin,
-                adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
-                slots=args.slots, local_port=args.local_port,
-                amonet_timeout=args.amonet_timeout, fastboot_timeout=args.fastboot_timeout,
-                adb_timeout=args.adb_timeout, open_browser=not args.no_open_browser,
-                execute_hardware=args.execute_hardware or args.emulator_root is not None,
-                emulator_root=args.emulator_root,
-                emulator_kernel=args.emulator_kernel,
-                emulator_initramfs=args.emulator_initramfs,
-            )
-        elif args.action == "continue-one-shot":
-            result = continue_one_shot(
-                cache_root=args.cache_root, state_root=args.state_root,
-                install_id=args.install_id, release_tag=args.release_tag,
-                fastboot_bin=args.fastboot_bin,
-                adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
-                slots=args.slots, fastboot_timeout=args.fastboot_timeout,
-                adb_timeout=args.adb_timeout, local_port=args.local_port,
-                open_browser=not args.no_open_browser,
-                execute_hardware=args.execute_hardware,
-            )
-        elif args.action == "resume":
-            result = resume(args.cache_root, args.state_root, args.install_id)
-        else:
-            result = status(args.state_root, args.install_id)
-    except InstallerError as error:
-        raise SystemExit(f"ERROR: {error}") from error
-    print(json.dumps(result, sort_keys=True))
+        with log_path.open("a", encoding="utf-8") as logfile:
+            os.chmod(log_path, 0o600)
+            logfile.write("\n=== LibreEcho installer run ===\n")
+            logfile.write(f"argv={sys.argv!r}\n")
+            logfile.flush()
+            with contextlib.redirect_stdout(_Tee(sys.stdout, logfile)), contextlib.redirect_stderr(_Tee(sys.stderr, logfile)):
+                print(f"Installer log: {ACTIVE_LOG_PATH}", flush=True)
+                try:
+                    if args.action == "install":
+                        if args.release_dir is None or args.release_tag is None:
+                            raise InstallerError("install requires --release-dir and --release-tag")
+                        result = install(args.release_dir, args.cache_root, args.state_root, args.install_id, args.release_tag)
+                    elif args.action == "one-shot":
+                        if args.release_tag is None:
+                            raise InstallerError("one-shot requires --release-tag")
+                        result = one_shot(
+                            args.release_dir, args.amonet_root,
+                            release_repository=args.release_repository, download_root=args.download_root,
+                            cache_root=args.cache_root,
+                            state_root=args.state_root, install_id=args.install_id,
+                            release_tag=args.release_tag, fastboot_bin=args.fastboot_bin,
+                            adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
+                            slots=args.slots, local_port=args.local_port,
+                            amonet_timeout=args.amonet_timeout, fastboot_timeout=args.fastboot_timeout,
+                            adb_timeout=args.adb_timeout, open_browser=not args.no_open_browser,
+                            execute_hardware=args.execute_hardware or args.emulator_root is not None,
+                            emulator_root=args.emulator_root,
+                            emulator_kernel=args.emulator_kernel,
+                            emulator_initramfs=args.emulator_initramfs,
+                        )
+                    elif args.action == "continue-one-shot":
+                        result = continue_one_shot(
+                            cache_root=args.cache_root, state_root=args.state_root,
+                            install_id=args.install_id, release_tag=args.release_tag,
+                            fastboot_bin=args.fastboot_bin,
+                            adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
+                            slots=args.slots, fastboot_timeout=args.fastboot_timeout,
+                            adb_timeout=args.adb_timeout, local_port=args.local_port,
+                            open_browser=not args.no_open_browser,
+                            execute_hardware=args.execute_hardware,
+                            repair_userdata=args.repair_userdata,
+                        )
+                    elif args.action == "resume":
+                        result = resume(args.cache_root, args.state_root, args.install_id)
+                    else:
+                        result = status(args.state_root, args.install_id)
+                except InstallerError as error:
+                    print(f"ERROR: {error}", file=sys.stderr, flush=True)
+                    raise SystemExit(1) from error
+                print(json.dumps(result, sort_keys=True))
+    except OSError as error:
+        raise SystemExit(f"ERROR: cannot open installer log {ACTIVE_LOG_PATH}: {error}") from error
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,6 +38,96 @@ PREPARE_RELEASE = load_module("prepare_release", ROOT / "tools/prepare-release.p
 PUBLIC_METADATA = load_module(
     "check_public_metadata", ROOT / "tools/check-public-metadata.py"
 )
+INSTALLER = load_module("libreecho_install", ROOT / "tools/libreecho-install.py")
+
+
+class OneShotFastbootTests(unittest.TestCase):
+    def test_state_accepts_legacy_without_userdata_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            path.write_text(json.dumps({
+                "phase": "READBACK_VERIFIED",
+                "release": "radar-puffin-v0.13.7",
+                "bundle_sha256": "a" * 64,
+            }))
+            state = INSTALLER._read_state(path)
+        self.assertFalse(state.get("userdata_formatted", False))
+
+    def test_state_accepts_userdata_format_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            path.write_text(json.dumps({
+                "phase": "READBACK_VERIFIED",
+                "release": "radar-puffin-v0.13.7",
+                "bundle_sha256": "a" * 64,
+                "userdata_formatted": True,
+            }))
+            state = INSTALLER._read_state(path)
+        self.assertTrue(state["userdata_formatted"])
+
+    def test_fastboot_partition_size_parses_hex_prefix(self) -> None:
+        result = subprocess.CompletedProcess(
+            ["fastboot"], 0, "", "partition-size:userdata: 0x41380000\n"
+        )
+        with mock.patch.object(INSTALLER, "_run_command", return_value=result):
+            self.assertEqual(
+                INSTALLER._fastboot_partition_size("fastboot", "SERIAL", "userdata"),
+                INSTALLER.USERDATA_BYTES,
+            )
+
+    def test_userdata_format_rejects_unexpected_partition_size(self) -> None:
+        with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES + 512), \
+             mock.patch.object(INSTALLER, "_run_command") as command:
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+                INSTALLER.format_userdata_in_fastboot("fastboot", "SERIAL", 120)
+        command.assert_not_called()
+
+    def test_userdata_format_uses_only_reviewed_fastboot_command(self) -> None:
+        with mock.patch.object(INSTALLER, "verify_fastboot_product") as product, \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES), \
+             mock.patch.object(INSTALLER, "_run_command") as command:
+            INSTALLER.format_userdata_in_fastboot("fastboot", "SERIAL", 120)
+        product.assert_called_once_with("fastboot", "SERIAL")
+        command.assert_called_once_with(
+            ["fastboot", "-s", "SERIAL", "format:ext4", "userdata"], 120
+        )
+
+    def test_adb_diagnostics_capture_read_only_command_bundle(self) -> None:
+        calls = []
+        result = subprocess.CompletedProcess(["adb"], 0, "diagnostic output\n", "")
+
+        def fake_run(argv, timeout, *, check=True):
+            calls.append((argv, timeout, check))
+            return result
+
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=fake_run), \
+             mock.patch.object(INSTALLER, "_append_log") as log:
+            INSTALLER.collect_adb_diagnostics("adb", "SERIAL", 30, "test")
+        remote = [call[0][4:] for call in calls]
+        self.assertIn(["id"], remote)
+        self.assertIn(["cat", "/proc/mounts"], remote)
+        self.assertIn(["blkid", "/dev/mmcblk0p16"], remote)
+        self.assertIn(["dmesg"], remote)
+        self.assertTrue(any("ADB_DIAGNOSTICS begin" in str(call.args[0]) for call in log.call_args_list))
+        self.assertTrue(any("ADB_DIAGNOSTICS end" in str(call.args[0]) for call in log.call_args_list))
+
+    def test_wait_for_transport_does_not_artificially_cap_slow_probe(self) -> None:
+        result = subprocess.CompletedProcess(["probe"], 0, "device\n", "")
+        with mock.patch.object(INSTALLER.subprocess, "run", return_value=result) as run:
+            INSTALLER.wait_for_transport(["probe"], "device", 60, "ADB")
+        self.assertGreater(run.call_args.kwargs["timeout"], 10)
+
+    def test_source_announces_fastboot_and_payload_boundaries(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        for marker in (
+            "FASTBOOT STAGE: waiting for the unlocked fastboot device.",
+            "FASTBOOT STAGE: detected device",
+            "FASTBOOT STAGE: userdata filesystem format complete.",
+            "FASTBOOT STAGE: flashing verified boot payload to boot_",
+            "PAYLOAD STAGE: beginning verified feature payload staging.",
+        ):
+            self.assertIn(marker, source)
 
 
 class PublicMetadataTests(unittest.TestCase):
