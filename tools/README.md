@@ -35,18 +35,20 @@ verify/download Product release
 → open the first-boot setup page
 ```
 
-The installer also performs a host preflight before BROM. It stages a private
-copy of `fastboot` and its required `mke2fs` helper under the cache directory,
-so Ubuntu's `/usr/lib/android-sdk/platform-tools/fastboot` cannot fail merely
-because its sibling `mke2fs` is absent. The private staged tool is used for all
-fastboot operations. If `mke2fs` is not installed anywhere, the installer stops
-before device access with the exact repair command. To let it install the
-`e2fsprogs` package using `apt-get`/`sudo`, add `--install-host-deps`.
+The installer also performs a host preflight before BROM. It stages private
+copies of `fastboot`, `mke2fs`, and `img2simg` under the cache directory. To
+avoid distro fastboot's incompatible internal ext4 generator, the installer
+builds userdata with the reviewed ext4 feature set, converts it to Android
+sparse format, validates the sparse header and exact expanded geometry, and
+flashes only `userdata`. If either image helper is absent, the installer stops
+before device access with the exact repair command. To let it install
+`e2fsprogs` and `android-sdk-libsparse-utils` using `apt-get`/`sudo`, add
+`--install-host-deps`.
 
 Host requirements are validated before the BROM handoff:
 
 ```text
-bash, adb, fastboot, executable mke2fs, staged-fastboot --version
+bash, adb, fastboot, executable mke2fs, executable img2simg, staged tool probes
 ```
 
 It does not flash Amonet wrapper partitions directly or invent credentials. The
