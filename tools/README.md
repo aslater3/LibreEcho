@@ -35,9 +35,19 @@ verify/download Product release
 → open the first-boot setup page
 ```
 
-The installer writes a complete console/command/ADB diagnostic log to
-`./libreecho-installer.log` by default, relative to the directory where the
-command is launched. Use `--log-file PATH` to choose another location.
+The installer also performs a host preflight before BROM. It stages a private
+copy of `fastboot` and its required `mke2fs` helper under the cache directory,
+so Ubuntu's `/usr/lib/android-sdk/platform-tools/fastboot` cannot fail merely
+because its sibling `mke2fs` is absent. The private staged tool is used for all
+fastboot operations. If `mke2fs` is not installed anywhere, the installer stops
+before device access with the exact repair command. To let it install the
+`e2fsprogs` package using `apt-get`/`sudo`, add `--install-host-deps`.
+
+Host requirements are validated before the BROM handoff:
+
+```text
+bash, adb, fastboot, executable mke2fs, staged-fastboot --version
+```
 
 It does not flash Amonet wrapper partitions directly or invent credentials. The
 Amonet exploit owns the stock-to-Amonet conversion; this tool validates the
@@ -88,6 +98,20 @@ the boxed action prompt:
 BROM entry may not work on the first attempt. If the installer continues
 waiting, power-cycle the Echo and try the short sequence again. Keep the
 terminal open and follow the live Amonet progress messages.
+
+### BROM diagnostics
+
+Transport diagnostics are shown only while the installer is actually waiting
+for BROM, or when the handoff fails before any Amonet progress is recorded. If
+`0e8d:0003` and a MediaTek `ttyACM` node are both present, the output says:
+
+```text
+BROM transport is healthy; no transport action is needed.
+```
+
+It does not print generic shorting, ModemManager, or recovery advice in that
+healthy state. Those messages are reserved for an actual missing, ambiguous, or
+incorrect transport condition.
 
 ## Resuming
 

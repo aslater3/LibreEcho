@@ -6,6 +6,7 @@ import importlib.util
 import os
 import pathlib
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -99,6 +100,28 @@ class TransportDiagnosticsTests(unittest.TestCase):
         self.assertIn("BROM transport diagnostics", buffer.getvalue())
         self.assertIn("no MediaTek USB device", buffer.getvalue())
 
+    def test_healthy_brom_diagnostics_do_not_show_recovery_warning(self) -> None:
+        import contextlib
+        import io
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), \
+             mock.patch.object(INSTALLER, "_media_tek_usb_devices", return_value={"5-2.3": ("0e8d", "0003")}), \
+             mock.patch.object(INSTALLER, "_tty_nodes", return_value=[Path("/dev/ttyACM0")]), \
+             mock.patch.object(INSTALLER, "_tty_is_media_tek", return_value=True), \
+             mock.patch.object(INSTALLER, "_running_process_names", return_value={"ModemManager"}):
+            INSTALLER._print_brom_transport_diagnostics()
+        text = output.getvalue()
+        self.assertIn("BROM transport is healthy; no transport action is needed.", text)
+        self.assertNotIn("ModemManager is running", text)
+        self.assertNotIn("remedy if nothing helps", text)
+
+    def test_diagnostics_do_not_run_again_after_amonet_progress(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        self.assertIn(
+            'last_state == "Waiting for BROM/USB..." and now - last_notice >= 30',
+            source,
+        )
 
 class ProgressLoopIntegrationTests(unittest.TestCase):
     def test_preflight_runs_before_prompt(self) -> None:
