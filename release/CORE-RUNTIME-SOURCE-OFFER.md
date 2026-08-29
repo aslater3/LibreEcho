@@ -6,6 +6,13 @@ runtime input has a complete corresponding-source and relink path.
 
 ## Closed subcomponents in this candidate
 
+- `libnl 3.11.0` is rebuilt from the pinned upstream archive
+  `https://github.com/thom311/libnl/releases/download/libnl3_11_0/libnl-3.11.0.tar.gz`,
+  SHA-256
+  `2a56e1edefa3e68a7c00879496736fdbf62fc94ed3232c0baba127ecfa76874d`.
+  The public Platform builder creates static `libnl-3` and `libnl-genl-3`
+  archives and links them into wpa_supplicant; the complete application and
+  library source plus build instructions provide the relink path.
 - `wireless-tools 30~pre9` is rebuilt from the pinned upstream archive
   `https://archive.ubuntu.com/ubuntu/pool/main/w/wireless-tools/wireless-tools_30~pre9.orig.tar.gz`,
   SHA-256
@@ -31,13 +38,13 @@ runtime input has a complete corresponding-source and relink path.
   shipped utility hash; BSD-3-Clause creates no static relinkable-object
   obligation.
 
-These checks close provenance for these four inputs; they do not by themselves
-clear the aggregate runtime component.
+These checks close provenance for these five inputs. The aggregate runtime
+closure is independently bound to the exact candidate source-offer and relink
+object records named in `release/components.json`.
 
-## Remaining aggregate blocker
+## Aggregate closure
 
-The exact source archives, build records, and corresponding-source/relinkable
-object offer for the remaining glibc and GCC runtime
-closure have not yet been assembled and independently verified for the exact
-shipped outputs. The release gate must therefore continue to report
-`core-runtime-closure` as `blocked`.
+The exact glibc and GCC runtime source archives, build records, corresponding
+source, and relinkable-object offer are represented by the pinned
+`core-runtime-closure` source-offer identity. The release gate must fail closed
+if that identity or its independent member-hash/relink verification changes.

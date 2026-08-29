@@ -900,6 +900,7 @@ jobs:
           LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
           LIBREECHO_MUSL_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/musl-1.2.5.tar.gz
           LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wpa_supplicant-2.10.tar.gz
+          LIBREECHO_LIBNL_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libnl-3.11.0.tar.gz
           LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-tools_30~pre9.orig.tar.gz
           LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
           LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz

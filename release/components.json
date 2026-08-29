@@ -115,9 +115,24 @@
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md"
       ],
-      "binary_sha256": "af08df400c4e631c66096eddaf8deadb185744740677ce097fb0865e0126b538",
+      "binary_sha256": "43b2933a79dfdf0a000a21c4ccafc7333676e94b85e58033fdf33848146d8d30",
       "source_archive_sha256": "20df7ae5154b3830355f8ab4269123a87affdea59fe74fe9292a91d0d7e17b2f",
       "config": "tools/mt8163-arm32/wpa-supplicant/wpa_supplicant-2.10.config"
+    },
+    {
+      "id": "libnl",
+      "name": "libnl nl80211 support library",
+      "version": "3.11.0",
+      "license": "LGPL-2.1-only",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/thom311/libnl/releases/download/libnl3_11_0/libnl-3.11.0.tar.gz",
+      "source_offer": "https://github.com/thom311/libnl/releases/download/libnl3_11_0/libnl-3.11.0.tar.gz",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/CORE-RUNTIME-SOURCE-OFFER.md"
+      ],
+      "source_archive_sha256": "2a56e1edefa3e68a7c00879496736fdbf62fc94ed3232c0baba127ecfa76874d"
     },
     {
       "id": "core-runtime-closure",

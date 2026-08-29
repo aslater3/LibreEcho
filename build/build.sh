@@ -60,6 +60,7 @@ CONNECTIVITY_HELPERS="$GENERATED_ROOT/connectivity-helpers"
 BUSYBOX_SOURCE_ARCHIVE="${LIBREECHO_BUSYBOX_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_BUSYBOX_SOURCE_ARCHIVE explicitly}"
 MUSL_SOURCE_ARCHIVE="${LIBREECHO_MUSL_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_MUSL_SOURCE_ARCHIVE explicitly}"
 WPA_SOURCE_ARCHIVE="${LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE explicitly}"
+LIBNL_SOURCE_ARCHIVE="${LIBREECHO_LIBNL_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_LIBNL_SOURCE_ARCHIVE explicitly}"
 WIRELESS_TOOLS_SOURCE_ARCHIVE="${LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE explicitly}"
 WIRELESS_REGDB_SOURCE_ARCHIVE="${LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE explicitly}"
 LIBSODIUM_SOURCE_ARCHIVE="${LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE explicitly}"
@@ -716,11 +717,13 @@ fi
 wpa_cache_key="$(component_cache_key wpa-supplicant \
   --tree "platform-wpa=$TOOLS_DIR/wpa-supplicant" --value "toolchain=$CORE_TOOLCHAIN_KEY" \
   --tree "linux-uapi=$ADBD_KERNEL_HEADERS" --file "source-archive=$WPA_SOURCE_ARCHIVE" \
+  --file "libnl-source-archive=$LIBNL_SOURCE_ARCHIVE" \
   --file "builder=$TOOLS_DIR/wpa-supplicant/build_wpa_supplicant.sh")"
 wpa_status=rebuilt
 if ! component_cache_restore wpa-supplicant "$wpa_cache_key" "$WPA_OUTPUT"; then
   "$TOOLS_DIR/wpa-supplicant/build_wpa_supplicant.sh" \
-    --archive "$WPA_SOURCE_ARCHIVE" --output "$WPA_OUTPUT" \
+    --archive "$WPA_SOURCE_ARCHIVE" --libnl-archive "$LIBNL_SOURCE_ARCHIVE" \
+    --output "$WPA_OUTPUT" \
     --cc "${MUSL_CROSS_PREFIX}gcc" --sysroot "$OTA_MUSL_SYSROOT" \
     --kernel-headers "$ADBD_KERNEL_HEADERS" \
     | tee "$GENERATED_ROOT/wpa-supplicant-build.log"
@@ -728,6 +731,19 @@ if ! component_cache_restore wpa-supplicant "$wpa_cache_key" "$WPA_OUTPUT"; then
 else
   wpa_status=hit
   printf 'component_cache_hit=wpa-supplicant\n' >"$GENERATED_ROOT/wpa-supplicant-build.log"
+fi
+if [[ "$PUBLIC_RELEASE_MODE" == 1 ]]; then
+  wpa_catalog_sha="$(python3 - "$PRODUCT_SRC/release/components.json" <<'PY'
+import json, sys
+components = json.load(open(sys.argv[1]))["components"]
+print(next(item["binary_sha256"] for item in components if item["id"] == "wpa-supplicant"))
+PY
+)"
+  wpa_built_sha="$(sha256sum "$WPA_OUTPUT/wpa_supplicant" | awk '{print $1}')"
+  [[ "$wpa_built_sha" == "$wpa_catalog_sha" ]] || {
+    echo "ERROR: wpa_supplicant catalog identity mismatch: catalog=$wpa_catalog_sha built=$wpa_built_sha" >&2
+    exit 1
+  }
 fi
 
 connectivity_cache_key="$(component_cache_key connectivity \
@@ -1992,6 +2008,7 @@ python3 -B "$VERIFIER" \
   --expected-tinymix-sha256 "$tinymix_sha" \
   "${feature_verifier_args[@]}" \
   --expected-iwconfig-sha256 "$iwconfig_sha" \
+  --expected-wpa-supplicant-sha256 "$wpa_supplicant_sha" \
   --expected-image-profile "$IMAGE_PROFILE" \
   --expected-service-profile "$SERVICE_PROFILE" \
   --expected-feature-policy "$FEATURE_POLICY" \
