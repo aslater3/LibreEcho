@@ -17,8 +17,10 @@ class PublicNeuralDependencyTests(unittest.TestCase):
             self.assertIn(pin, SCRIPT)
         self.assertIn('[[ -d "$ORT_SOURCE/.git" ]]', SCRIPT)
         self.assertIn('[[ -d "$SHERPA_SOURCE/.git" ]]', SCRIPT)
+        self.assertIn('[[ -d "$ESPEAK_SOURCE/.git" ]]', SCRIPT)
         self.assertIn('git -C "$ORT_SOURCE" rev-parse HEAD', SCRIPT)
         self.assertIn('git -C "$SHERPA_SOURCE" rev-parse HEAD', SCRIPT)
+        self.assertIn('cmake --build "$ESPEAK_BUILD" --target data', SCRIPT)
 
     def test_script_produces_all_builder_roots(self):
         for root in (
@@ -27,6 +29,7 @@ class PublicNeuralDependencyTests(unittest.TestCase):
             '"$OUT/sherpa-onnx-prefix"',
             '"$OUT/flatbuffers-python"',
             '"$OUT/speexdsp-prefix"',
+            '"$OUT/espeak-ng-data"',
         ):
             self.assertIn(root, SCRIPT)
         self.assertIn('public_neural_dependencies=PASS', SCRIPT)
@@ -44,6 +47,10 @@ class PublicNeuralDependencyTests(unittest.TestCase):
         self.assertIn('cmake --build "$ORT_BUILD" --target re2', SCRIPT)
         self.assertIn("printf 'ADDLIB %s\\n'", SCRIPT)
         self.assertNotIn('pipeline/out/CURRENT', SCRIPT)
+        self.assertIn('"$ESPEAK_BUILD/espeak-ng-data/phontab"', SCRIPT)
+        self.assertIn('"$ESPEAK_BUILD/espeak-ng-data/phonindex"', SCRIPT)
+        self.assertIn('"$ESPEAK_DATA/phontab"', SCRIPT)
+        self.assertIn('"$ESPEAK_DATA/phonindex"', SCRIPT)
 
 
 if __name__ == "__main__":
