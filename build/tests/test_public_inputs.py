@@ -37,11 +37,21 @@ class PublicInputTests(unittest.TestCase):
         self.assertIn("LIBREECHO_LIBNL_SOURCE_ARCHIVE:", workflow)
         components = json.loads((ROOT / "release/components.json").read_text())
         wpa = next(item for item in components["components"] if item["id"] == "wpa-supplicant")
+        catalog_libnl = next(
+            item for item in components["components"] if item["id"] == "libnl"
+        )
+        self.assertEqual(catalog_libnl["license"], libnl["license"])
+        self.assertEqual(catalog_libnl["download_location"], libnl["url"])
+        self.assertEqual(catalog_libnl["source_offer"], libnl["url"])
+        self.assertEqual(catalog_libnl["source_archive_sha256"], libnl["sha256"])
         self.assertEqual(
             wpa["binary_sha256"],
             "43b2933a79dfdf0a000a21c4ccafc7333676e94b85e58033fdf33848146d8d30",
         )
         self.assertIn("wpa_supplicant catalog identity mismatch", pipeline)
+        self.assertIn(
+            '--expected-wpa-supplicant-sha256 "$wpa_supplicant_sha"', pipeline
+        )
         self.assertIn(
             'if [[ "$PUBLIC_RELEASE_MODE" == 1 ]]; then\n  wpa_catalog_sha=',
             pipeline,

@@ -2008,6 +2008,7 @@ python3 -B "$VERIFIER" \
   --expected-tinymix-sha256 "$tinymix_sha" \
   "${feature_verifier_args[@]}" \
   --expected-iwconfig-sha256 "$iwconfig_sha" \
+  --expected-wpa-supplicant-sha256 "$wpa_supplicant_sha" \
   --expected-image-profile "$IMAGE_PROFILE" \
   --expected-service-profile "$SERVICE_PROFILE" \
   --expected-feature-policy "$FEATURE_POLICY" \
