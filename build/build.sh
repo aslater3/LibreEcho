@@ -732,6 +732,17 @@ else
   wpa_status=hit
   printf 'component_cache_hit=wpa-supplicant\n' >"$GENERATED_ROOT/wpa-supplicant-build.log"
 fi
+wpa_catalog_sha="$(python3 - "$PRODUCT_SRC/release/components.json" <<'PY'
+import json, sys
+components = json.load(open(sys.argv[1]))["components"]
+print(next(item["binary_sha256"] for item in components if item["id"] == "wpa-supplicant"))
+PY
+)"
+wpa_built_sha="$(sha256sum "$WPA_OUTPUT/wpa_supplicant" | awk '{print $1}')"
+[[ "$wpa_built_sha" == "$wpa_catalog_sha" ]] || {
+  echo "ERROR: wpa_supplicant catalog identity mismatch: catalog=$wpa_catalog_sha built=$wpa_built_sha" >&2
+  exit 1
+}
 
 connectivity_cache_key="$(component_cache_key connectivity \
   --tree "platform-connectivity=$TOOLS_DIR/connectivity" \
