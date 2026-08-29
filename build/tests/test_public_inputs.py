@@ -23,6 +23,12 @@ class PublicInputTests(unittest.TestCase):
         self.assertEqual(data["schema"], "libreecho-public-inputs-v1")
         self.assertTrue(any(x["redistribution"] != "cleared" for x in data["inputs"]))
 
+    def test_core_runtime_notice_does_not_claim_a_cleared_blocker(self):
+        notice = (ROOT / "release/THIRD_PARTY_NOTICES.md").read_text()
+        self.assertNotIn("open aggregate release blocker", notice)
+        self.assertIn("independently verified for each", notice)
+        self.assertIn("candidate.", notice)
+
     def test_nl80211_dependency_is_pinned_and_wired_into_build(self):
         data = module.load(ROOT / "build/inputs/public-inputs.json")
         records = {item["name"]: item for item in data["inputs"]}

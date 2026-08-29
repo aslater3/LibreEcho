@@ -34,9 +34,10 @@ complete notices and component inventory.
   independently checked or rebuilt for the exact core-image/OTA outputs. Their
   GPL/LGPL, ISC, and BSD-3-Clause terms remain applicable.
 - **glibc and GCC runtime code** retain their LGPL and GCC Runtime Library
-  Exception terms. Their exact corresponding
-  source archives, static-link relinkable objects, and build records remain an
-  open aggregate release blocker; see `release/CORE-RUNTIME-SOURCE-OFFER.md`.
+  Exception terms. Their exact corresponding source archives, static-link
+  relinkable objects, and build records are pinned by
+  `release/CORE-RUNTIME-SOURCE-OFFER.md` and independently verified for each
+  candidate.
 
 ### MT8163 audio FPGA bridge — included, documented-good-faith exception
 
