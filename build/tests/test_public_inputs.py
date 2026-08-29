@@ -42,6 +42,10 @@ class PublicInputTests(unittest.TestCase):
             "43b2933a79dfdf0a000a21c4ccafc7333676e94b85e58033fdf33848146d8d30",
         )
         self.assertIn("wpa_supplicant catalog identity mismatch", pipeline)
+        self.assertIn(
+            'if [[ "$PUBLIC_RELEASE_MODE" == 1 ]]; then\n  wpa_catalog_sha=',
+            pipeline,
+        )
 
     def test_cleared_records_require_digest_and_https(self):
         with tempfile.TemporaryDirectory() as tmp:
