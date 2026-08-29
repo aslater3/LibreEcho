@@ -139,6 +139,7 @@ class Tests(unittest.TestCase):
   self.assertIn('LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.derived.onnx', W)
   self.assertIn('LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/southern-female.derived.onnx', W)
   self.assertIn('LIBREECHO_TTS_TOKENS: ${{ runner.temp }}/public-deps/tts-tokens.txt', W)
+  self.assertIn('LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/neural/espeak-ng-data', W)
   self.assertNotIn('LIBREECHO_TTS_FEMALE_MODEL: ${{ runner.temp }}/public-deps/northern-male', W)
   # Flite ships as source only; the neural dependency builder compiles the
   # static ARM32 archives into the neural cache and build.sh stages them

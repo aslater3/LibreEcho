@@ -918,7 +918,7 @@ jobs:
           LIBREECHO_SHERPA_SOURCE: ${{ runner.temp }}/public-deps/sherpa-onnx-source
           LIBREECHO_SHERPA_PREFIX: ${{ runner.temp }}/public-deps/neural/sherpa-onnx-prefix
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
-          LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/espeak-ng-source/espeak-ng-data
+          LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/neural/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
           LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
           LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/alsa
