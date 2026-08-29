@@ -8,7 +8,7 @@
       "size": 21648
     },
     "wmt_configure": {
-      "sha256": "2a57272037a34519e9f6f5dd64ab5a16ad304c81535c4aa7f15a8afae34aadb1",
+      "sha256": "e0ff85f0ac2cb2b98718556470444cafd1fcd8865cdba27aa67e2c7d7a3303e0",
       "size": 25744
     },
     "wmt_launcher": {
@@ -27,7 +27,7 @@
   "sources": {
     "SOURCE.lock": "4fd59d1fd8292f279d8f570036adcccda7531b365592907e0d3b35652a7af886",
     "wmt_bt_on.c": "168513f35635d0e25519c036bfd237d047251fc411d41fcc02958b3f56592abc",
-    "wmt_configure.c": "4fe3df097757e70016d78bd1b3e5f11cf9a3c81846a308aeaf7ce82d9cce9702",
+    "wmt_configure.c": "d785ca33a6d9027e77f809c3a4c388d4bd0116cef03deafd80f6c0ce0e56e1c1",
     "wmt_ioctl.h": "194f22e760e4639b7205770e47ada6ce6ecdd02bf57e9ee712bf3c532e84f4b8",
     "wmt_launcher.c": "ee160819fd78e76c5d306f27f8ec6f8b4530186dea9f9deb7b5bcfb293d7c0dc",
     "wmt_responder.c": "3fa9946a05b1306103490718b1905c1612dc198665fd0d8166c3454a935afc5e",
