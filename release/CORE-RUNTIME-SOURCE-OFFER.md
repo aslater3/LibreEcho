@@ -6,6 +6,13 @@ runtime input has a complete corresponding-source and relink path.
 
 ## Closed subcomponents in this candidate
 
+- `libnl 3.11.0` is rebuilt from the pinned upstream archive
+  `https://github.com/thom311/libnl/releases/download/libnl3_11_0/libnl-3.11.0.tar.gz`,
+  SHA-256
+  `2a56e1edefa3e68a7c00879496736fdbf62fc94ed3232c0baba127ecfa76874d`.
+  The public Platform builder creates static `libnl-3` and `libnl-genl-3`
+  archives and links them into wpa_supplicant; the complete application and
+  library source plus build instructions provide the relink path.
 - `wireless-tools 30~pre9` is rebuilt from the pinned upstream archive
   `https://archive.ubuntu.com/ubuntu/pool/main/w/wireless-tools/wireless-tools_30~pre9.orig.tar.gz`,
   SHA-256

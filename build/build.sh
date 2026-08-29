@@ -60,6 +60,7 @@ CONNECTIVITY_HELPERS="$GENERATED_ROOT/connectivity-helpers"
 BUSYBOX_SOURCE_ARCHIVE="${LIBREECHO_BUSYBOX_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_BUSYBOX_SOURCE_ARCHIVE explicitly}"
 MUSL_SOURCE_ARCHIVE="${LIBREECHO_MUSL_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_MUSL_SOURCE_ARCHIVE explicitly}"
 WPA_SOURCE_ARCHIVE="${LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_WPA_SUPPLICANT_SOURCE_ARCHIVE explicitly}"
+LIBNL_SOURCE_ARCHIVE="${LIBREECHO_LIBNL_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_LIBNL_SOURCE_ARCHIVE explicitly}"
 WIRELESS_TOOLS_SOURCE_ARCHIVE="${LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_WIRELESS_TOOLS_SOURCE_ARCHIVE explicitly}"
 WIRELESS_REGDB_SOURCE_ARCHIVE="${LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE explicitly}"
 LIBSODIUM_SOURCE_ARCHIVE="${LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE explicitly}"
@@ -716,11 +717,13 @@ fi
 wpa_cache_key="$(component_cache_key wpa-supplicant \
   --tree "platform-wpa=$TOOLS_DIR/wpa-supplicant" --value "toolchain=$CORE_TOOLCHAIN_KEY" \
   --tree "linux-uapi=$ADBD_KERNEL_HEADERS" --file "source-archive=$WPA_SOURCE_ARCHIVE" \
+  --file "libnl-source-archive=$LIBNL_SOURCE_ARCHIVE" \
   --file "builder=$TOOLS_DIR/wpa-supplicant/build_wpa_supplicant.sh")"
 wpa_status=rebuilt
 if ! component_cache_restore wpa-supplicant "$wpa_cache_key" "$WPA_OUTPUT"; then
   "$TOOLS_DIR/wpa-supplicant/build_wpa_supplicant.sh" \
-    --archive "$WPA_SOURCE_ARCHIVE" --output "$WPA_OUTPUT" \
+    --archive "$WPA_SOURCE_ARCHIVE" --libnl-archive "$LIBNL_SOURCE_ARCHIVE" \
+    --output "$WPA_OUTPUT" \
     --cc "${MUSL_CROSS_PREFIX}gcc" --sysroot "$OTA_MUSL_SYSROOT" \
     --kernel-headers "$ADBD_KERNEL_HEADERS" \
     | tee "$GENERATED_ROOT/wpa-supplicant-build.log"

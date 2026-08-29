@@ -23,6 +23,19 @@ class PublicInputTests(unittest.TestCase):
         self.assertEqual(data["schema"], "libreecho-public-inputs-v1")
         self.assertTrue(any(x["redistribution"] != "cleared" for x in data["inputs"]))
 
+    def test_nl80211_dependency_is_pinned_and_wired_into_build(self):
+        data = module.load(ROOT / "build/inputs/public-inputs.json")
+        records = {item["name"]: item for item in data["inputs"]}
+        libnl = records["libnl"]
+        self.assertEqual(libnl["sha256"], "2a56e1edefa3e68a7c00879496736fdbf62fc94ed3232c0baba127ecfa76874d")
+        self.assertEqual(libnl["license"], "LGPL-2.1-only")
+        self.assertEqual(libnl["redistribution"], "cleared")
+        pipeline = (ROOT / "build/build.sh").read_text()
+        workflow = (ROOT / ".github/workflows/build-release.yml").read_text()
+        self.assertIn("LIBREECHO_LIBNL_SOURCE_ARCHIVE", pipeline)
+        self.assertIn('--libnl-archive "$LIBNL_SOURCE_ARCHIVE"', pipeline)
+        self.assertIn("LIBREECHO_LIBNL_SOURCE_ARCHIVE:", workflow)
+
     def test_cleared_records_require_digest_and_https(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "inputs.json"

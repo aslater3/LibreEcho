@@ -278,7 +278,7 @@ class ComponentGateTests(unittest.TestCase):
             ROOT / "release/components.json", "community-noncommercial"
         )
         data = json.loads((ROOT / "release/components.json").read_text())
-        self.assertEqual(len(data["components"]), 17)
+        self.assertEqual(len(data["components"]), 18)
         self.assertNotIn("wakeword-payload", {c["id"] for c in unrestricted})
         self.assertIn("wakeword-payload", {c["id"] for c in community})
         for component_id in (
@@ -417,7 +417,7 @@ class ComponentGateTests(unittest.TestCase):
             "--release-scope", "community-noncommercial",
         ], text=True, capture_output=True)
         self.assertEqual(community.returncode, 0, community.stderr)
-        self.assertIn("component_count=17", community.stdout)
+        self.assertIn("component_count=18", community.stdout)
         self.assertIn("release_scope=community-noncommercial", community.stdout)
 
     def test_restricted_component_requires_valid_release_scopes(self) -> None:
@@ -485,7 +485,7 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(output),
             ], check=True, text=True, capture_output=True)
             document = json.loads(output.read_text())
-        self.assertIn("package_count=14", result.stdout)
+        self.assertIn("package_count=15", result.stdout)
         names = {package["name"] for package in document["packages"]}
         self.assertNotIn("MT8163 connectivity firmware extracted from the owner device", names)
         self.assertNotIn("Amonet/BROM installer integration", names)
@@ -510,7 +510,7 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(root / "sbom.json"),
             ], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("package_count=14", result.stdout)
+        self.assertIn("package_count=15", result.stdout)
 
     def test_sbom_includes_wakeword_only_for_community_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -536,10 +536,11 @@ class ComponentGateTests(unittest.TestCase):
                 package["name"] for package in json.loads(output.read_text())["packages"]
             } if output.exists() else set()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("package_count=15", result.stdout)
+        self.assertIn("package_count=16", result.stdout)
         self.assertIn(
             "openWakeWord runtime and pretrained Alexa-compatible model", names
         )
+
     def test_component_gate_rejects_unresolved_redistributed_source_offer(self) -> None:
         catalog = json.loads((ROOT / "release/components.json").read_text())
         component = next(

@@ -26,7 +26,10 @@ complete notices and component inventory.
   candidate.
 - **musl 1.2.5** — MIT, rebuilt from the pinned upstream archive.
 - **`wpa_supplicant` 2.10** — BSD-3-Clause; the binary's complete `-L` notice is
-  embedded.
+  embedded. It is rebuilt with nl80211 preferred and WEXT retained as fallback.
+- **libnl 3.11.0** — LGPL-2.1-only; the pinned source archive and public
+  Platform build instructions allow rebuilding and relinking the statically
+  incorporated `libnl-3` and `libnl-genl-3` code.
 - **wireless-tools, wireless-regdb, libsodium, and TinyALSA** are source-locked and
   independently checked or rebuilt for the exact core-image/OTA outputs. Their
   GPL/LGPL, ISC, and BSD-3-Clause terms remain applicable.
