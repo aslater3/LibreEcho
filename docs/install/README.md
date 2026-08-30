@@ -56,7 +56,7 @@ set -eu
 REPO=aslater3/LibreEcho
 TAG="$(gh release list --repo "$REPO" --limit 100 \
   --json tagName,isDraft,isPrerelease \
-  --jq 'map(select(.isDraft == false and .isPrerelease == false and (.tagName | test("^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$")))) | .[0].tagName')"
+  --jq 'map(select(.isDraft == false and .isPrerelease == false and (.tagName | test("^radar-puffin-v[0-9]+\\.[0-9]+\\.[0-9]+$")))) | .[0].tagName')"
 
 if ! printf '%s\n' "$TAG" | grep -Eq '^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "No stable LibreEcho release tag was found" >&2
