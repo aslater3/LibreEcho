@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -68,8 +69,28 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("releases/latest", source)
         self.assertNotIn("releases/tags/latest", source)
         self.assertIn("--release-tag \"$TAG\"", source)
-        self.assertIn("--release-dir \"$work\"", source)
+        self.assertNotIn("--release-dir \"$work\"", source)
         self.assertIn("exit \"$status\"", source)
+        self.assertNotIn("latest-meta", source)
+
+    def test_latest_resolver_returns_immutable_tag(self) -> None:
+        source = (ROOT / "tools/run-one-shot.sh").read_text(encoding="utf-8")
+        resolver = source.split(
+            'TAG="$(python3 - "$work/release.json" <<\'PY\'\n', 1
+        )[1].split("\nPY\n", 1)[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            metadata = Path(temporary) / "release.json"
+            metadata.write_text(json.dumps({
+                "tag_name": "radar-puffin-v0.13.9",
+                "draft": False,
+                "prerelease": False,
+                "assets": [],
+            }), encoding="utf-8")
+            result = subprocess.run(
+                ["python3", "-c", resolver, str(metadata)],
+                check=True, text=True, capture_output=True,
+            )
+        self.assertEqual(result.stdout.strip(), "radar-puffin-v0.13.9")
 
     def test_installer_accepts_stable_build_manifest_asset(self) -> None:
         spec = importlib.util.spec_from_file_location("libreecho_install", INSTALLER)

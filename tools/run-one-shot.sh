@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify and run the exact Product installer.
+# Resolve a release alias, verify the installer, then run it.
 set -euo pipefail
 
 TAG="${1:-}"
@@ -12,61 +12,21 @@ if [[ "$TAG" == latest ]]; then
   curl --fail --location --silent --show-error \
     -o "$work/release.json" \
     "https://api.github.com/repos/${repo}/releases/latest"
-  python3 - "$work/release.json" >"$work/latest-meta" <<'PY'
+  TAG="$(python3 - "$work/release.json" <<'PY'
 import json
 import re
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as stream:
     release = json.load(stream)
-resolved_tag = release.get("tag_name")
-if (not isinstance(resolved_tag, str)
-        or not re.fullmatch(r"radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+", resolved_tag)):
-    raise SystemExit("ERROR: latest release does not resolve to a stable LibreEcho tag")
-if release.get("draft") or release.get("prerelease"):
-    raise SystemExit("ERROR: latest release is not a published stable release")
-assets = release.get("assets")
-if not isinstance(assets, list):
-    raise SystemExit("ERROR: latest release asset list is missing")
-names = [asset.get("name") for asset in assets if isinstance(asset, dict)]
-prefix = f"libreecho-{resolved_tag}"
-checksums = [name for name in names if name == f"{prefix}-SHA256SUMS"]
-if len(checksums) != 1:
-    raise SystemExit("ERROR: latest release does not have its stable checksum inventory")
-required = {f"{prefix}-installer.py", f"{prefix}-initial-install.tar", checksums[0]}
-selected = []
-for name in names:
-    if not isinstance(name, str) or name != name.split("/")[-1] or ".." in name:
-        raise SystemExit("ERROR: latest release contains an unsafe asset name")
-    if name == checksums[0] or name.startswith(prefix + "-") or name == prefix + ".ota.tar":
-        selected.append(name)
-if not required.issubset(selected):
-    raise SystemExit("ERROR: latest release is missing required installer assets")
-print(resolved_tag)
-print(prefix)
-print("\n".join(sorted(set(selected))))
+tag = release.get("tag_name")
+if (release.get("draft") or release.get("prerelease") or
+        not isinstance(tag, str) or
+        not re.fullmatch(r"radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+", tag)):
+    raise SystemExit("ERROR: latest release is not a published stable LibreEcho tag")
+print(tag)
 PY
-  {
-    read -r TAG
-    read -r prefix
-    source_tag="$TAG"
-    while IFS= read -r name; do
-      [[ -n "$name" ]] || continue
-      curl --fail --location --silent --show-error \
-        -o "$work/$name" \
-        "https://github.com/${repo}/releases/download/${source_tag}/${name}"
-    done
-  } <"$work/latest-meta"
-  checksums="$work/${prefix}-SHA256SUMS"
-  installer="$work/${prefix}-installer.py"
-  (cd "$work" && sha256sum -c "$(basename "$checksums")")
-  echo "Latest stable release resolved to ${TAG}; release assets verified."
-  if python3 "$installer" one-shot --release-dir "$work" --release-tag "$TAG" "$@"; then
-    status=0
-  else
-    status=$?
-  fi
-  exit "$status"
+  )"
 fi
 
 if [[ ! "$TAG" =~ ^radar-puffin-(v[0-9]+\.[0-9]+\.[0-9]+|(nightly|build)-[0-9a-f-]+)$ ]]; then
@@ -89,7 +49,7 @@ expected="$(awk -v name="${prefix}-installer.py" '$2 == name { print $1; found=1
   exit 1
 }
 printf '%s  %s\n' "$expected" "$installer" | sha256sum -c -
-echo "Installer checksum verified."
+echo "Installer checksum verified for ${TAG}."
 if python3 "$installer" one-shot --release-tag "$TAG" "$@"; then
   status=0
 else

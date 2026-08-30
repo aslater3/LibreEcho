@@ -79,22 +79,11 @@ For a development or nightly build, pass its complete immutable tag instead:
 ./run-one-shot.sh radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id> --fastboot-serial auto --slots both --execute-hardware
 ```
 
-The wrapper resolves `latest` to the immutable release asset prefix before
-starting the installer. It uses public GitHub API/download URLs and does not
-require a GitHub account, token, or authenticated `gh` session.
-
-For a pinned development or nightly build, pass its complete immutable tag to
-the same wrapper:
-
-```sh
-TAG=radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>
-./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
-```
-
-The release tag is intentionally passed explicitly. The wrapper verifies the
-installer checksum before executing Python, and the Python installer validates
-the immutable tag stored in the bundle manifest. Do not rename or mix asset
-files from another release.
+The wrapper resolves `latest` to the immutable release tag before starting the
+existing installer. It uses public GitHub API/download URLs, verifies the
+installer checksum, and does not require a GitHub account or token. For a
+pinned development or nightly build, pass its complete tag in the same command.
+Do not rename or mix asset files from another release.
 
 ## 2. Open the Echo
 

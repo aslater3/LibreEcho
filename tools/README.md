@@ -73,11 +73,12 @@ installation after that point.
 
 ## User command
 
-Download the release bootstrap from the release's immutable asset set. The
-recommended wrapper also accepts the literal `latest`: it resolves the current
-published `latest` release alias to its immutable `radar-puffin-vX.Y.Z` asset prefix,
-verifies the complete checksum inventory, and passes the resolved tag internally
-to the Python installer.
+Use the public wrapper. It resolves `latest` through GitHub's public
+`/releases/latest` endpoint, downloads only the checksum file and installer
+bootstrap, verifies the bootstrap, and then hands control to the existing
+Python installer. The Python installer downloads and verifies the complete
+release bundle, including `initial-install.tar`, the five feature
+payloads/manifests, and pinned Amonet inputs.
 
 ```bash
 curl -fL -o run-one-shot.sh https://raw.githubusercontent.com/aslater3/LibreEcho/release/0.13.9/tools/run-one-shot.sh
@@ -85,28 +86,14 @@ chmod +x run-one-shot.sh
 ./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
 ```
 
-For a pinned development or nightly build, pass its complete immutable tag
-instead of `latest`. The bootstrap verifies the installer against the release
-`SHA256SUMS` inventory **before executing Python**. The verified Python installer
-then downloads the remaining release assets itself, including the boot image,
-`initial-install.tar`, OTA key, five feature payloads/manifests, and checksums.
-It also downloads and verifies the pinned Amonet commit and its Git LFS objects.
-
-For a development build:
+For a pinned development or nightly release, pass its complete immutable tag:
 
 ```bash
 TAG=radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>
-curl -fL -o "libreecho-${TAG}-run-one-shot.sh" \
-  "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
-chmod +x "libreecho-${TAG}-run-one-shot.sh"
-
-./"libreecho-${TAG}-run-one-shot.sh" "$TAG" \
-  --fastboot-serial auto \
-  --slots both \
-  --execute-hardware
+./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
 ```
 
-For a scheduled nightly, use its `radar-puffin-nightly-...` tag in exactly the
+For a scheduled nightly, use its complete `radar-puffin-nightly-...` tag in the
 same form. Do not shorten, rename, or mix asset files from another release.
 
 `install` is only the host-side preparation/checkpoint action and does not touch
