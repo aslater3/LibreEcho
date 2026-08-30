@@ -1288,7 +1288,11 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
         _safe_regular(ota_asset)
         expected.add(ota_asset.name)
     records = _checksums(checksums, None)
-    optional = {"libreecho-radar-puffin-dev.ota.tar", f"{prefix}-build.json"}
+    optional = {
+        "libreecho-radar-puffin-dev.ota.tar",
+        f"{prefix}-build.json",
+        f"{prefix}-run-one-shot.sh",
+    }
     if release_tag.startswith(("radar-puffin-nightly-", "radar-puffin-build-")):
         optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt", f"{prefix}-run-one-shot.sh"})
     unexpected = set(records) - expected - optional

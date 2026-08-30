@@ -112,6 +112,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 f"{prefix}-installer.py": b"#!/usr/bin/env python3\\n",
                 f"{prefix}.ota.tar": b"signed ota",
                 f"{prefix}-build.json": b"{}\\n",
+                f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\\n",
             }
             manifest = {
                 "schema": "libreecho-initial-install-v1",
@@ -143,6 +144,11 @@ class InstallerPublicationTests(unittest.TestCase):
             sums.write_text("".join(f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n" for name in sorted(files)), encoding="ascii")
             prepared, _ = module._prepare(release, cache, tag)
             self.assertEqual(prepared["release"], tag)
+
+    def test_stable_release_publishes_checksum_covered_wrapper(self) -> None:
+        source = (ROOT / "build/ci/prepare-stable-release.py").read_text(encoding="utf-8")
+        self.assertIn('"tools/run-one-shot.sh"', source)
+        self.assertIn('"run-one-shot.sh"', source)
 
     def test_install_guide_documents_initial_forward_and_safe_reassembly(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

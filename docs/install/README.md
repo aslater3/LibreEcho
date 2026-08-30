@@ -68,7 +68,7 @@ For the normal operator flow, download the wrapper from the release branch and
 pass the literal `latest` tag:
 
 ```sh
-curl -fL -o run-one-shot.sh https://raw.githubusercontent.com/aslater3/LibreEcho/release/0.13.9/tools/run-one-shot.sh
+curl -fL -o run-one-shot.sh https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.9/libreecho-radar-puffin-v0.13.9-run-one-shot.sh
 chmod +x run-one-shot.sh
 ./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
 ```
