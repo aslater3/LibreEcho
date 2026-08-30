@@ -51,6 +51,21 @@ Host requirements are validated before the BROM handoff:
 bash, adb, fastboot, executable mke2fs, executable img2simg, staged tool probes
 ```
 
+On Debian/Ubuntu, install the required host tools before using `one-shot`:
+
+```sh
+sudo apt-get update
+sudo apt-get install adb fastboot e2fsprogs android-sdk-libsparse-utils
+```
+
+`--install-host-deps` can install only `e2fsprogs` and
+`android-sdk-libsparse-utils`; it does **not** install `adb` or `fastboot`.
+Check the complete tool closure with:
+
+```sh
+command -v adb fastboot mke2fs img2simg
+```
+
 It does not flash Amonet wrapper partitions directly or invent credentials. The
 Amonet exploit owns the stock-to-Amonet conversion; this tool validates the
 handoff, recreates the reviewed userdata filesystem, and completes LibreEcho

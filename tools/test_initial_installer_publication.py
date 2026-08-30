@@ -40,11 +40,16 @@ class InstallerPublicationTests(unittest.TestCase):
         for marker in (
             "release checksum inventory",
             "download and verify pinned Amonet",
-            "--release-tag \"$TAG\"",
             "./run-one-shot.sh latest",
             "--execute-hardware",
             "initial-install.tar",
             "stage and verify all five feature payloads",
+            "adb",
+            "fastboot",
+            "android-sdk-libsparse-utils",
+            "--install-host-deps` can install only",
+            "does **not** install `adb` or `fastboot`",
+            "command -v adb fastboot mke2fs img2simg",
         ):
             self.assertIn(marker, readme)
 
@@ -55,11 +60,12 @@ class InstallerPublicationTests(unittest.TestCase):
         source = wrapper.read_text(encoding="utf-8")
         self.assertIn("SHA256SUMS", source)
         self.assertIn("sha256sum -c", source)
-        self.assertIn("exec python3", source)
+        self.assertNotIn("exec python3", source)
+        self.assertIn("releases/latest", source)
+        self.assertNotIn("releases/tags/latest", source)
         self.assertIn("--release-tag \"$TAG\"", source)
-        self.assertIn("latest", source)
-        self.assertIn("releases/tags/latest", source)
         self.assertIn("--release-dir \"$work\"", source)
+        self.assertIn("exit \"$status\"", source)
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

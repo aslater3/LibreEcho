@@ -9,10 +9,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/libreecho-installer.XXXXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 if [[ "$TAG" == latest ]]; then
-  source_tag=latest
   curl --fail --location --silent --show-error \
     -o "$work/release.json" \
-    "https://api.github.com/repos/${repo}/releases/tags/latest"
+    "https://api.github.com/repos/${repo}/releases/latest"
   python3 - "$work/release.json" >"$work/latest-meta" <<'PY'
 import json
 import re
@@ -20,21 +19,20 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as stream:
     release = json.load(stream)
+resolved_tag = release.get("tag_name")
+if (not isinstance(resolved_tag, str)
+        or not re.fullmatch(r"radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+", resolved_tag)):
+    raise SystemExit("ERROR: latest release does not resolve to a stable LibreEcho tag")
 if release.get("draft") or release.get("prerelease"):
     raise SystemExit("ERROR: latest release is not a published stable release")
 assets = release.get("assets")
 if not isinstance(assets, list):
     raise SystemExit("ERROR: latest release asset list is missing")
 names = [asset.get("name") for asset in assets if isinstance(asset, dict)]
-checksums = [
-    name for name in names
-    if isinstance(name, str)
-    and re.fullmatch(r"libreecho-(radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+)-SHA256SUMS", name)
-]
+prefix = f"libreecho-{resolved_tag}"
+checksums = [name for name in names if name == f"{prefix}-SHA256SUMS"]
 if len(checksums) != 1:
-    raise SystemExit("ERROR: latest release does not have exactly one stable checksum inventory")
-prefix = checksums[0][:-len("-SHA256SUMS")]
-resolved_tag = prefix[len("libreecho-"):]
+    raise SystemExit("ERROR: latest release does not have its stable checksum inventory")
 required = {f"{prefix}-installer.py", f"{prefix}-initial-install.tar", checksums[0]}
 selected = []
 for name in names:
@@ -51,6 +49,7 @@ PY
   {
     read -r TAG
     read -r prefix
+    source_tag="$TAG"
     while IFS= read -r name; do
       [[ -n "$name" ]] || continue
       curl --fail --location --silent --show-error \
@@ -62,7 +61,12 @@ PY
   installer="$work/${prefix}-installer.py"
   (cd "$work" && sha256sum -c "$(basename "$checksums")")
   echo "Latest stable release resolved to ${TAG}; release assets verified."
-  exec python3 "$installer" one-shot --release-dir "$work" --release-tag "$TAG" "$@"
+  if python3 "$installer" one-shot --release-dir "$work" --release-tag "$TAG" "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+  exit "$status"
 fi
 
 if [[ ! "$TAG" =~ ^radar-puffin-(v[0-9]+\.[0-9]+\.[0-9]+|(nightly|build)-[0-9a-f-]+)$ ]]; then
@@ -86,4 +90,9 @@ expected="$(awk -v name="${prefix}-installer.py" '$2 == name { print $1; found=1
 }
 printf '%s  %s\n' "$expected" "$installer" | sha256sum -c -
 echo "Installer checksum verified."
-exec python3 "$installer" one-shot --release-tag "$TAG" "$@"
+if python3 "$installer" one-shot --release-tag "$TAG" "$@"; then
+  status=0
+else
+  status=$?
+fi
+exit "$status"
