@@ -66,48 +66,21 @@ For a development or nightly build, pass its complete immutable tag instead:
 ```
 
 The wrapper resolves `latest` to the immutable release asset prefix before
-starting the installer. The expanded download example below is useful when you
-want to inspect or cache the assets manually.
+starting the installer. It uses public GitHub API/download URLs and does not
+require a GitHub account, token, or authenticated `gh` session.
+
+For a pinned development or nightly build, pass its complete immutable tag to
+the same wrapper:
 
 ```sh
-set -eu
-
-REPO=aslater3/LibreEcho
-TAG="$(gh release list --repo "$REPO" --limit 100 \
-  --json tagName,isDraft,isPrerelease \
-  --jq 'map(select(.isDraft == false and .isPrerelease == false and (.tagName | test("^radar-puffin-v[0-9]+\\.[0-9]+\\.[0-9]+$")))) | .[0].tagName')"
-
-if ! printf '%s\n' "$TAG" | grep -Eq '^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "No stable LibreEcho release tag was found" >&2
-  exit 1
-fi
-
-PREFIX="libreecho-${TAG}"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/libreecho-${TAG}.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
-
-gh release download "$TAG" --repo "$REPO" --dir "$WORK"
-(cd "$WORK" && sha256sum -c "${PREFIX}-SHA256SUMS")
-printf 'Verified stable release: %s\n' "$TAG"
+TAG=radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>
+./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
 ```
 
-The equivalent explicit installer syntax, used after the resolver above, is:
-
-```sh
-python3 "$WORK/${PREFIX}-installer.py" one-shot \\
-  --release-tag "$TAG" \\
-  --fastboot-serial auto \\
-  --slots both \\
-  --execute-hardware
-```
-
-The release tag is intentionally passed explicitly. Do not substitute `latest`
-for `radar-puffin-vX.Y.Z` in `--release-tag`: `latest` is a moving release
-alias, while the installer validates the immutable release identity.
-
-Confirm the release supports the Echo 2nd generation (`radar_puffin`, MT8163)
-and your board revision before continuing. Do not use an OTA archive, random
-`boot.img`, raw `zImage`, or an installer copied from an old issue comment.
+The release tag is intentionally passed explicitly. The wrapper verifies the
+installer checksum before executing Python, and the Python installer validates
+the immutable tag stored in the bundle manifest. Do not rename or mix asset
+files from another release.
 
 ## 2. Open the Echo
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import unittest
 from pathlib import Path
 
@@ -60,12 +61,22 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("releases/tags/latest", source)
         self.assertIn("--release-dir \"$work\"", source)
 
+    def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        code_blocks = re.findall(r"```(?:sh|bash)\n(.*?)\n```", guide, re.S)
+        self.assertTrue(code_blocks)
+        for block in code_blocks:
+            for line in block.splitlines():
+                self.assertNotRegex(line, r"\\\\\\s*$",
+                                     f"doubled shell continuation: {line!r}")
+        self.assertIn("./run-one-shot.sh latest", guide)
+        self.assertNotIn("gh release list", guide)
+        self.assertIn("public GitHub API/download URLs", guide)
+
     def test_continuation_validates_the_requested_release_tag(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn("state[\"release\"] != release_tag", source)
         self.assertIn("continuation release tag does not match saved state", source)
-
-        source = INSTALLER.read_text(encoding="utf-8")
         self.assertTrue(source.startswith("#!/usr/bin/env python3\n"))
         self.assertNotIn("/home/andy", source)
         self.assertNotIn("/media/andy", source)

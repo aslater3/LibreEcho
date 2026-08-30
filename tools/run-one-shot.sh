@@ -29,7 +29,7 @@ names = [asset.get("name") for asset in assets if isinstance(asset, dict)]
 checksums = [
     name for name in names
     if isinstance(name, str)
-    and re.fullmatch(r"libreecho-(radar-puffin-v[0-9]+\\.[0-9]+\\.[0-9]+)-SHA256SUMS", name)
+    and re.fullmatch(r"libreecho-(radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+)-SHA256SUMS", name)
 ]
 if len(checksums) != 1:
     raise SystemExit("ERROR: latest release does not have exactly one stable checksum inventory")
