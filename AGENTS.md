@@ -4,6 +4,55 @@ This repository is the product and release home for LibreEcho: landing content,
 cross-repository public documentation, release notes, and release tooling. Read
 `CONTRIBUTING.md` for change-ownership routing before non-trivial work.
 
+## Agent operating contract
+
+These rules take priority over the procedural sections below for normal task
+execution.
+
+1. The user's current request defines the scope. Work only on the named problem
+   and the files needed to solve it. Do not fix adjacent bugs, refactor nearby
+   code, clean up unrelated issues, or improve the architecture unless asked.
+
+2. Before editing, identify:
+   - the requested outcome;
+   - the files likely to change;
+   - the smallest relevant validation command.
+   Do not begin a broader investigation without explaining why it is necessary.
+
+3. Make the smallest change that satisfies the request. Do not expand the task
+   because you notice a possible improvement or a failure in another subsystem.
+
+4. Stop when the requested acceptance criterion is met. A successful focused
+   test is a stopping point, not an invitation to search for more work.
+
+5. Run one relevant, bounded, focused host check by default. Do not run the
+   aggregate suite, full image builds, release workflows, CI polling, hardware
+   validation, flashing, rebooting, watchers, servers, or background processes
+   unless the user explicitly requests that operation.
+
+6. Every command must have a bounded timeout. If a command hangs, exceeds its
+   timeout, or begins doing work outside the request, stop it and report the
+   command and observed state. Do not retry indefinitely.
+
+7. If a test or check fails outside the requested scope, do not fix it as part of
+   the current task. Report the exact failure and whether it blocks the
+   requested acceptance criterion.
+
+8. If the work would touch another repository, another subsystem, more files
+   than originally expected, or a second unrelated root cause, stop and ask
+   before expanding scope.
+
+9. Do not create or switch branches, commit, push, open a pull request, merge,
+   tag, wait for CI, or perform hardware actions unless the user explicitly
+   requests that specific action.
+
+10. The branching, pull-request, CI, release, and versioning sections below
+    apply when the user requests those workflows. They do not create permission
+    to perform them automatically.
+
+11. If the user asks only for a review, diagnosis, explanation, or plan, do not
+    edit files. Return findings and proposed changes instead.
+
 # Branching, Pull Requests, and Versioning
 
 These rules govern how changes flow through this repository. They apply equally
@@ -134,13 +183,16 @@ prefixes require maintainer agreement.
 
 ## AI agent rules
 
-- Before editing, read this file plus the repository `README.md` and, where
-  present, `CONTRIBUTING.md`. Do not infer repository state from old sessions,
-  branch names, or remembered hashes; re-read the live branch and diff.
-- Work only in a purpose-named branch created from the current base; never
-  edit `main`, a `release/*` branch, or another task's branch in place.
-- Run the repository's own checks (focused tests, then the aggregate suite)
-  before opening a PR, and report their exact results.
+- Before editing, read this file, the relevant part of `README.md`, and any
+  directly applicable `CONTRIBUTING.md`; do not recursively inspect unrelated
+  documentation or historical source.
+- Re-read the live branch, status, and diff before making changes.
+- Work only in a purpose-named branch when an edit has been explicitly
+  requested and the current branch is appropriate for that task.
+- Run the smallest relevant focused check first. Broader validation is
+  conditional on the user's request or explicit PR preparation.
+- Report exact commands and results. Do not claim image, CI, or hardware
+  evidence when only host-source checks were run.
 - Record the exact commit SHA that was tested; the PR head must equal the
   tested head at merge time.
 - Do not merge, push to protected branches, tag releases, or perform hardware
