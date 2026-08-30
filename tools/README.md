@@ -60,7 +60,7 @@ installation after that point.
 
 Download the release bootstrap from the release's immutable asset set. The
 recommended wrapper also accepts the literal `latest`: it resolves the current
-published release alias to its immutable `radar-puffin-vX.Y.Z` asset prefix,
+published `latest` release alias to its immutable `radar-puffin-vX.Y.Z` asset prefix,
 verifies the complete checksum inventory, and passes the resolved tag internally
 to the Python installer.
 
