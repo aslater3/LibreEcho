@@ -40,6 +40,7 @@ class InstallerPublicationTests(unittest.TestCase):
             "release checksum inventory",
             "download and verify pinned Amonet",
             "--release-tag \"$TAG\"",
+            "./run-one-shot.sh latest",
             "--execute-hardware",
             "initial-install.tar",
             "stage and verify all five feature payloads",
@@ -55,6 +56,9 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("sha256sum -c", source)
         self.assertIn("exec python3", source)
         self.assertIn("--release-tag \"$TAG\"", source)
+        self.assertIn("latest", source)
+        self.assertIn("releases/tags/latest", source)
+        self.assertIn("--release-dir \"$work\"", source)
 
     def test_continuation_validates_the_requested_release_tag(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")

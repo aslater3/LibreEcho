@@ -47,8 +47,27 @@ adapter TX and VCC disconnected.
 LibreEcho stable releases use immutable tags in the form
 `radar-puffin-vX.Y.Z`. The GitHub **latest stable** resolver below filters out
 prereleases and the historical `latest` alias, then selects the newest semantic
-stable tag. Keep the resolved tag in the shell: the installer, checksum
-inventory, and release assets must all refer to the same tag.
+stable tag. Keep the resolved tag in the shell: the installer, checksum inventory, and
+release assets must all refer to the same tag.
+
+For the normal operator flow, download the wrapper from the release branch and
+pass the literal `latest` tag:
+
+```sh
+curl -fL -o run-one-shot.sh https://raw.githubusercontent.com/aslater3/LibreEcho/release/0.13.9/tools/run-one-shot.sh
+chmod +x run-one-shot.sh
+./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
+```
+
+For a development or nightly build, pass its complete immutable tag instead:
+
+```sh
+./run-one-shot.sh radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id> --fastboot-serial auto --slots both --execute-hardware
+```
+
+The wrapper resolves `latest` to the immutable release asset prefix before
+starting the installer. The expanded download example below is useful when you
+want to inspect or cache the assets manually.
 
 ```sh
 set -eu

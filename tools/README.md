@@ -58,8 +58,20 @@ installation after that point.
 
 ## User command
 
-Download the release bootstrap from the exact Product release, then pass the
-exact release tag. The bootstrap verifies the installer against the release
+Download the release bootstrap from the release's immutable asset set. The
+recommended wrapper also accepts the literal `latest`: it resolves the current
+published release alias to its immutable `radar-puffin-vX.Y.Z` asset prefix,
+verifies the complete checksum inventory, and passes the resolved tag internally
+to the Python installer.
+
+```bash
+curl -fL -o run-one-shot.sh https://raw.githubusercontent.com/aslater3/LibreEcho/release/0.13.9/tools/run-one-shot.sh
+chmod +x run-one-shot.sh
+./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
+```
+
+For a pinned development or nightly build, pass its complete immutable tag
+instead of `latest`. The bootstrap verifies the installer against the release
 `SHA256SUMS` inventory **before executing Python**. The verified Python installer
 then downloads the remaining release assets itself, including the boot image,
 `initial-install.tar`, OTA key, five feature payloads/manifests, and checksums.
