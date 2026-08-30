@@ -17,8 +17,23 @@
 
 ### Required
 
-- Linux computer
 - Data-capable USB cable
+- `adb` and `fastboot` (Debian/Ubuntu packages: `adb` and `fastboot`)
+- `bash`, `curl`, and Python 3
+- `mke2fs` (from `e2fsprogs`) and `img2simg` (from
+  `android-sdk-libsparse-utils`)
+
+On Debian/Ubuntu, install the host tools before starting the installer:
+
+```sh
+sudo apt-get update
+sudo apt-get install adb fastboot e2fsprogs android-sdk-libsparse-utils
+```
+
+The installer can offer to install only the filesystem-image helpers with
+`--install-host-deps`; it does **not** install `adb` or `fastboot`. Confirm they
+are available with `command -v adb fastboot mke2fs img2simg`.
+
 - Fine-tip temperature-controlled soldering iron
 - Fine solder, flux, 30–34 AWG wire, and Kapton tape
 - Fine-point pogo pins and a stable pogo-pin jig, if not soldering
@@ -44,19 +59,29 @@ adapter TX and VCC disconnected.
 
 ## 1. Download and verify the release
 
-1. Download the initial-install bundle from the [latest
-   release](https://github.com/aslater3/LibreEcho/releases/latest).
-2. Confirm it supports your Echo model and board revision.
-3. Verify the checksum:
+LibreEcho stable releases use immutable tags in the form
+`radar-puffin-vX.Y.Z`. The GitHub **latest stable** resolver below filters out
+prereleases and the historical `latest` alias, then selects the newest semantic
+stable tag. Keep the resolved tag in the shell: the installer, checksum inventory, and
+release assets must all refer to the same tag.
 
-   ```sh
-   sha256sum --check libreecho-*-SHA256SUMS
-   ```
+For the normal operator flow, download the wrapper from the release branch and
+pass the literal `latest` tag:
 
-4. Read the installation instructions included with the download.
+```sh
+curl -fL -o run-one-shot.sh https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.9/libreecho-radar-puffin-v0.13.9-run-one-shot.sh
+chmod +x run-one-shot.sh
+```
 
-Do not use an OTA archive, random `boot.img`, raw `zImage`, or an installer from
-an old issue comment for a first install.
+For a development or nightly build, download its complete immutable wrapper asset
+instead. Do not start the installer until the Echo and USB are prepared in
+sections 2–4.
+
+The wrapper resolves `latest` to the immutable release tag before starting the
+existing installer. It uses public GitHub API/download URLs, verifies the
+installer checksum, and does not require a GitHub account or token. For a
+pinned development or nightly build, pass its complete tag in the same command.
+Do not rename or mix asset files from another release.
 
 ## 2. Open the Echo
 
@@ -97,37 +122,80 @@ contacts to the marked ground point—not a generic test pad.
 
 1. Keep the board unpowered.
 2. Use an insulated probe or purpose-built pogo jig.
-3. Touch the marked resistor/eMMC data-line contacts to the marked ground point.
-4. Connect USB and power as instructed by the installation instructions.
-5. Wait for the MediaTek BROM device to appear over USB.
-6. Remove the short immediately after it appears.
+3. Connect the data-capable USB cable, but do not power the Echo yet.
+4. Start the installer now, after the Echo and USB are prepared:
 
-Never leave the short in place while writing. If BROM does not appear, remove
-power before checking the probe and board orientation.
+   ```sh
+   ./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
+   ```
 
-## 5. Run the installer
+   For a pinned development or nightly build, replace `latest` with its
+   complete immutable tag.
+5. When the installer/Amonet prompt appears, touch the marked
+   resistor/eMMC data-line contacts to the marked ground point and apply power.
+6. Release the short immediately when BROM appears or when Amonet prompts you.
+7. Press Enter when Amonet prompts you.
 
-A fully automated installer is planned but is not ready yet. Until it is
-released, follow the manual installation instructions supplied with the download:
+Never leave the short in place while writing. Starting the installer before this
+BROM sequence is required: it starts the Amonet listener and waits for the
+transient BROM device.
 
-1. Confirm the checksum passed.
-2. Confirm the installer sees the Echo over USB.
-3. Follow the on-screen instructions.
-4. Do not interrupt USB or power during installation.
-5. Follow the installer's reboot instructions.
+## 5. Complete the installer transaction
 
-If installation fails, note the error message and do not try a different image or
+The installer is already running from section 4. Follow its prompts without
+restarting it or disconnecting USB. It validates the release, performs the
+Amonet handoff, prepares userdata, writes both verified boot slots, reboots,
+waits for ADB, verifies readback, stages the feature payloads, and creates the
+temporary setup forward.
+
+If BROM is not detected, remove power before repositioning the probe and repeat
+the documented power/USB sequence. If installation fails, keep the installer's
+log and exact error; do not retry with a different image or partition until the
+failure is understood.
+
+The `--slots both` option is intentional: it writes and verifies both boot
+slots. Do not substitute a raw boot image, OTA archive, or manually selected
 partition.
+## 6. First boot and setup
 
-## 6. First boot
+1. The installer has already rebooted the Echo and waited for ADB. Do not touch
+   the board or reconnect flex cables while it is powered.
+2. Verify the temporary ADB connection and forward:
 
-1. Remove the shorting tool.
-2. Reconnect the flex cables and close the enclosure.
-3. Power on the Echo.
-4. Confirm the LibreEcho control transport appears.
-5. Open the LibreEcho web control centre and complete setup.
-6. Change default credentials immediately.
-7. Test the features listed for your release.
+   ```sh
+   adb wait-for-device
+   adb get-state
+   adb forward --list | grep 'tcp:18080'
+   ```
+
+3. Before Wi-Fi setup, open the installer's forwarded setup page:
+
+   ```text
+   http://127.0.0.1:18080/setup.html
+   ```
+
+   If the browser did not open automatically, enter that URL manually while
+   the USB forward is active.
+4. Complete the account and setup wizard. After Wi-Fi is applied, disconnect
+   power before reconnecting any flex cables or closing the enclosure. Reconnect
+   cables only while unpowered, then power on again.
+5. On the normal LAN, open the advertised control-centre address:
+
+   ```text
+   http://libreecho.local:8080/
+   ```
+
+   If mDNS is unavailable, use the IP address assigned by your router:
+   `http://<device-ip>:8080/`.
+6. Verify that `libreecho.local` resolves and that the control centre remains
+   reachable after reconnecting the computer to the normal LAN.
+7. Test the features listed for the release.
+
+The first-run setup creates the local administrator account and stores Wi-Fi
+credentials on the device. The installer does not invent, print, or upload
+those credentials. A factory reset later removes the account, setup marker,
+Wi-Fi profiles, and other mutable configuration before rebooting back to this
+first-run state.
 
 ## Optional developer UART
 
