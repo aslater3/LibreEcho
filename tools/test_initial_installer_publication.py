@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import json
 import re
+import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -66,6 +70,65 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("--release-tag \"$TAG\"", source)
         self.assertIn("--release-dir \"$work\"", source)
         self.assertIn("exit \"$status\"", source)
+
+    def test_installer_accepts_stable_build_manifest_asset(self) -> None:
+        spec = importlib.util.spec_from_file_location("libreecho_install", INSTALLER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tag = "radar-puffin-v0.13.9"
+        prefix = f"libreecho-{tag}"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release = root / "release"
+            cache = root / "cache"
+            release.mkdir()
+            files = {
+                f"{prefix}-boot.img": b"boot",
+                f"{prefix}-ota-public-key.hex": b"a" * 64 + b"\n",
+                f"{prefix}-release-notes.md": b"notes\\n",
+                f"{prefix}-installer.py": b"#!/usr/bin/env python3\\n",
+                f"{prefix}.ota.tar": b"signed ota",
+                f"{prefix}-build.json": b"{}\\n",
+            }
+            manifest = {
+                "schema": "libreecho-initial-install-v1",
+                "release": tag,
+                "board": "radar_puffin",
+                "soc": "mt8163",
+                "image_profile": "ota",
+                "service_profile": "production",
+                "boot": {"name": f"{prefix}-boot.img", "size": len(files[f"{prefix}-boot.img"]), "sha256": hashlib.sha256(files[f"{prefix}-boot.img"]).hexdigest()},
+                "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": len(files[f"{prefix}-ota-public-key.hex"]), "sha256": hashlib.sha256(files[f"{prefix}-ota-public-key.hex"]).hexdigest()},
+                "features": [],
+                "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+            }
+            bundle = release / f"{prefix}-initial-install.tar"
+            with tarfile.open(bundle, "w") as archive:
+                info = tarfile.TarInfo("manifest.json")
+                data = json.dumps(manifest).encode()
+                info.size = len(data)
+                archive.addfile(info, __import__("io").BytesIO(data))
+                for name in (f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(files[name])
+                    archive.addfile(info, __import__("io").BytesIO(files[name]))
+            files[bundle.name] = bundle.read_bytes()
+            for name, data in files.items():
+                if name != bundle.name:
+                    (release / name).write_bytes(data)
+            sums = release / f"{prefix}-SHA256SUMS"
+            sums.write_text("".join(f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n" for name in sorted(files)), encoding="ascii")
+            prepared, _ = module._prepare(release, cache, tag)
+            self.assertEqual(prepared["release"], tag)
+
+    def test_install_guide_documents_initial_forward_and_safe_reassembly(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        self.assertIn("http://127.0.0.1:18080/setup.html", guide)
+        self.assertIn("Disconnect power before reconnecting the flex cables", guide)
+        self.assertLess(guide.index("Disconnect power before reconnecting the flex cables"),
+                        guide.index("Reconnect the flex cables"))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

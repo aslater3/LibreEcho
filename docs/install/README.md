@@ -169,12 +169,21 @@ understood.
 
 ## 6. First boot
 
-1. Remove the shorting tool.
+1. Disconnect power before reconnecting the flex cables. Do not mate or adjust
+   any connector while the board is powered.
 2. Reconnect the flex cables and close the enclosure.
 3. Power on the Echo and wait for the installer to report that ADB is ready.
-4. Connect the computer to the same LAN as the Echo, or use the installer’s
-   temporary local forward if the device is not yet reachable by name.
-5. Open the LibreEcho setup page. The normal control-centre address is:
+4. Before Wi-Fi setup, open the installer's forwarded setup page:
+
+   ```text
+   http://127.0.0.1:18080/setup.html
+   ```
+
+   The installer forwards this local page because the Echo cannot yet be on
+   your normal LAN. If the browser did not open automatically, enter that URL
+   manually while the USB forward is active.
+5. Complete the account and setup wizard. After Wi-Fi is applied, reconnect the
+   computer to the normal LAN and open the advertised control-centre address:
 
    ```text
    http://libreecho.local:8080/
