@@ -155,9 +155,11 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:18080/setup.html", guide)
         self.assertIn("power before reconnecting any flex cables", guide.lower())
         self.assertIn("adb wait-for-device", guide)
-        self.assertIn("Start the one-shot installer command", guide)
-        self.assertLess(guide.index("Start the one-shot installer command"),
+        self.assertIn("Start the installer now", guide)
+        self.assertLess(guide.index("Start the installer now"),
                         guide.index("## 5. Complete the installer transaction"))
+        self.assertGreater(guide.index("./run-one-shot.sh latest"),
+                           guide.index("## 4. Enter BROM mode"))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

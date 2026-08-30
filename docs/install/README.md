@@ -71,14 +71,11 @@ pass the literal `latest` tag:
 ```sh
 curl -fL -o run-one-shot.sh https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.9/libreecho-radar-puffin-v0.13.9-run-one-shot.sh
 chmod +x run-one-shot.sh
-./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
 ```
 
-For a development or nightly build, pass its complete immutable tag instead:
-
-```sh
-./run-one-shot.sh radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id> --fastboot-serial auto --slots both --execute-hardware
-```
+For a development or nightly build, download its complete immutable wrapper asset
+instead. Do not start the installer until the Echo and USB are prepared in
+sections 2–4.
 
 The wrapper resolves `latest` to the immutable release tag before starting the
 existing installer. It uses public GitHub API/download URLs, verifies the
@@ -126,7 +123,14 @@ contacts to the marked ground point—not a generic test pad.
 1. Keep the board unpowered.
 2. Use an insulated probe or purpose-built pogo jig.
 3. Connect the data-capable USB cable, but do not power the Echo yet.
-4. Start the one-shot installer command from section 1 and leave it running.
+4. Start the installer now, after the Echo and USB are prepared:
+
+   ```sh
+   ./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
+   ```
+
+   For a pinned development or nightly build, replace `latest` with its
+   complete immutable tag.
 5. When the installer/Amonet prompt appears, touch the marked
    resistor/eMMC data-line contacts to the marked ground point and apply power.
 6. Release the short immediately when BROM appears or when Amonet prompts you.
