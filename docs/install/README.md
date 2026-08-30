@@ -17,6 +17,7 @@
 
 ### Required
 
+- Data-capable USB cable
 - `adb` and `fastboot` (Debian/Ubuntu packages: `adb` and `fastboot`)
 - `bash`, `curl`, and Python 3
 - `mke2fs` (from `e2fsprogs`) and `img2simg` (from
@@ -124,55 +125,57 @@ contacts to the marked ground point—not a generic test pad.
 
 1. Keep the board unpowered.
 2. Use an insulated probe or purpose-built pogo jig.
-3. Touch the marked resistor/eMMC data-line contacts to the marked ground point.
-4. Connect USB and power as instructed by the installation instructions.
-5. Wait for the MediaTek BROM device to appear over USB.
-6. Remove the short immediately after it appears.
+3. Connect the data-capable USB cable, but do not power the Echo yet.
+4. Start the one-shot installer command from section 1 and leave it running.
+5. When the installer/Amonet prompt appears, touch the marked
+   resistor/eMMC data-line contacts to the marked ground point and apply power.
+6. Release the short immediately when BROM appears or when Amonet prompts you.
+7. Press Enter when Amonet prompts you.
 
-Never leave the short in place while writing. If BROM does not appear, remove
-power before checking the probe and board orientation.
+Never leave the short in place while writing. Starting the installer before this
+BROM sequence is required: it starts the Amonet listener and waits for the
+transient BROM device.
 
-## 5. Run the installer
+## 5. Complete the installer transaction
 
-The release installer performs the complete one-shot flow: it validates the
-release manifest and pinned Amonet inputs, enters BROM, writes both verified
-boot slots, verifies the readback, stages the feature payloads, waits for ADB,
-and forwards the web setup page.
+The installer is already running from section 4. Follow its prompts without
+restarting it or disconnecting USB. It validates the release, performs the
+Amonet handoff, prepares userdata, writes both verified boot slots, reboots,
+waits for ADB, verifies readback, stages the feature payloads, and creates the
+temporary setup forward.
 
-1. Leave the USB cable connected.
-2. Keep the board powered off until the installer tells you to apply power.
-3. Run the installer command from step 1.
-4. When prompted, hold the marked BROM short while applying power. Release the
-   short as soon as BROM is detected; never hold it during the write stage.
-5. Follow the installer's prompts without disconnecting USB or power.
-6. If BROM is not detected, remove power before repositioning the probe and
-   repeat the documented power/USB sequence.
+If BROM is not detected, remove power before repositioning the probe and repeat
+the documented power/USB sequence. If installation fails, keep the installer's
+log and exact error; do not retry with a different image or partition until the
+failure is understood.
 
 The `--slots both` option is intentional: it writes and verifies both boot
 slots. Do not substitute a raw boot image, OTA archive, or manually selected
 partition.
+## 6. First boot and setup
 
-If installation fails, keep the installer's log and exact error, remove power,
-and do not retry with a different image or partition until the failure is
-understood.
+1. The installer has already rebooted the Echo and waited for ADB. Do not touch
+   the board or reconnect flex cables while it is powered.
+2. Verify the temporary ADB connection and forward:
 
-## 6. First boot
+   ```sh
+   adb wait-for-device
+   adb get-state
+   adb forward --list | grep 'tcp:18080'
+   ```
 
-1. Disconnect power before reconnecting the flex cables. Do not mate or adjust
-   any connector while the board is powered.
-2. Reconnect the flex cables and close the enclosure.
-3. Power on the Echo and wait for the installer to report that ADB is ready.
-4. Before Wi-Fi setup, open the installer's forwarded setup page:
+3. Before Wi-Fi setup, open the installer's forwarded setup page:
 
    ```text
    http://127.0.0.1:18080/setup.html
    ```
 
-   The installer forwards this local page because the Echo cannot yet be on
-   your normal LAN. If the browser did not open automatically, enter that URL
-   manually while the USB forward is active.
-5. Complete the account and setup wizard. After Wi-Fi is applied, reconnect the
-   computer to the normal LAN and open the advertised control-centre address:
+   If the browser did not open automatically, enter that URL manually while
+   the USB forward is active.
+4. Complete the account and setup wizard. After Wi-Fi is applied, disconnect
+   power before reconnecting any flex cables or closing the enclosure. Reconnect
+   cables only while unpowered, then power on again.
+5. On the normal LAN, open the advertised control-centre address:
 
    ```text
    http://libreecho.local:8080/
@@ -180,16 +183,15 @@ understood.
 
    If mDNS is unavailable, use the IP address assigned by your router:
    `http://<device-ip>:8080/`.
-6. Create the local administrator account, select Wi-Fi, choose the hostname,
-   review the privacy defaults, and select **Apply and connect**.
-7. After setup, verify that `libreecho.local` resolves and that the control
-   centre remains reachable after reconnecting the computer to the normal LAN.
-8. Test the features listed for the release.
+6. Verify that `libreecho.local` resolves and that the control centre remains
+   reachable after reconnecting the computer to the normal LAN.
+7. Test the features listed for the release.
 
-The first-run setup creates the local account and stores Wi-Fi credentials on
-the device. The installer does not invent, print, or upload those credentials.
-A factory reset later removes the account, setup marker, Wi-Fi profiles, and
-other mutable configuration before rebooting back to this first-run state.
+The first-run setup creates the local administrator account and stores Wi-Fi
+credentials on the device. The installer does not invent, print, or upload
+those credentials. A factory reset later removes the account, setup marker,
+Wi-Fi profiles, and other mutable configuration before rebooting back to this
+first-run state.
 
 ## Optional developer UART
 

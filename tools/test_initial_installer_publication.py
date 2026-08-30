@@ -153,9 +153,11 @@ class InstallerPublicationTests(unittest.TestCase):
     def test_install_guide_documents_initial_forward_and_safe_reassembly(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
         self.assertIn("http://127.0.0.1:18080/setup.html", guide)
-        self.assertIn("Disconnect power before reconnecting the flex cables", guide)
-        self.assertLess(guide.index("Disconnect power before reconnecting the flex cables"),
-                        guide.index("Reconnect the flex cables"))
+        self.assertIn("power before reconnecting any flex cables", guide.lower())
+        self.assertIn("adb wait-for-device", guide)
+        self.assertIn("Start the one-shot installer command", guide)
+        self.assertLess(guide.index("Start the one-shot installer command"),
+                        guide.index("## 5. Complete the installer transaction"))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
