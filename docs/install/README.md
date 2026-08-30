@@ -44,19 +44,51 @@ adapter TX and VCC disconnected.
 
 ## 1. Download and verify the release
 
-1. Download the initial-install bundle from the [latest
-   release](https://github.com/aslater3/LibreEcho/releases/latest).
-2. Confirm it supports your Echo model and board revision.
-3. Verify the checksum:
+LibreEcho stable releases use immutable tags in the form
+`radar-puffin-vX.Y.Z`. The GitHub **latest stable** resolver below filters out
+prereleases and the historical `latest` alias, then selects the newest semantic
+stable tag. Keep the resolved tag in the shell: the installer, checksum
+inventory, and release assets must all refer to the same tag.
 
-   ```sh
-   sha256sum --check libreecho-*-SHA256SUMS
-   ```
+```sh
+set -eu
 
-4. Read the installation instructions included with the download.
+REPO=aslater3/LibreEcho
+TAG="$(gh release list --repo "$REPO" --limit 100 \
+  --json tagName,isDraft,isPrerelease \
+  --jq 'map(select(.isDraft == false and .isPrerelease == false and (.tagName | test("^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$")))) | .[0].tagName')"
 
-Do not use an OTA archive, random `boot.img`, raw `zImage`, or an installer from
-an old issue comment for a first install.
+if ! printf '%s\n' "$TAG" | grep -Eq '^radar-puffin-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "No stable LibreEcho release tag was found" >&2
+  exit 1
+fi
+
+PREFIX="libreecho-${TAG}"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/libreecho-${TAG}.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+
+gh release download "$TAG" --repo "$REPO" --dir "$WORK"
+(cd "$WORK" && sha256sum -c "${PREFIX}-SHA256SUMS")
+printf 'Verified stable release: %s\n' "$TAG"
+```
+
+The equivalent explicit installer syntax, used after the resolver above, is:
+
+```sh
+python3 "$WORK/${PREFIX}-installer.py" one-shot \\
+  --release-tag "$TAG" \\
+  --fastboot-serial auto \\
+  --slots both \\
+  --execute-hardware
+```
+
+The release tag is intentionally passed explicitly. Do not substitute `latest`
+for `radar-puffin-vX.Y.Z` in `--release-tag`: `latest` is a moving release
+alias, while the installer validates the immutable release identity.
+
+Confirm the release supports the Echo 2nd generation (`radar_puffin`, MT8163)
+and your board revision before continuing. Do not use an OTA archive, random
+`boot.img`, raw `zImage`, or an installer copied from an old issue comment.
 
 ## 2. Open the Echo
 
@@ -107,27 +139,53 @@ power before checking the probe and board orientation.
 
 ## 5. Run the installer
 
-A fully automated installer is planned but is not ready yet. Until it is
-released, follow the manual installation instructions supplied with the download:
+The release installer performs the complete one-shot flow: it validates the
+release manifest and pinned Amonet inputs, enters BROM, writes both verified
+boot slots, verifies the readback, stages the feature payloads, waits for ADB,
+and forwards the web setup page.
 
-1. Confirm the checksum passed.
-2. Confirm the installer sees the Echo over USB.
-3. Follow the on-screen instructions.
-4. Do not interrupt USB or power during installation.
-5. Follow the installer's reboot instructions.
+1. Leave the USB cable connected.
+2. Keep the board powered off until the installer tells you to apply power.
+3. Run the installer command from step 1.
+4. When prompted, hold the marked BROM short while applying power. Release the
+   short as soon as BROM is detected; never hold it during the write stage.
+5. Follow the installer's prompts without disconnecting USB or power.
+6. If BROM is not detected, remove power before repositioning the probe and
+   repeat the documented power/USB sequence.
 
-If installation fails, note the error message and do not try a different image or
+The `--slots both` option is intentional: it writes and verifies both boot
+slots. Do not substitute a raw boot image, OTA archive, or manually selected
 partition.
+
+If installation fails, keep the installer's log and exact error, remove power,
+and do not retry with a different image or partition until the failure is
+understood.
 
 ## 6. First boot
 
 1. Remove the shorting tool.
 2. Reconnect the flex cables and close the enclosure.
-3. Power on the Echo.
-4. Confirm the LibreEcho control transport appears.
-5. Open the LibreEcho web control centre and complete setup.
-6. Change default credentials immediately.
-7. Test the features listed for your release.
+3. Power on the Echo and wait for the installer to report that ADB is ready.
+4. Connect the computer to the same LAN as the Echo, or use the installer’s
+   temporary local forward if the device is not yet reachable by name.
+5. Open the LibreEcho setup page. The normal control-centre address is:
+
+   ```text
+   http://libreecho.local:8080/
+   ```
+
+   If mDNS is unavailable, use the IP address assigned by your router:
+   `http://<device-ip>:8080/`.
+6. Create the local administrator account, select Wi-Fi, choose the hostname,
+   review the privacy defaults, and select **Apply and connect**.
+7. After setup, verify that `libreecho.local` resolves and that the control
+   centre remains reachable after reconnecting the computer to the normal LAN.
+8. Test the features listed for the release.
+
+The first-run setup creates the local account and stores Wi-Fi credentials on
+the device. The installer does not invent, print, or upload those credentials.
+A factory reset later removes the account, setup marker, Wi-Fi profiles, and
+other mutable configuration before rebooting back to this first-run state.
 
 ## Optional developer UART
 
