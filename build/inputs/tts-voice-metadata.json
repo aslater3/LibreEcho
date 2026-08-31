@@ -5,7 +5,7 @@
     "northern-male": {
       "upstream_file": "piper-en_GB-northern_english_male-medium.onnx",
       "output_file": "northern-male.derived.onnx",
-      "reviewed_sha256": "786158f6507d49981889ece1803d8296adfcd34da847eb7e4ef69688ee148119",
+      "reviewed_sha256": "bf4de4bc3da0ef15cd1745b4fb08ee67b9ca6bf02311ce4d2eede04a6f057411",
       "metadata_props": [
         ["model_author", "OpenSLR SLR83 contributors and Piper contributors"],
         ["model_language", "en-GB"],
@@ -13,7 +13,7 @@
         ["model_name", "northern_english_male"],
         ["model_url", "https://huggingface.co/rhasspy/piper-voices/tree/ea046e8458f6acd997706d6e6066a022b42f6fb1/en/en_GB/northern_english_male/medium"],
         ["piper_version", "1.0"],
-        ["vits_sample_rate", "22050"]
+        ["sample_rate", "22050"]
       ]
     },
     "southern-female": {
