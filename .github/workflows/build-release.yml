@@ -132,8 +132,8 @@ jobs:
           component_ref=main
           if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == release/* ]]; then
             component_ref="$GITHUB_BASE_REF"
-          elif [[ "$RELEASE_CHANNEL" == stable ]]; then
-            component_ref="release/$RELEASE_VERSION"
+          elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
+            component_ref="$GITHUB_REF_NAME"
           fi
           if [[ "$component_ref" != main ]]; then
             for component in LibreEcho-Platform LibreEcho-Linux-6.1 LibreEcho-UI; do
