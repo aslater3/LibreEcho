@@ -53,24 +53,31 @@ class PublicNeuralDependencyTests(unittest.TestCase):
         self.assertIn('"$ESPEAK_DATA/phontab"', SCRIPT)
         self.assertIn('"$ESPEAK_DATA/phonindex"', SCRIPT)
 
-    def test_tts_voice_metadata_uses_sherpa_sample_rate(self):
+    def test_tts_voice_metadata_is_sherpa_piper_compatible(self):
         metadata = json.loads(
             (ROOT / "build/inputs/tts-voice-metadata.json").read_text()
         )
+        expected = {
+            "model_type": "vits",
+            "comment": "piper",
+            "language": "English",
+            "voice": "en-gb-x-rp",
+            "has_espeak": "1",
+            "n_speakers": "1",
+            "sample_rate": "22050",
+        }
+        northern = metadata["voices"]["northern-male"]
+        self.assertEqual(dict(northern["metadata_props"]), expected)
+        self.assertEqual(
+            northern["reviewed_sha256"],
+            "d23e7891af7062eb188283dba94866e25ffd5b01a0d9fb9a23c71a39b75b2308",
+        )
         for name, voice in metadata["voices"].items():
-            properties = dict(voice["metadata_props"])
             with self.subTest(voice=name):
+                properties = dict(voice["metadata_props"])
                 self.assertIn("sample_rate", properties)
+                self.assertIn("n_speakers", properties)
                 self.assertNotIn("vits_sample_rate", properties)
-                self.assertRegex(properties["sample_rate"], r"^[0-9]+$")
-        self.assertEqual(
-            dict(metadata["voices"]["northern-male"]["metadata_props"])["sample_rate"],
-            "22050",
-        )
-        self.assertEqual(
-            metadata["voices"]["northern-male"]["reviewed_sha256"],
-            "bf4de4bc3da0ef15cd1745b4fb08ee67b9ca6bf02311ce4d2eede04a6f057411",
-        )
 
 
 if __name__ == "__main__":
