@@ -11,8 +11,8 @@ hardware and is not a stable or production-support commitment.
 - Release classification: GitHub prerelease
 - Coordinated components: Product, Platform, Linux 6.1, and UI source heads
 - Intended use: maintainer-controlled test flashing and validation
-- Product source head: `617052293f40d92ff81ce114b7a5abdaaaca9ef7`
-- Platform source head: `e05c01396399ced9c33509481d599ceb39c77dde`
+- Product source head: `b2c5f2c295a635805c84248fcee37ce2fd9ccc30`
+- Platform source head: `4c8f0c0e43ea35e0a5f52306bf90174864144371`
 - Linux 6.1 source head: `b5ecb69724322652fff51ac7c366b1618903630f`
 - UI source head: `5ce64cf5374995dda0bfef5858fa7cc3e35a69a8`
 
@@ -46,6 +46,8 @@ are deduplicated below.
 - [Product #103](https://github.com/aslater3/LibreEcho/pull/103): Hosted builds now supply the pinned libnl dependency needed for nl80211 Wi-Fi association.
 - [Product #107](https://github.com/aslater3/LibreEcho/pull/107): Generated eSpeak phoneme data is now built before TTS packaging so the voice service can start with a complete runtime payload.
 - [Product #109](https://github.com/aslater3/LibreEcho/pull/109): Added the supported 0.13.9 first-install guide and checksum-gated `latest` bootstrap.
+- [Product #115](https://github.com/aslater3/LibreEcho/pull/115): Corrected the Northern English male VITS metadata to use Sherpa-ONNX's `sample_rate` field and updated its reviewed model hash.
+- [Product #117](https://github.com/aslater3/LibreEcho/pull/117): Completed the Northern English male voice metadata with the standard Piper/Sherpa fields so the TTS service can initialize correctly.
 
 ### Platform — initramfs, connectivity, and image contracts
 
@@ -57,6 +59,8 @@ are deduplicated below.
 - [Platform #96](https://github.com/aslater3/LibreEcho-Platform/pull/96): The LibreEcho control centre remains reachable at `libreecho.local` after setup and factory reset.
 - [Platform #99](https://github.com/aslater3/LibreEcho-Platform/pull/99): Corrected the Radar-Puffin DTB transformation so generated AFE pinctrl references remain bound to the correct hardware states.
 - [Platform #103](https://github.com/aslater3/LibreEcho-Platform/pull/103): Kept the image startup contract aligned with conditional Bluetooth readiness and delayed voice-service readiness.
+- [Platform #105](https://github.com/aslater3/LibreEcho-Platform/pull/105): Updated the Northern English male model pin and matching notice hash for Sherpa-ONNX-compatible sample-rate metadata.
+- [Platform #107](https://github.com/aslater3/LibreEcho-Platform/pull/107): Packaged the Northern English male voice with the standard Piper/Sherpa metadata contract and verified payload digest.
 
 ### Linux 6.1 — MT8163 kernel fixes
 
