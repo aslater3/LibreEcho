@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Contract checks for the public ARM32 neural dependency boundary."""
 from pathlib import Path
+import json
 import unittest
 
 ROOT = Path(__file__).parents[2]
@@ -51,6 +52,25 @@ class PublicNeuralDependencyTests(unittest.TestCase):
         self.assertIn('"$ESPEAK_BUILD/espeak-ng-data/phonindex"', SCRIPT)
         self.assertIn('"$ESPEAK_DATA/phontab"', SCRIPT)
         self.assertIn('"$ESPEAK_DATA/phonindex"', SCRIPT)
+
+    def test_tts_voice_metadata_uses_sherpa_sample_rate(self):
+        metadata = json.loads(
+            (ROOT / "build/inputs/tts-voice-metadata.json").read_text()
+        )
+        for name, voice in metadata["voices"].items():
+            properties = dict(voice["metadata_props"])
+            with self.subTest(voice=name):
+                self.assertIn("sample_rate", properties)
+                self.assertNotIn("vits_sample_rate", properties)
+                self.assertRegex(properties["sample_rate"], r"^[0-9]+$")
+        self.assertEqual(
+            dict(metadata["voices"]["northern-male"]["metadata_props"])["sample_rate"],
+            "22050",
+        )
+        self.assertEqual(
+            metadata["voices"]["northern-male"]["reviewed_sha256"],
+            "bf4de4bc3da0ef15cd1745b4fb08ee67b9ca6bf02311ce4d2eede04a6f057411",
+        )
 
 
 if __name__ == "__main__":
