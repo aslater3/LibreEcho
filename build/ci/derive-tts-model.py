@@ -8,7 +8,7 @@ model blob with ONNX ``metadata_props`` appended. The packaged artifacts are
 identified in ``tools/mt8163-arm32/tts/package_feature.sh`` (LibreEcho-Kernel)
 and in its third-party notices:
 
-  northern-male    786158f6507d49981889ece1803d8296adfcd34da847eb7e4ef69688ee148119
+  northern-male    bf4de4bc3da0ef15cd1745b4fb08ee67b9ca6bf02311ce4d2eede04a6f057411
   southern-female  cf7f487689da2ec115cb5e9b5fb5ff4450f24e0c45565e0b72dd1eb4ed4caf65
 
 Graph and tensor data are untouched; only metadata properties are appended.
