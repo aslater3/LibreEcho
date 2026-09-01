@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import struct
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,6 +52,39 @@ def sparse_header(expected_bytes: int) -> bytes:
 
 
 class HostFastbootPreflightTests(unittest.TestCase):
+    def test_failure_evidence_archives_available_fastboot_and_adb(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / "bin"
+            bindir.mkdir()
+            for name, body in {
+                "fastboot": "#!/bin/sh\nif [ \"$1\" = devices ]; then printf 'FB123 fastboot\\n'; fi\n",
+                "adb": "#!/bin/sh\nif [ \"$1\" = devices ]; then printf 'List of devices attached\\nADB123\\tdevice product:test\\n'; fi\n",
+                "lsusb": "#!/bin/sh\nprintf 'Bus 001 Device 001: ID 0e8d:0003 MediaTek\\n'\n",
+            }.items():
+                command = bindir / name
+                command.write_text(body, encoding="ascii")
+                command.chmod(0o755)
+            log = root / "run.log"
+            log.write_text("original failure\n", encoding="utf-8")
+            args = type("Args", (), {
+                "fastboot_bin": "fastboot", "adb_bin": "adb",
+                "fastboot_serial": "auto", "cache_root": root / "cache",
+            })()
+            with mock.patch.object(INSTALLER, "ACTIVE_LOG_PATH", log), \
+                 mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+                archive = INSTALLER.collect_failure_evidence(args, "simulated failure")
+            self.assertIsNotNone(archive)
+            assert archive is not None
+            self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+            with tarfile.open(archive, "r:gz") as stream:
+                names = stream.getnames()
+            for expected in (
+                "failure.txt", "libreecho-installer.log", "fastboot-devices.txt",
+                "fastboot-FB123-getvar-all.txt", "adb-devices.txt", "adb-ADB123-props.txt",
+            ):
+                self.assertTrue(any(name.endswith(expected) for name in names), expected)
+
     def test_stages_complete_userdata_toolset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

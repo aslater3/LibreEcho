@@ -145,6 +145,21 @@ Every run leaves its shareable log in `./libreecho-installer.log` unless
 `--log-file PATH` is supplied. Do not rerun `one-shot` after Amonet has already
 completed unless a fresh conversion is explicitly intended.
 
+If any installer operation fails, it performs a best-effort evidence pass before
+reporting the original error. When available, this records host identity and
+USB/serial state, fastboot device inventory and `getvar all`, ADB device
+inventory and read-only device state, and the cached Amonet log. The installer
+packages the evidence and the final installer log into:
+
+```text
+./libreecho-installer-evidence.tar.gz
+```
+
+The archive is mode `0600`. Missing or unresponsive transports are recorded as
+collection failures inside the archive; they do not hide or replace the original
+installation error. ADB collection is attempted if a device is visible even
+when the failure occurred while waiting for or using fastboot.
+
 ## Safety boundary
 
 This is a controlled hardware-test tool, not a general public installer. A

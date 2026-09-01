@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -36,6 +37,54 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("def download_release", source)
         self.assertIn("def download_amonet", source)
         self.assertIn("release_dir = download_release", source)
+
+    def test_installer_starts_with_readable_libreecho_banner(self) -> None:
+        import contextlib
+        import io
+
+        spec = importlib.util.spec_from_file_location("installer_under_test", INSTALLER)
+        assert spec is not None and spec.loader is not None
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "installer.log"
+            result = subprocess.run(
+                [
+                    sys.executable, str(INSTALLER), "status",
+                    "--state-root", str(Path(temporary) / "state"),
+                    "--install-id", "banner-test",
+                    "--log-file", str(log),
+                ],
+                text=True, capture_output=True, check=True,
+            )
+            self.assertIn("LibreEcho initial installer", result.stdout)
+            self.assertIn("_     _ _", result.stdout)
+            log_text = log.read_text(encoding="utf-8")
+            self.assertIn("LibreEcho initial installer", log_text)
+            self.assertNotIn("\x1b[", log_text)
+
+        prompt_output = io.StringIO()
+        with contextlib.redirect_stdout(prompt_output):
+            installer.print_brom_action_prompt()
+        prompt = prompt_output.getvalue()
+        self.assertIn("ACTION REQUIRED - ENTER BROM MODE", prompt)
+        self.assertIn("Connect the USB data pins: D+, D-, and GND.", prompt)
+        self.assertIn("Do not apply power yet.", prompt)
+
+        console = io.StringIO()
+        logfile = io.StringIO()
+        tee = installer._Tee(console, logfile)
+        installer._COLOUR_ENABLED = True
+        tee.write("\033[92mcolour\033[0m\n")
+        installer._COLOUR_ENABLED = False
+        self.assertIn("colour", console.getvalue())
+        self.assertNotIn("\x1b[", logfile.getvalue())
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("def collect_failure_evidence", source)
+        self.assertIn("libreecho-installer-evidence.tar.gz", source)
+        self.assertIn("fastboot", source)
+        self.assertIn("adb", source)
 
     def test_run_one_shot_wrapper_is_packaged_in_complete_release(self) -> None:
         source = (ROOT / "build/ci/prepare-dev-release.py").read_text(encoding="utf-8")
