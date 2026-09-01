@@ -45,6 +45,10 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("Connect the USB data pins: D+, D-, and GND.", source)
         self.assertIn("Do not apply power yet.", source)
         self.assertIn("ANSI_ESCAPE.sub(\"\", text)", source)
+        self.assertIn("def collect_failure_evidence", source)
+        self.assertIn("libreecho-installer-evidence.tar.gz", source)
+        self.assertIn("fastboot", source)
+        self.assertIn("adb", source)
 
     def test_run_one_shot_wrapper_is_packaged_in_complete_release(self) -> None:
         source = (ROOT / "build/ci/prepare-dev-release.py").read_text(encoding="utf-8")

@@ -1074,6 +1074,95 @@ def collect_adb_diagnostics(adb_bin: str, serial: str, timeout: float = 30, reas
     _append_log("ADB_DIAGNOSTICS end")
 
 
+def _capture_evidence_command(argv: list[str], destination: Path, timeout: float = 20) -> None:
+    """Capture a best-effort diagnostic command without masking the install error."""
+    try:
+        result = subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
+        destination.write_text(
+            f"$ {' '.join(argv)}\nreturncode={result.returncode}\n\n"
+            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}\n",
+            encoding="utf-8",
+        )
+        _append_log(f"FAILURE_EVIDENCE {destination.name} rc={result.returncode}")
+    except (OSError, subprocess.TimeoutExpired) as error:
+        destination.write_text(
+            f"$ {' '.join(argv)}\ncollection failed: {type(error).__name__}: {error}\n",
+            encoding="utf-8",
+        )
+        _append_log(f"FAILURE_EVIDENCE {destination.name} collection failed: {error}")
+
+
+def collect_failure_evidence(args: argparse.Namespace, reason: str) -> Path | None:
+    """Collect available host/device evidence and package it into one archive."""
+    parent = ACTIVE_LOG_PATH.parent if ACTIVE_LOG_PATH is not None else Path.cwd()
+    archive_path = parent / "libreecho-installer-evidence.tar.gz"
+    try:
+        with tempfile.TemporaryDirectory(prefix="libreecho-evidence-", dir=parent) as temporary:
+            root = Path(temporary)
+            (root / "failure.txt").write_text(f"reason={reason}\nargv={sys.argv!r}\n", encoding="utf-8")
+
+            host_commands = (
+                ("host-uname.txt", ["uname", "-a"]),
+                ("host-id.txt", ["id"]),
+                ("host-usb.txt", ["lsusb"]),
+                ("host-serial-devices.txt", ["sh", "-c", "ls -l /dev/ttyACM* /dev/ttyUSB* 2>&1"]),
+                ("host-dmesg-usb.txt", ["sh", "-c", "dmesg | tail -200"]),
+                ("host-modules.txt", ["lsmod"]),
+                ("host-processes.txt", ["ps", "-ef"]),
+            )
+            for filename, command in host_commands:
+                if shutil.which(command[0]) is not None:
+                    _capture_evidence_command(command, root / filename)
+
+            fastboot = str(getattr(args, "fastboot_bin", "fastboot"))
+            fastboot_serials: list[str] = []
+            if shutil.which(fastboot) is not None or Path(fastboot).is_file():
+                devices = root / "fastboot-devices.txt"
+                _capture_evidence_command([fastboot, "devices"], devices)
+                try:
+                    text = devices.read_text(encoding="utf-8")
+                    fastboot_serials = [line.split()[0] for line in text.splitlines() if len(line.split()) >= 2 and line.split()[1] == "fastboot"]
+                except OSError:
+                    pass
+                requested = getattr(args, "fastboot_serial", "auto")
+                if requested != "auto" and requested not in fastboot_serials:
+                    fastboot_serials.append(requested)
+                for serial in dict.fromkeys(fastboot_serials):
+                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", serial)
+                    _capture_evidence_command([fastboot, "-s", serial, "getvar", "all"], root / f"fastboot-{safe}-getvar-all.txt")
+
+            adb = str(getattr(args, "adb_bin", "adb"))
+            adb_serials: list[str] = []
+            if shutil.which(adb) is not None or Path(adb).is_file():
+                devices = root / "adb-devices.txt"
+                _capture_evidence_command([adb, "devices", "-l"], devices)
+                try:
+                    adb_serials = [line.split()[0] for line in devices.read_text(encoding="utf-8").splitlines() if len(line.split()) >= 2 and line.split()[1] == "device"]
+                except OSError:
+                    pass
+                for serial in dict.fromkeys(adb_serials):
+                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", serial)
+                    for name, remote in (("props", ["getprop"]), ("mounts", ["cat", "/proc/mounts"]), ("partitions", ["cat", "/proc/partitions"]), ("cmdline", ["cat", "/proc/cmdline"]), ("dmesg", ["dmesg"])):
+                        _capture_evidence_command([adb, "-s", serial, "shell", *remote], root / f"adb-{safe}-{name}.txt", timeout=30)
+
+            cache_root = Path(getattr(args, "cache_root", ""))
+            if cache_root.is_dir():
+                for amonet_log in cache_root.glob("**/modules/amonet.log"):
+                    if amonet_log.is_file() and amonet_log.stat().st_size <= 2 * 1024 * 1024:
+                        shutil.copy2(amonet_log, root / f"amonet-{amonet_log.parent.parent.name}.log")
+
+            if ACTIVE_LOG_PATH is not None and ACTIVE_LOG_PATH.is_file():
+                shutil.copy2(ACTIVE_LOG_PATH, root / "libreecho-installer.log")
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(root, arcname="libreecho-installer-evidence")
+        os.chmod(archive_path, 0o600)
+        _append_log(f"FAILURE_EVIDENCE archive={archive_path}")
+        return archive_path
+    except (OSError, tarfile.TarError) as error:
+        _append_log(f"FAILURE_EVIDENCE archive creation failed: {error}")
+        return None
+
+
 def wait_for_transport(probe: list[str], expected: str, timeout: float, label: str) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -1904,6 +1993,11 @@ def main() -> None:
                     else:
                         result = status(args.state_root, args.install_id)
                 except InstallerError as error:
+                    archive = collect_failure_evidence(args, str(error))
+                    if archive is not None:
+                        print(f"Failure evidence archive: {archive}", file=sys.stderr, flush=True)
+                    else:
+                        print("Failure evidence archive could not be created; installer log may still be available.", file=sys.stderr, flush=True)
                     print(f"ERROR: {error}", file=sys.stderr, flush=True)
                     raise SystemExit(1) from error
                 print(json.dumps(result, sort_keys=True))
