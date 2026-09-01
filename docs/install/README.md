@@ -60,13 +60,11 @@ adapter TX and VCC disconnected.
 ## 1. Download and verify the release
 
 LibreEcho stable releases use immutable tags in the form
-`radar-puffin-vX.Y.Z`. The GitHub **latest stable** resolver below filters out
-prereleases and the historical `latest` alias, then selects the newest semantic
-stable tag. Keep the resolved tag in the shell: the installer, checksum inventory, and
-release assets must all refer to the same tag.
+`radar-puffin-vX.Y.Z`. Select the intended tag before beginning the BROM
+sequence. The installer, checksum inventory, and release assets must all refer
+to that exact immutable tag.
 
-For the normal operator flow, download the wrapper from the release branch and
-pass the literal `latest` tag:
+Download the matching wrapper from the selected release:
 
 ```sh
 curl -fL -o run-one-shot.sh https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.9/libreecho-radar-puffin-v0.13.9-run-one-shot.sh
@@ -77,11 +75,10 @@ For a development or nightly build, download its complete immutable wrapper asse
 instead. Do not start the installer until the Echo and USB are prepared in
 sections 2–4.
 
-The wrapper resolves `latest` to the immutable release tag before starting the
-existing installer. It uses public GitHub API/download URLs, verifies the
-installer checksum, and does not require a GitHub account or token. For a
-pinned development or nightly build, pass its complete tag in the same command.
-Do not rename or mix asset files from another release.
+The wrapper verifies the installer checksum using public GitHub download URLs
+and does not require a GitHub account or token. For a development or nightly
+build, pass that build's complete immutable tag. Do not rename or mix asset
+files from another release.
 
 ## 2. Open the Echo
 
@@ -126,11 +123,11 @@ contacts to the marked ground point—not a generic test pad.
 4. Start the installer now, after the Echo and USB are prepared:
 
    ```sh
-   ./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
+   ./run-one-shot.sh radar-puffin-v0.13.9 --fastboot-serial auto --slots both --execute-hardware
    ```
 
-   For a pinned development or nightly build, replace `latest` with its
-   complete immutable tag.
+   For a pinned development or nightly build, replace `radar-puffin-v0.13.9`
+   with its complete immutable tag.
 5. When the installer/Amonet prompt appears, touch the marked
    resistor/eMMC data-line contacts to the marked ground point and apply power.
 6. Release the short immediately when BROM appears or when Amonet prompts you.

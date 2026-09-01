@@ -45,7 +45,7 @@ class InstallerPublicationTests(unittest.TestCase):
         for marker in (
             "release checksum inventory",
             "download and verify pinned Amonet",
-            "./run-one-shot.sh latest",
+            "--release-tag \"$TAG\"",
             "--execute-hardware",
             "initial-install.tar",
             "stage and verify all five feature payloads",
@@ -65,32 +65,18 @@ class InstallerPublicationTests(unittest.TestCase):
         source = wrapper.read_text(encoding="utf-8")
         self.assertIn("SHA256SUMS", source)
         self.assertIn("sha256sum -c", source)
-        self.assertNotIn("exec python3", source)
-        self.assertIn("releases/latest", source)
-        self.assertNotIn("releases/tags/latest", source)
+        self.assertIn("exec python3", source)
+        self.assertNotIn("releases/latest", source)
+        self.assertNotIn("latest|RADAR_PUFFIN_RELEASE_TAG", source)
         self.assertIn("--release-tag \"$TAG\"", source)
-        self.assertNotIn("--release-dir \"$work\"", source)
-        self.assertIn("exit \"$status\"", source)
+        self.assertIn("exec python3", source)
         self.assertNotIn("latest-meta", source)
 
-    def test_latest_resolver_returns_immutable_tag(self) -> None:
+    def test_run_one_shot_requires_an_explicit_immutable_tag(self) -> None:
         source = (ROOT / "tools/run-one-shot.sh").read_text(encoding="utf-8")
-        resolver = source.split(
-            'TAG="$(python3 - "$work/release.json" <<\'PY\'\n', 1
-        )[1].split("\nPY\n", 1)[0]
-        with tempfile.TemporaryDirectory() as temporary:
-            metadata = Path(temporary) / "release.json"
-            metadata.write_text(json.dumps({
-                "tag_name": "radar-puffin-v0.13.9",
-                "draft": False,
-                "prerelease": False,
-                "assets": [],
-            }), encoding="utf-8")
-            result = subprocess.run(
-                ["python3", "-c", resolver, str(metadata)],
-                check=True, text=True, capture_output=True,
-            )
-        self.assertEqual(result.stdout.strip(), "radar-puffin-v0.13.9")
+        self.assertIn("Usage: $0 RADAR_PUFFIN_RELEASE_TAG", source)
+        self.assertIn("radar-puffin-(v[0-9]+", source)
+        self.assertNotIn("if [[ \"$TAG\" == latest ]]", source)
 
     def test_installer_accepts_stable_build_manifest_asset(self) -> None:
         spec = importlib.util.spec_from_file_location("libreecho_install", INSTALLER)
@@ -158,7 +144,7 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("Start the installer now", guide)
         self.assertLess(guide.index("Start the installer now"),
                         guide.index("## 5. Complete the installer transaction"))
-        self.assertGreater(guide.index("./run-one-shot.sh latest"),
+        self.assertGreater(guide.index("./run-one-shot.sh radar-puffin-v0.13.9"),
                            guide.index("## 4. Enter BROM mode"))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
@@ -169,9 +155,10 @@ class InstallerPublicationTests(unittest.TestCase):
             for line in block.splitlines():
                 self.assertNotRegex(line, r"\\\\\\s*$",
                                      f"doubled shell continuation: {line!r}")
-        self.assertIn("./run-one-shot.sh latest", guide)
+        self.assertIn("./run-one-shot.sh radar-puffin-v0.13.9", guide)
+        self.assertNotIn("./run-one-shot.sh latest", guide)
         self.assertNotIn("gh release list", guide)
-        self.assertIn("public GitHub API/download URLs", guide)
+        self.assertIn("public GitHub download URLs", guide)
 
     def test_continuation_validates_the_requested_release_tag(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
