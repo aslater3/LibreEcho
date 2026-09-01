@@ -64,10 +64,13 @@ LibreEcho stable releases use immutable tags in the form
 sequence. The installer, checksum inventory, and release assets must all refer
 to that exact immutable tag.
 
-Download the matching wrapper from the selected release:
+Download the matching wrapper from a **published stable** release. Do not use
+an unpublished development candidate or prerelease as a public installation
+instruction:
 
 ```sh
-curl -fL -o run-one-shot.sh https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.9/libreecho-radar-puffin-v0.13.9-run-one-shot.sh
+TAG=radar-puffin-vX.Y.Z  # replace with the published stable tag you selected
+curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
 chmod +x run-one-shot.sh
 ```
 
@@ -123,11 +126,12 @@ contacts to the marked ground point—not a generic test pad.
 4. Start the installer now, after the Echo and USB are prepared:
 
    ```sh
-   ./run-one-shot.sh radar-puffin-v0.13.9 --fastboot-serial auto --slots both --execute-hardware
+   ./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
    ```
 
-   For a pinned development or nightly build, replace `radar-puffin-v0.13.9`
-   with its complete immutable tag.
+   For a pinned development or nightly build, use its complete immutable tag
+   only for maintainer-controlled test hardware—not the public installation
+   flow.
 5. When the installer/Amonet prompt appears, touch the marked
    resistor/eMMC data-line contacts to the marked ground point and apply power.
 6. Release the short immediately when BROM appears or when Amonet prompts you.

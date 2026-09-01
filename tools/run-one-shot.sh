@@ -28,4 +28,9 @@ expected="$(awk -v name="${prefix}-installer.py" '$2 == name { print $1; found=1
 }
 printf '%s  %s\n' "$expected" "$work/${prefix}-installer.py" | sha256sum -c -
 echo "Installer checksum verified: ${expected}"
-exec python3 "$work/${prefix}-installer.py" one-shot --release-tag "$TAG" "$@"
+if python3 "$work/${prefix}-installer.py" one-shot --release-tag "$TAG" "$@"; then
+  status=0
+else
+  status=$?
+fi
+exit "$status"
