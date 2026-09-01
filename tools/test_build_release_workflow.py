@@ -310,7 +310,7 @@ class Tests(unittest.TestCase):
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
   self.assertNotIn('aslater3/LibreEcho-Build', PUBLISH)
-  self.assertIn('component_ref="release/$RELEASE_VERSION"', W)
+  self.assertIn('component_ref="$GITHUB_REF_NAME"', W)
   self.assertIn('coordinated component ref is missing', W)
   self.assertIn('Install reviewed OTA signing dependency closure', W)
   self.assertIn('--no-index', W)
@@ -323,6 +323,13 @@ class Tests(unittest.TestCase):
   self.assertIn('UI VERSION=', W)
   self.assertIn('"$GITHUB_BASE_REF" == release/*', W)
   self.assertIn('component_ref="$GITHUB_BASE_REF"', W)
+
+ def test_release_branch_dev_uses_release_component_refs(self):
+  start = W.index('          component_ref=main')
+  end = W.index('          if [[ "$component_ref" != main ]]', start)
+  selection = W[start:end]
+  self.assertIn('elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then', selection)
+  self.assertIn('component_ref="$GITHUB_REF_NAME"', selection)
 
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;

@@ -51,6 +51,21 @@ Host requirements are validated before the BROM handoff:
 bash, adb, fastboot, executable mke2fs, executable img2simg, staged tool probes
 ```
 
+On Debian/Ubuntu, install the required host tools before using `one-shot`:
+
+```sh
+sudo apt-get update
+sudo apt-get install adb fastboot e2fsprogs android-sdk-libsparse-utils
+```
+
+`--install-host-deps` can install only `e2fsprogs` and
+`android-sdk-libsparse-utils`; it does **not** install `adb` or `fastboot`.
+Check the complete tool closure with:
+
+```sh
+command -v adb fastboot mke2fs img2simg
+```
+
 It does not flash Amonet wrapper partitions directly or invent credentials. The
 Amonet exploit owns the stock-to-Amonet conversion; this tool validates the
 handoff, recreates the reviewed userdata filesystem, and completes LibreEcho
@@ -58,29 +73,22 @@ installation after that point.
 
 ## User command
 
-Download the release bootstrap from the exact Product release, then pass the
-exact release tag. The bootstrap verifies the installer against the release
-`SHA256SUMS` inventory **before executing Python**. The verified Python installer
-then downloads the remaining release assets itself, including the boot image,
-`initial-install.tar`, OTA key, five feature payloads/manifests, and checksums.
-It also downloads and verifies the pinned Amonet commit and its Git LFS objects.
-
-For a development build:
+Use the public wrapper with an explicit **published stable** tag. It downloads
+only the checksum file and installer bootstrap, verifies the bootstrap, and
+then hands control to the Python installer. The Python installer downloads and
+verifies the complete release bundle, including `initial-install.tar`, the five
+feature payloads/manifests, and pinned Amonet inputs.
 
 ```bash
-TAG=radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>
-curl -fL -o "libreecho-${TAG}-run-one-shot.sh" \
-  "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
-chmod +x "libreecho-${TAG}-run-one-shot.sh"
-
-./"libreecho-${TAG}-run-one-shot.sh" "$TAG" \
-  --fastboot-serial auto \
-  --slots both \
-  --execute-hardware
+TAG=radar-puffin-vX.Y.Z  # replace with the published stable tag you selected
+curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
+chmod +x run-one-shot.sh
+./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
 ```
 
-For a scheduled nightly, use its `radar-puffin-nightly-...` tag in exactly the
-same form. Do not shorten, rename, or mix asset files from another release.
+Development and nightly tags are for maintainer-controlled test hardware only;
+they are not a public installation recommendation. Do not shorten, rename, or
+mix asset files from another release.
 
 `install` is only the host-side preparation/checkpoint action and does not touch
 hardware. Use `one-shot` for the actual BROM → fastboot → ADB installation.

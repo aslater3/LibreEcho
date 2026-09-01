@@ -27,6 +27,7 @@ def fixture(root: Path) -> tuple[Path, Path]:
     (product / "release").mkdir(parents=True)
     (product / "tools").mkdir(parents=True)
     (product / "tools/libreecho-install.py").write_text("#!/usr/bin/env python3\n")
+    (product / "tools/run-one-shot.sh").write_text("#!/usr/bin/env bash\n")
     (product / "release/radar-puffin-v0.14.0.md").write_text("# LibreEcho v0.14.0\n")
 
     boot = run / "boot.img"
@@ -117,6 +118,7 @@ class StableReleasePackagingTests(unittest.TestCase):
             self.assertTrue((output / f"{prefix}.ota.tar").is_file())
             self.assertTrue((output / f"{prefix}-initial-install.tar").is_file())
             self.assertTrue((output / f"{prefix}-installer.py").is_file())
+            self.assertTrue((output / f"{prefix}-run-one-shot.sh").is_file())
             sums = output / f"{prefix}-SHA256SUMS"
             self.assertEqual(
                 set(line.split("  ", 1)[1] for line in sums.read_text().splitlines()),

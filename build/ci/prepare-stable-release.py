@@ -153,8 +153,10 @@ def main() -> int:
     release_tag = f"radar-puffin-v{args.release_version}"
     notes = product / args.release_notes
     installer = product / "tools/libreecho-install.py"
+    wrapper = product / "tools/run-one-shot.sh"
     regular(notes)
     regular(installer)
+    regular(wrapper)
 
     run = find_run(args.artifact_root)
     candidate = read_kv(run / "CURRENT.candidate")
@@ -266,6 +268,7 @@ def main() -> int:
     copy(public_key, "ota-public-key.hex")
     copy(notes, "release-notes.md")
     copy(installer, "installer.py")
+    copy(wrapper, "run-one-shot.sh")
     for feature in FEATURES:
         key = "airplay" if feature == "airplay2" else feature
         copy(run / "features" / f"{feature}.squashfs", f"{feature}.squashfs", candidate.get(f"{key}_payload_sha256", ""), candidate.get(f"{key}_payload_size", ""))

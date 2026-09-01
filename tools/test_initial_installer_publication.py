@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -39,10 +46,16 @@ class InstallerPublicationTests(unittest.TestCase):
         for marker in (
             "release checksum inventory",
             "download and verify pinned Amonet",
-            "--release-tag \"$TAG\"",
+            "./run-one-shot.sh \"$TAG\"",
             "--execute-hardware",
             "initial-install.tar",
             "stage and verify all five feature payloads",
+            "adb",
+            "fastboot",
+            "android-sdk-libsparse-utils",
+            "--install-host-deps` can install only",
+            "does **not** install `adb` or `fastboot`",
+            "command -v adb fastboot mke2fs img2simg",
         ):
             self.assertIn(marker, readme)
 
@@ -53,15 +66,137 @@ class InstallerPublicationTests(unittest.TestCase):
         source = wrapper.read_text(encoding="utf-8")
         self.assertIn("SHA256SUMS", source)
         self.assertIn("sha256sum -c", source)
-        self.assertIn("exec python3", source)
-        self.assertIn("--release-tag \"$TAG\"", source)
+        self.assertNotIn("exec python3", source)
+        self.assertIn("if python3", source)
+        self.assertIn("exit \"$status\"", source)
+
+    def test_run_one_shot_requires_an_explicit_immutable_tag(self) -> None:
+        source = (ROOT / "tools/run-one-shot.sh").read_text(encoding="utf-8")
+        self.assertIn("Usage: $0 RADAR_PUFFIN_RELEASE_TAG", source)
+        self.assertIn("radar-puffin-(v[0-9]+", source)
+        self.assertNotIn("if [[ \"$TAG\" == latest ]]", source)
+
+    def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
+        tag = "radar-puffin-v1.2.3"
+        prefix = f"libreecho-{tag}"
+        installer = b"#!/usr/bin/env python3\n"
+        digest = hashlib.sha256(installer).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / "bin"
+            tmpdir = root / "tmp"
+            bindir.mkdir()
+            tmpdir.mkdir()
+            (bindir / "curl").write_text(
+                "#!/bin/sh\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = -o ]; then out=$2; shift 2; continue; fi\n"
+                "  shift\n"
+                "done\n"
+                "case \"$out\" in\n"
+                f"  *SHA256SUMS) printf '%s  %s\\n' '{digest}' '{prefix}-installer.py' >\"$out\" ;;\n"
+                "  *) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            (bindir / "python3").write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
+            for tool in (bindir / "curl", bindir / "python3"):
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir))
+            result = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag],
+                text=True, capture_output=True, env=env,
+            )
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertEqual(list(tmpdir.iterdir()), [])
+
+    def test_installer_accepts_stable_build_manifest_asset(self) -> None:
+        spec = importlib.util.spec_from_file_location("libreecho_install", INSTALLER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tag = "radar-puffin-v0.13.9"
+        prefix = f"libreecho-{tag}"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release = root / "release"
+            cache = root / "cache"
+            release.mkdir()
+            files = {
+                f"{prefix}-boot.img": b"boot",
+                f"{prefix}-ota-public-key.hex": b"a" * 64 + b"\n",
+                f"{prefix}-release-notes.md": b"notes\\n",
+                f"{prefix}-installer.py": b"#!/usr/bin/env python3\\n",
+                f"{prefix}.ota.tar": b"signed ota",
+                f"{prefix}-build.json": b"{}\\n",
+                f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\\n",
+            }
+            manifest = {
+                "schema": "libreecho-initial-install-v1",
+                "release": tag,
+                "board": "radar_puffin",
+                "soc": "mt8163",
+                "image_profile": "ota",
+                "service_profile": "production",
+                "boot": {"name": f"{prefix}-boot.img", "size": len(files[f"{prefix}-boot.img"]), "sha256": hashlib.sha256(files[f"{prefix}-boot.img"]).hexdigest()},
+                "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": len(files[f"{prefix}-ota-public-key.hex"]), "sha256": hashlib.sha256(files[f"{prefix}-ota-public-key.hex"]).hexdigest()},
+                "features": [],
+                "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+            }
+            bundle = release / f"{prefix}-initial-install.tar"
+            with tarfile.open(bundle, "w") as archive:
+                info = tarfile.TarInfo("manifest.json")
+                data = json.dumps(manifest).encode()
+                info.size = len(data)
+                archive.addfile(info, __import__("io").BytesIO(data))
+                for name in (f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(files[name])
+                    archive.addfile(info, __import__("io").BytesIO(files[name]))
+            files[bundle.name] = bundle.read_bytes()
+            for name, data in files.items():
+                if name != bundle.name:
+                    (release / name).write_bytes(data)
+            sums = release / f"{prefix}-SHA256SUMS"
+            sums.write_text("".join(f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n" for name in sorted(files)), encoding="ascii")
+            prepared, _ = module._prepare(release, cache, tag)
+            self.assertEqual(prepared["release"], tag)
+
+    def test_stable_release_publishes_checksum_covered_wrapper(self) -> None:
+        source = (ROOT / "build/ci/prepare-stable-release.py").read_text(encoding="utf-8")
+        self.assertIn('"tools/run-one-shot.sh"', source)
+        self.assertIn('"run-one-shot.sh"', source)
+
+    def test_install_guide_documents_initial_forward_and_safe_reassembly(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        self.assertIn("http://127.0.0.1:18080/setup.html", guide)
+        self.assertIn("power before reconnecting any flex cables", guide.lower())
+        self.assertIn("adb wait-for-device", guide)
+        self.assertIn("Start the installer now", guide)
+        self.assertLess(guide.index("Start the installer now"),
+                        guide.index("## 5. Complete the installer transaction"))
+        self.assertGreater(guide.index("./run-one-shot.sh \"$TAG\""),
+                           guide.index("## 4. Enter BROM mode"))
+
+    def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        code_blocks = re.findall(r"```(?:sh|bash)\n(.*?)\n```", guide, re.S)
+        self.assertTrue(code_blocks)
+        for block in code_blocks:
+            for line in block.splitlines():
+                self.assertNotRegex(line, r"\\\\\\s*$",
+                                     f"doubled shell continuation: {line!r}")
+        self.assertIn("./run-one-shot.sh \"$TAG\"", guide)
+        self.assertNotIn("./run-one-shot.sh latest", guide)
+        self.assertNotIn("radar-puffin-v0.13.9", guide)
+        self.assertNotIn("gh release list", guide)
+        self.assertIn("public GitHub download URLs", guide)
 
     def test_continuation_validates_the_requested_release_tag(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn("state[\"release\"] != release_tag", source)
         self.assertIn("continuation release tag does not match saved state", source)
-
-        source = INSTALLER.read_text(encoding="utf-8")
         self.assertTrue(source.startswith("#!/usr/bin/env python3\n"))
         self.assertNotIn("/home/andy", source)
         self.assertNotIn("/media/andy", source)

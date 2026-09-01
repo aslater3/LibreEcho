@@ -28,7 +28,8 @@ integration continue on review branches.
 
 ## Getting Started
 
-- **Echo Gen 2 disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
+- **Echo Gen 2 Disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
+- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md)
 
 ## Start Here
 
