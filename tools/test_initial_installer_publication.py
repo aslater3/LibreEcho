@@ -36,6 +36,16 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("def download_amonet", source)
         self.assertIn("release_dir = download_release", source)
 
+    def test_installer_starts_with_readable_libreecho_banner(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("BANNER = r\"\"\"", source)
+        self.assertIn("def print_banner()", source)
+        self.assertIn("print_banner()", source)
+        self.assertIn("def print_brom_action_prompt()", source)
+        self.assertIn("Connect the USB data pins: D+, D-, and GND.", source)
+        self.assertIn("Do not apply power yet.", source)
+        self.assertIn("ANSI_ESCAPE.sub(\"\", text)", source)
+
     def test_run_one_shot_wrapper_is_packaged_in_complete_release(self) -> None:
         source = (ROOT / "build/ci/prepare-dev-release.py").read_text(encoding="utf-8")
         self.assertIn("run-one-shot.sh", source)

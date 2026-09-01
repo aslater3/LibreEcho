@@ -30,6 +30,20 @@ SCHEMA = "libreecho-initial-install-v1"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 RELEASE = re.compile(r"radar-puffin-(?:v[0-9]+\.[0-9]+\.[0-9]+|(?:nightly|build)-[0-9a-f-]+)")
 PUBLIC_NAME = re.compile(r"[A-Za-z0-9._-]+")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+BANNER = r"""
+ _     _ _               _____      _
+| |   (_) |__  _ __ ___  | ____|__  | |__   ___
+| |   | | '_ \| '__/ _ \ |  _| / _ \| '_ \ / _ \
+| |___| | |_) | | |  __/ | |__| (_) | | | |  __/
+|_____|_|_.__/|_|  \___| |_____\___/|_| |_|\___|
+""".strip("\n")
+
+_COLOUR_ENABLED = False
+COLOUR_GREEN = "\033[92m"
+COLOUR_YELLOW = "\033[93m"
+COLOUR_RESET = "\033[0m"
 
 
 class InstallerError(RuntimeError):
@@ -48,7 +62,7 @@ class _Tee:
 
     def write(self, text: str) -> int:
         self.console.write(text)
-        self.logfile.write(text)
+        self.logfile.write(ANSI_ESCAPE.sub("", text))
         return len(text)
 
     def flush(self) -> None:
@@ -57,6 +71,42 @@ class _Tee:
 
     def isatty(self) -> bool:
         return self.console.isatty()
+
+
+def _colour(text: str, code: str) -> str:
+    if not _COLOUR_ENABLED:
+        return text
+    return f"{code}{text}{COLOUR_RESET}"
+
+
+def print_banner() -> None:
+    """Print the installer identity before any host/device output."""
+    print()
+    print(_colour(BANNER, COLOUR_GREEN), flush=True)
+    print("LibreEcho initial installer", flush=True)
+    print()
+
+
+def print_brom_action_prompt() -> None:
+    """Print the physical BROM entry sequence as a distinct operator prompt."""
+    lines = (
+        "ACTION REQUIRED - ENTER BROM MODE",
+        "",
+        "1. Power the Echo off.",
+        "2. Connect the USB data pins: D+, D-, and GND.",
+        "3. Do not apply power yet.",
+        "4. When prompted below, hold the marked short to ground.",
+        "5. Apply power while holding the short.",
+        "6. Release the short when BROM appears.",
+        "   Amonet may also prompt you to release it.",
+        "7. Press Enter when Amonet prompts you.",
+    )
+    print()
+    print(_colour("+----------------------------------------------------------+", COLOUR_YELLOW))
+    for line in lines:
+        print(_colour(f"| {line:<56} |", COLOUR_YELLOW))
+    print(_colour("+----------------------------------------------------------+", COLOUR_YELLOW), flush=True)
+    print()
 
 
 def _append_log(text: str) -> None:
@@ -905,7 +955,7 @@ def _print_brom_transport_diagnostics() -> None:
 def run_amonet_with_progress(launcher: Path, cwd: Path, timeout: float) -> None:
     brom_permission_preflight()
     print("Amonet handoff started; monitoring its live progress.", flush=True)
-    print("ACTION: power off the Echo, hold the marked CLK-to-GND short while applying power/USB, then release after BROM enumerates.", flush=True)
+    print_brom_action_prompt()
     print("Amonet status: waiting for BROM/USB...", flush=True)
     try:
         process = subprocess.Popen(["bash", str(launcher)], cwd=cwd)
@@ -1791,7 +1841,12 @@ def main() -> None:
         help="persistent console/command log (default: ./libreecho-installer.log)",
     )
     args = parser.parse_args()
-    global ACTIVE_LOG_PATH
+    global ACTIVE_LOG_PATH, _COLOUR_ENABLED
+    _COLOUR_ENABLED = (
+        sys.stdout.isatty()
+        and not os.environ.get("NO_COLOR")
+        and os.environ.get("TERM") != "dumb"
+    )
     ACTIVE_LOG_PATH = args.log_file or Path.cwd() / "libreecho-installer.log"
     log_path = ACTIVE_LOG_PATH
     assert log_path is not None
@@ -1805,6 +1860,7 @@ def main() -> None:
             logfile.write(f"argv={sys.argv!r}\n")
             logfile.flush()
             with contextlib.redirect_stdout(_Tee(sys.stdout, logfile)), contextlib.redirect_stderr(_Tee(sys.stderr, logfile)):
+                print_banner()
                 print(f"Installer log: {ACTIVE_LOG_PATH}", flush=True)
                 try:
                     if args.action == "install":
