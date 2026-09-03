@@ -172,6 +172,30 @@ class OneShotFastbootTests(unittest.TestCase):
         ):
             self.assertIn(marker, source)
 
+    def test_feature_stager_syncs_committed_files_before_removing_marker(self) -> None:
+        stager = INSTALLER.ROOT_FEATURE_STAGER
+        move = stager.index('$BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"')
+        manifest = stager.index('$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"', move)
+        first_sync = stager.index("$BB sync", manifest)
+        cleanup = stager.index('rmdir "$DEST/staging"', manifest)
+        second_sync = stager.index("$BB sync", cleanup)
+        self.assertLess(move, manifest)
+        self.assertLess(manifest, first_sync)
+        self.assertLess(first_sync, cleanup)
+        self.assertLess(cleanup, second_sync)
+        self.assertIn(
+            "|| { echo FEATURE_STAGE_COMMIT_SYNC_FAILED; exit 1; }",
+            stager[first_sync:first_sync + 100],
+        )
+        self.assertIn(
+            "|| { echo FEATURE_STAGE_STAGING_CLEANUP_FAILED; exit 1; }",
+            stager[cleanup:cleanup + 100],
+        )
+        self.assertIn(
+            "|| { echo FEATURE_STAGE_MARKER_SYNC_FAILED; exit 1; }",
+            stager[second_sync:second_sync + 100],
+        )
+
 
 class PublicMetadataTests(unittest.TestCase):
     def test_versioned_source_url_is_not_an_ipv4_false_positive(self) -> None:
