@@ -58,8 +58,14 @@ class InstallerPublicationTests(unittest.TestCase):
                 text=True, capture_output=True, check=True,
             )
             self.assertIn("LibreEcho initial installer", result.stdout)
-            self.assertIn("#   # #####", result.stdout)
-            self.assertIn("#   #  ###", result.stdout)
+            expected_wordmark = (
+                "#      #####  ####   ####   #####  #####   ####  #   #   ###\n"
+                "#        #    #   #  #   #  #      #      #      #   #  #   #\n"
+                "#        #    ####   ####   ####   ####   #      #####  #   #\n"
+                "#        #    #   #  #  #   #      #      #      #   #  #   #\n"
+                "#####  #####  ####   #   #  #####  #####   ####  #   #   ###"
+            )
+            self.assertIn(expected_wordmark, result.stdout)
             log_text = log.read_text(encoding="utf-8")
             self.assertIn("LibreEcho initial installer", log_text)
             self.assertNotIn("\x1b[", log_text)
