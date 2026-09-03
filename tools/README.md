@@ -73,28 +73,22 @@ installation after that point.
 
 ## User command
 
-Use the public wrapper. It resolves `latest` through GitHub's public
-`/releases/latest` endpoint, downloads only the checksum file and installer
-bootstrap, verifies the bootstrap, and then hands control to the existing
-Python installer. The Python installer downloads and verifies the complete
-release bundle, including `initial-install.tar`, the five feature
-payloads/manifests, and pinned Amonet inputs.
+Use the public wrapper with an explicit **published stable** tag. It downloads
+only the checksum file and installer bootstrap, verifies the bootstrap, and
+then hands control to the Python installer. The Python installer downloads and
+verifies the complete release bundle, including `initial-install.tar`, the five
+feature payloads/manifests, and pinned Amonet inputs.
 
 ```bash
-curl -fL -o run-one-shot.sh https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.9/libreecho-radar-puffin-v0.13.9-run-one-shot.sh
+TAG=radar-puffin-vX.Y.Z  # replace with the published stable tag you selected
+curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
 chmod +x run-one-shot.sh
-./run-one-shot.sh latest --fastboot-serial auto --slots both --execute-hardware
-```
-
-For a pinned development or nightly release, pass its complete immutable tag:
-
-```bash
-TAG=radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>
 ./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
 ```
 
-For a scheduled nightly, use its complete `radar-puffin-nightly-...` tag in the
-same form. Do not shorten, rename, or mix asset files from another release.
+Development and nightly tags are for maintainer-controlled test hardware only;
+they are not a public installation recommendation. Do not shorten, rename, or
+mix asset files from another release.
 
 `install` is only the host-side preparation/checkpoint action and does not touch
 hardware. Use `one-shot` for the actual BROM → fastboot → ADB installation.

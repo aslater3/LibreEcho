@@ -15,11 +15,6 @@
 
 </div>
 
-The interface, API, and service daemons live in the separate
-[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) repository. That
-repository is currently private pending a public-safety and licence review;
-the public website does not present it as a logged-out source download.
-
 LibreEcho is an open embedded voice-assistant operating system focused on
 privacy, repairability, and local control. The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
