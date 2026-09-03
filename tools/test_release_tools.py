@@ -177,7 +177,7 @@ class OneShotFastbootTests(unittest.TestCase):
         move = stager.index('$BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"')
         manifest = stager.index('$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"', move)
         first_sync = stager.index("$BB sync", manifest)
-        cleanup = stager.index('rmdir "$DEST/staging"', manifest)
+        cleanup = stager.index('$BB rmdir "$DEST/staging"', manifest)
         second_sync = stager.index("$BB sync", cleanup)
         self.assertLess(move, manifest)
         self.assertLess(manifest, first_sync)
