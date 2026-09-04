@@ -112,6 +112,11 @@ class InstallerPublicationTests(unittest.TestCase):
             "http://libreecho.local:8080/",
         ):
             self.assertIn(marker, guide)
+        release_notes = (ROOT / "release/radar-puffin-v0.13.10.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "https://github.com/aslater3/LibreEcho/blob/radar-puffin-v0.13.10/docs/install/README.md",
+            release_notes,
+        )
 
     def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
         readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")

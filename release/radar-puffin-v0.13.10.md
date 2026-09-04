@@ -24,7 +24,7 @@ into one coordinated source set.
 ## Installation
 
 New installations must follow the Product [Echo 2nd Gen one-shot installation
-guide](../docs/install/README.md). Its checksum-gated command downloads the
+guide](https://github.com/aslater3/LibreEcho/blob/radar-puffin-v0.13.10/docs/install/README.md). Its checksum-gated command downloads the
 exact stable bootstrap, verifies the installer before execution, performs the
 guarded BROM-to-fastboot handoff, verifies both boot slots, and stages all five
 feature payloads.
