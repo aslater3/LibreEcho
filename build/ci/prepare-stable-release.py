@@ -265,6 +265,10 @@ def main() -> int:
     ota_target = output / f"{prefix}.ota.tar"
     shutil.copyfile(ota[0], ota_target)
     copied.append(ota_target)
+    # Existing devices discover stable updates using this fixed asset name.
+    ota_alias = output / "libreecho-radar-puffin-stable.ota.tar"
+    shutil.copyfile(ota_target, ota_alias)
+    copied.append(ota_alias)
     copy(public_key, "ota-public-key.hex")
     copy(notes, "release-notes.md")
     copy(installer, "installer.py")

@@ -20,6 +20,47 @@ CHECKSUM = ROOT / "tools" / "libreecho-install.py.sha256"
 
 
 class InstallerPublicationTests(unittest.TestCase):
+    def test_download_reuses_stable_ota_alias(self):
+        spec = importlib.util.spec_from_file_location("installer", INSTALLER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tag = "radar-puffin-v0.14.0"
+        prefix = f"libreecho-{tag}"
+        alias = "libreecho-radar-puffin-stable.ota.tar"
+        versioned = f"{prefix}.ota.tar"
+        names = [f"{prefix}-{suffix}" for suffix in (
+            "boot.img", "initial-install.tar", "installer.py", "ota-public-key.hex", "release-notes.md")]
+        names += [f"{prefix}-{feature}.{suffix}" for feature in
+                  ("airplay2", "assistant", "stt", "tts", "wakeword")
+                  for suffix in ("squashfs", "manifest.json")]
+        files = {name: name.encode() for name in names}
+        files[versioned] = b"verified OTA fixture"
+        files[alias] = files[versioned]
+        for mismatch in (False, True):
+            with self.subTest(mismatch=mismatch), tempfile.TemporaryDirectory() as temporary:
+                calls = []
+                records = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+                if mismatch:
+                    records[alias] = "0" * 64
+                # Alias deliberately precedes the canonical file in the inventory.
+                sums = "".join(f"{records[name]}  {name}\n" for name in [alias] + names + [versioned])
+                def download(url, path, label):
+                    calls.append(path.name)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(sums.encode() if path.name.endswith("-SHA256SUMS") else files[path.name])
+                    return path
+                module._download_url = download
+                if mismatch:
+                    with self.assertRaises(module.InstallerError):
+                        module.download_release(tag, "https://github.com/example/test", temporary)
+                else:
+                    output = module.download_release(tag, "https://github.com/example/test", temporary)
+                    self.assertEqual((output / alias).read_bytes(), files[versioned])
+                    self.assertTrue(os.path.samefile(output / alias, output / versioned))
+                    module.download_release(tag, "https://github.com/example/test", temporary)
+                    self.assertEqual(calls.count(versioned), 1)
+                self.assertNotIn(alias, calls)
+
     def test_checked_in_installer_matches_its_sha256_sidecar(self) -> None:
         self.assertTrue(INSTALLER.is_file())
         self.assertFalse(INSTALLER.is_symlink())
@@ -260,6 +301,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 f"{prefix}-release-notes.md": b"notes\\n",
                 f"{prefix}-installer.py": b"#!/usr/bin/env python3\\n",
                 f"{prefix}.ota.tar": b"signed ota",
+                "libreecho-radar-puffin-stable.ota.tar": b"signed ota",
                 f"{prefix}-build.json": b"{}\\n",
                 f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\\n",
             }

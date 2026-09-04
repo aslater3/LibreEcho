@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -95,6 +96,33 @@ def fixture(root: Path) -> tuple[Path, Path]:
 
 
 class StableReleasePackagingTests(unittest.TestCase):
+    def test_publisher_rejects_missing_or_mismatched_alias_before_github(self):
+        for alias_bytes in (None, b"wrong ota"):
+            with self.subTest(alias=alias_bytes), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                prefix = "libreecho-radar-puffin-v0.14.0"
+                for suffix in (".ota.tar", "-initial-install.tar", "-installer.py", "-boot.img"):
+                    (root / (prefix + suffix)).write_bytes(b"signed ota")
+                alias = root / "libreecho-radar-puffin-stable.ota.tar"
+                if alias_bytes is not None:
+                    alias.write_bytes(alias_bytes)
+                sums = root / (prefix + "-SHA256SUMS")
+                sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in sorted(root.iterdir())))
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                gh = bin_dir / "gh"
+                gh.write_text("#!/bin/sh\necho GITHUB_CALLED >&2\nexit 97\n")
+                gh.chmod(0o755)
+                result = subprocess.run(["bash", str(ROOT / "build/ci/publish-stable-release.sh")],
+                    env={**os.environ, "PATH": str(bin_dir) + ":" + os.environ["PATH"],
+                         "GH_TOKEN": "test", "RELEASE_TAG": "radar-puffin-v0.14.0",
+                         "RELEASE_DIR": str(root), "RELEASE_NOTES": str(root / "notes"),
+                         "HEAD_SHA": "1" * 40, "GITHUB_REPOSITORY": "example/test"},
+                    text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("GITHUB_CALLED", result.stderr)
+                self.assertIn("stable OTA alias", result.stderr)
+
     def test_stable_packager_requires_and_publishes_signed_ota_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -116,6 +144,13 @@ class StableReleasePackagingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             prefix = "libreecho-radar-puffin-v0.14.0"
             self.assertTrue((output / f"{prefix}.ota.tar").is_file())
+            alias = output / "libreecho-radar-puffin-stable.ota.tar"
+            self.assertTrue(alias.is_file(), "stable OTA discovery alias is missing")
+            self.assertEqual(alias.read_bytes(), (output / f"{prefix}.ota.tar").read_bytes())
+            self.assertFalse((output / "libreecho-radar-puffin-dev.ota.tar").exists())
+            records = json.loads((output / f"{prefix}-build.json").read_text())["artifacts"]
+            self.assertIn({"name": alias.name, "size": alias.stat().st_size,
+                           "sha256": digest(alias)}, records)
             self.assertTrue((output / f"{prefix}-initial-install.tar").is_file())
             self.assertTrue((output / f"{prefix}-installer.py").is_file())
             self.assertTrue((output / f"{prefix}-run-one-shot.sh").is_file())
