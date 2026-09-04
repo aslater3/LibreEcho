@@ -637,6 +637,10 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         fail("stable release tag is malformed")
     version = match.group(1)
     prefix = f"libreecho-{release_tag}"
+    alias = output / "libreecho-radar-puffin-stable.ota.tar"
+    ota = output / f"{prefix}.ota.tar"
+    if alias.is_symlink() or not alias.is_file() or digest(alias) != digest(ota):
+        fail("stable OTA alias missing or differs from versioned bundle")
     sums = output / f"{prefix}-SHA256SUMS"
     actual = _validate_sha256_membership(output, sums)
     build_path = output / f"{prefix}-build.json"
@@ -651,7 +655,7 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         f"{prefix}.ota.tar", f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex",
         f"{prefix}-release-notes.md", f"{prefix}-installer.py", f"{prefix}-run-one-shot.sh",
         f"{prefix}-initial-install.tar", f"{prefix}-build.json",
-        f"{prefix}-SHA256SUMS",
+        f"{prefix}-SHA256SUMS", alias.name,
     }
     standard.update(
         f"{prefix}-{feature}.{suffix}"

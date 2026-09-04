@@ -224,6 +224,33 @@ class StableReleasePackagingTests(unittest.TestCase):
                 "--amonet-commit", WORKING_AMONET_COMMIT, "--output-dir", str(root / "release"),
             ], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
+    def test_publisher_rejects_missing_or_mismatched_alias_before_github(self):
+        from build.tests.test_ota_v2_complete_gate import StablePublisherPreMutationTests
+        harness = StablePublisherPreMutationTests()
+        for mutation in ("valid", "missing", "mismatch", "symlink", "unlisted"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output = harness._prepared_release(root / "source")
+                alias = output / "libreecho-radar-puffin-stable.ota.tar"
+                ota = output / "libreecho-radar-puffin-v0.14.0.ota.tar"
+                if mutation == "missing":
+                    alias.unlink()
+                elif mutation == "mismatch":
+                    alias.write_bytes(b"wrong ota")
+                elif mutation == "symlink":
+                    alias.unlink()
+                    alias.symlink_to(ota)
+                sums = next(output.glob("*-SHA256SUMS"))
+                sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in sorted(output.iterdir())
+                    if p != sums and not (mutation == "unlisted" and p == alias)))
+                result = harness._run_publisher(output, root / "run")
+                if mutation == "valid":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0, mutation)
+                    self.assertIn("SHA256SUMS" if mutation == "unlisted" else "stable OTA alias", result.stderr)
+                self.assertFalse((root / "run" / "gh.log").exists())
+
     def test_stable_packager_requires_and_publishes_signed_ota_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -245,6 +272,13 @@ class StableReleasePackagingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             prefix = "libreecho-radar-puffin-v0.14.0"
             self.assertTrue((output / f"{prefix}.ota.tar").is_file())
+            alias = output / "libreecho-radar-puffin-stable.ota.tar"
+            self.assertTrue(alias.is_file(), "stable OTA discovery alias is missing")
+            self.assertEqual(alias.read_bytes(), (output / f"{prefix}.ota.tar").read_bytes())
+            self.assertFalse((output / "libreecho-radar-puffin-dev.ota.tar").exists())
+            records = json.loads((output / f"{prefix}-build.json").read_text())["artifacts"]
+            self.assertIn({"name": alias.name, "size": alias.stat().st_size,
+                           "sha256": digest(alias)}, records)
             self.assertTrue((output / f"{prefix}-initial-install.tar").is_file())
             self.assertTrue((output / f"{prefix}-installer.py").is_file())
             self.assertTrue((output / f"{prefix}-run-one-shot.sh").is_file())

@@ -1434,6 +1434,8 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
     }
     if release_tag.startswith(("radar-puffin-nightly-", "radar-puffin-build-")):
         optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt", f"{prefix}-run-one-shot.sh"})
+    if release_tag.startswith("radar-puffin-v"):
+        optional.add("libreecho-radar-puffin-stable.ota.tar")
     unexpected = set(records) - expected - optional
     if not expected.issubset(records) or unexpected:
         raise InstallerError("checksum inventory mismatch")

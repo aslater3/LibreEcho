@@ -226,13 +226,14 @@ class StablePublisherPreMutationTests(unittest.TestCase):
             output = self._prepared_release(root / "valid")
             key_path = next(output.glob("*-ota-public-key.hex"))
             original_anchor = sha256(key_path.read_bytes())
-            ota_path = next(output.glob("*.ota.tar"))
+            ota_path = output / "libreecho-radar-puffin-v0.14.0.ota.tar"
             with tarfile.open(ota_path, "r") as archive:
                 raw = archive.extractfile("manifest").read()
                 boot = root / "boot.img"
                 boot.write_bytes(archive.extractfile("boot.img").read())
             replacement = SigningKey.generate()
             write_control(ota_path, raw, replacement, boot)
+            shutil.copyfile(ota_path, output / "libreecho-radar-puffin-stable.ota.tar")
             key_path.write_text(replacement.verify_key.encode().hex() + "\n")
             sums = next(output.glob("*-SHA256SUMS"))
             sums.write_text("".join(
