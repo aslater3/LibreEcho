@@ -357,6 +357,10 @@ class Tests(unittest.TestCase):
   self.assertIn('Cross-repository included changes', (ROOT/'build/ci/generate-release-notes.py').read_text())
   self.assertIn('CC-BY-NC-SA-4.0', (ROOT/'build/ci/generate-release-notes.py').read_text())
   self.assertIn('No local release command', (ROOT/'build/README.md').read_text())
+  self.assertIn('stable release requires authored release notes', W)
+  self.assertIn('stable release-notes title must match the requested version', W)
+  self.assertIn('IFS= read -r release_notes_title <"$RELEASE_NOTES"', W)
+  self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
 
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()

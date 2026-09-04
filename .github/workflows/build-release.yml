@@ -118,6 +118,13 @@ jobs:
               [[ "$RELEASE_NOTES" =~ ^release/[A-Za-z0-9._-]+\.md$ ]] || {
                 echo "ERROR: generated stable release-notes path is invalid" >&2; exit 1;
               }
+              [[ -f "$RELEASE_NOTES" && ! -L "$RELEASE_NOTES" ]] || {
+                echo "ERROR: stable release requires authored release notes: $RELEASE_NOTES" >&2; exit 1;
+              }
+              IFS= read -r release_notes_title <"$RELEASE_NOTES"
+              [[ "$release_notes_title" == "# LibreEcho radar-puffin v${RELEASE_VERSION}" ]] || {
+                echo "ERROR: stable release-notes title must match the requested version" >&2; exit 1;
+              }
               [[ -n "$AMONET_TAG" ]] || {
                 echo "ERROR: stable releases require an amonet_tag input" >&2; exit 1;
               }

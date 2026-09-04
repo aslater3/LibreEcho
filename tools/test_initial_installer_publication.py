@@ -97,6 +97,29 @@ class InstallerPublicationTests(unittest.TestCase):
         source = (ROOT / "build/ci/prepare-dev-release.py").read_text(encoding="utf-8")
         self.assertIn("run-one-shot.sh", source)
 
+    def test_product_readme_links_the_one_shot_install_guide(self) -> None:
+        product_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "[Echo 2nd Gen one-shot installation guide](docs/install/README.md)",
+            product_readme,
+        )
+        for marker in (
+            "TAG=radar-puffin-vX.Y.Z",
+            "libreecho-${TAG}-run-one-shot.sh",
+            './run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware',
+            "stages the feature payloads",
+            "http://libreecho.local:8080/",
+        ):
+            self.assertIn(marker, guide)
+        release_notes = (ROOT / "release/radar-puffin-v0.13.10.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "https://github.com/aslater3/LibreEcho/blob/radar-puffin-v0.13.10/docs/install/README.md",
+            release_notes,
+        )
+        self.assertIn("publication metadata remains `PREPARED_NOT_FLASHED`", release_notes)
+        self.assertNotIn("exact coordinated 0.13.10 candidate", release_notes)
+
     def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
         readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
         for marker in (
