@@ -150,6 +150,17 @@ def render(version: str, heads: dict[str, str], bases: dict[str, str | None], ch
     return "\n".join(lines)
 
 
+def merge_authored_notes(authored: str, generated: str) -> str:
+    marker = "## Release identity"
+    if marker not in generated:
+        fail("generated notes are missing the release identity ledger")
+    return (
+        authored.rstrip()
+        + "\n\n---\n\n## Generated exact-source ledger\n\n"
+        + generated.split(marker, 1)[1].lstrip()
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
@@ -178,8 +189,14 @@ def main() -> int:
             base = release_ref if release_ref and ref_exists(repo, release_ref) else "heads/main"
         bases[name] = base
         changes[name] = compare(repo, base, heads[name])
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render(args.version, heads, bases, changes), encoding="utf-8")
+    if not args.output.is_file() or args.output.is_symlink():
+        fail(f"missing or unsafe authored release notes: {args.output}")
+    authored = args.output.read_text(encoding="utf-8")
+    expected_title = f"# LibreEcho radar-puffin v{args.version}"
+    if not authored.startswith(expected_title + "\n"):
+        fail("authored release notes title does not match the requested version")
+    generated = render(args.version, heads, bases, changes)
+    args.output.write_text(merge_authored_notes(authored, generated), encoding="utf-8")
     print(f"release_notes={args.output}")
     print(f"previous_version={previous or 'none'}")
     print(f"repository_count={len(REPOSITORIES)}")

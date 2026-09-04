@@ -20,11 +20,10 @@ privacy, repairability, and local control. The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
 tooling, a native web control centre, and a signed A/B update path.
 
-The Linux 6.1 LTS-based line is the current development baseline. A complete
-clean-source image has passed private hardware deployment and runtime
-validation, but the project is not yet presented as a general-purpose upstream
-Linux port or a stable public OTA release. Hardware fixes and service
-integration continue on review branches.
+The Linux 6.1 LTS-based line is the current release baseline. LibreEcho publishes
+signed stable OTA and one-shot installation assets for the supported Echo 2nd
+Gen target. It is not presented as a general-purpose upstream Linux port, and
+hardware support for other targets remains under development.
 
 ## Getting Started
 
@@ -35,7 +34,7 @@ integration continue on review branches.
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
-- **Initial-install bootstrap:** [`tools/libreecho-install.py`](tools/libreecho-install.py) with its [SHA-256 sidecar](tools/libreecho-install.py.sha256). The mirror is release-gated against the canonical Build installer; hardware execution remains a separately qualified and explicitly authorized step.
+- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, BROM sequence, first-boot steps, and recovery guidance for the latest stable release.
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)

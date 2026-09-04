@@ -43,10 +43,11 @@ step performed by the mature builder from the same pinned ONNX Runtime source.
 Use GitHub only: open **Actions → Hosted LibreEcho build and release → Run
 workflow**, select the matching `release/X.Y.Z` branch, choose `stable`, and
 provide the version plus the reviewed Amonet repository/tag/commit. The
-workflow generates release notes through GitHub's release-notes API, builds and
-signs the exact artifact, waits for the protected signing environment, and
-publishes the normal `radar-puffin-vX.Y.Z` release. No local release command or
-checked-in release-notes file is required.
+matching authored `release/radar-puffin-vX.Y.Z.md` file must already be checked
+in. The workflow validates that file before the expensive build, appends an
+exact cross-repository source ledger, signs the exact artifact, waits for the
+protected signing environment, and publishes the normal
+`radar-puffin-vX.Y.Z` release. No local release command is required.
 
 ## Product release lanes
 

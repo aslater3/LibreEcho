@@ -39,6 +39,15 @@ class ReleaseNotesTests(unittest.TestCase):
         rendered = MODULE.render("0.14.0", heads, bases, changes)
         self.assertEqual(rendered.count("Changes: none in the selected comparison range"), 4)
 
+    def test_generated_ledger_is_appended_to_authored_notes(self) -> None:
+        authored = "# LibreEcho radar-puffin v0.14.0\n\nMaintained release highlights.\n"
+        generated = "# LibreEcho radar-puffin v0.14.0\n\nGenerated intro.\n\n## Release identity\n\n- exact heads\n"
+        merged = MODULE.merge_authored_notes(authored, generated)
+        self.assertTrue(merged.startswith(authored.rstrip()))
+        self.assertEqual(merged.count("# LibreEcho radar-puffin v0.14.0"), 1)
+        self.assertIn("## Generated exact-source ledger", merged)
+        self.assertIn("- exact heads", merged)
+
 
 if __name__ == "__main__":
     unittest.main()
