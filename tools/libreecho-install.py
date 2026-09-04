@@ -427,8 +427,12 @@ def download_release(release_tag: str, repository: str, download_root: Path | st
     )
     if not required.issubset(records):
         raise InstallerError(f"release is missing required assets: {sorted(required - set(records))}")
+    alias = "libreecho-radar-puffin-stable.ota.tar"
+    reuse_alias = release_tag.startswith("radar-puffin-v") and alias in records
+    if reuse_alias and records[alias] != records[f"{prefix}.ota.tar"]:
+        raise InstallerError("stable OTA alias checksum differs from versioned OTA")
     for name, digest in records.items():
-        if name == sums_path.name:
+        if name == sums_path.name or (reuse_alias and name == alias):
             continue
         path = destination / name
         if path.is_file() and not path.is_symlink() and _sha256(path) == digest:
@@ -441,6 +445,11 @@ def download_release(release_tag: str, repository: str, download_root: Path | st
         if _sha256(path) != digest:
             raise InstallerError(f"downloaded release hash mismatch: {name}")
         print(f"  verified {name} sha256={digest}", flush=True)
+    if reuse_alias:
+        # Keep the complete checksum inventory without another transfer or copy.
+        alias_path = destination / alias
+        alias_path.unlink(missing_ok=True)
+        os.link(destination / f"{prefix}.ota.tar", alias_path)
     return destination
 
 
