@@ -104,9 +104,14 @@ class InstallerPublicationTests(unittest.TestCase):
             "[Echo 2nd Gen one-shot installation guide](docs/install/README.md)",
             product_readme,
         )
+        self.assertIn("TAG=latest", product_readme)
+        self.assertIn(
+            './run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware',
+            product_readme,
+        )
         for marker in (
-            "TAG=radar-puffin-vX.Y.Z",
-            "libreecho-${TAG}-run-one-shot.sh",
+            "TAG=latest",
+            "https://raw.githubusercontent.com/aslater3/LibreEcho/main/tools/run-one-shot.sh",
             './run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware',
             "stages the feature payloads",
             "http://libreecho.local:8080/",
@@ -149,11 +154,13 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("if python3", source)
         self.assertIn("exit \"$status\"", source)
 
-    def test_run_one_shot_requires_an_explicit_immutable_tag(self) -> None:
+    def test_run_one_shot_defaults_latest_and_resolves_an_immutable_tag(self) -> None:
         source = (ROOT / "tools/run-one-shot.sh").read_text(encoding="utf-8")
-        self.assertIn("Usage: $0 RADAR_PUFFIN_RELEASE_TAG", source)
+        self.assertIn('TAG="${1:-latest}"', source)
+        self.assertIn("/releases/latest", source)
+        self.assertIn('Resolved latest stable release: ${TAG}', source)
         self.assertIn("radar-puffin-(v[0-9]+", source)
-        self.assertNotIn("if [[ \"$TAG\" == latest ]]", source)
+        self.assertIn("if [[ \"$TAG\" == latest ]]", source)
 
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"

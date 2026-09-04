@@ -2,15 +2,29 @@
 # Verify the exact Product installer before executing it.
 set -euo pipefail
 
-TAG="${1:-}"
+TAG="${1:-latest}"
 shift || true
+repo="${LIBREECHO_RELEASE_REPOSITORY:-aslater3/LibreEcho}"
+
+if [[ "$TAG" == latest ]]; then
+  release_json="$(curl --fail --location --silent --show-error \
+    "https://api.github.com/repos/${repo}/releases/latest")"
+  TAG="$(printf '%s' "$release_json" | python3 -c '
+import json, sys
+release = json.load(sys.stdin)
+if release.get("draft") or release.get("prerelease"):
+    raise SystemExit("latest release is not a published stable release")
+print(release.get("tag_name", ""))
+')"
+  echo "Resolved latest stable release: ${TAG}"
+fi
+
 if [[ ! "$TAG" =~ ^radar-puffin-(v[0-9]+\.[0-9]+\.[0-9]+|(nightly|build)-[0-9a-f-]+)$ ]]; then
   echo "ERROR: invalid release tag: ${TAG:-<missing>}" >&2
-  echo "Usage: $0 RADAR_PUFFIN_RELEASE_TAG [installer options...]" >&2
+  echo "Usage: $0 [latest|RADAR_PUFFIN_RELEASE_TAG] [installer options...]" >&2
   exit 2
 fi
 
-repo="${LIBREECHO_RELEASE_REPOSITORY:-aslater3/LibreEcho}"
 base="https://github.com/${repo}/releases/download/${TAG}"
 prefix="libreecho-${TAG}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/libreecho-installer.XXXXXXXX")"

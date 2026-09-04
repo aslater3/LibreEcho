@@ -30,6 +30,13 @@ hardware support for other targets remains under development.
 - **Echo Gen 2 Disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
 - **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md)
 
+```sh
+TAG=latest
+curl -fL -o run-one-shot.sh "https://raw.githubusercontent.com/aslater3/LibreEcho/main/tools/run-one-shot.sh"
+chmod +x run-one-shot.sh
+./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
+```
+
 ## Start Here
 
 - **Website:** [libreecho.org](https://libreecho.org/)
