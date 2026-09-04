@@ -37,6 +37,17 @@ if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.jso
   exit 1
 fi
 
+alias="$RELEASE_DIR/libreecho-radar-puffin-stable.ota.tar"
+[[ -f "$alias" && ! -L "$alias" ]] &&
+  cmp -s "$alias" "$RELEASE_DIR/libreecho-${RELEASE_TAG}.ota.tar" || {
+    echo "ERROR: stable OTA alias missing or differs from versioned bundle" >&2
+    exit 1
+  }
+grep -Eq '^[0-9a-f]{64}  libreecho-radar-puffin-stable\.ota\.tar$' "$sums" || {
+  echo "ERROR: stable OTA alias is missing from SHA256SUMS" >&2
+  exit 1
+}
+
 api="repos/${GITHUB_REPOSITORY}"
 verify_tag_ref() {
   gh api "$api/git/ref/tags/$RELEASE_TAG" |

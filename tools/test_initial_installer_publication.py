@@ -260,6 +260,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 f"{prefix}-release-notes.md": b"notes\\n",
                 f"{prefix}-installer.py": b"#!/usr/bin/env python3\\n",
                 f"{prefix}.ota.tar": b"signed ota",
+                "libreecho-radar-puffin-stable.ota.tar": b"signed ota",
                 f"{prefix}-build.json": b"{}\\n",
                 f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\\n",
             }
