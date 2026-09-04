@@ -34,12 +34,12 @@ confirmed rollback slot and verify the release checksum inventory before use.
 
 ## Validation
 
-The exact coordinated 0.13.10 candidate was built and signed by the hosted
-Product pipeline, independently verified, installed by signed OTA on authorized
-Echo 2nd Gen hardware, and checked for exact boot-image identity, setup and
-service readiness, rollback availability, network health, AirPlay operation,
-and live mDNS hostname transitions. `http://libreecho.local:8080/` remained
-reachable after a bounded soak.
+The coordinated 0.13.10 image and mDNS correction were exercised on authorized
+Echo 2nd Gen hardware using a signed no-publish candidate: setup and service
+readiness, rollback availability, network health, AirPlay operation, live mDNS
+hostname transitions, and `http://libreecho.local:8080/` all passed. This
+functional evidence does not relabel the final stable-channel artifact as
+hardware-accepted; its publication metadata remains `PREPARED_NOT_FLASHED`.
 
 The stable publication pipeline binds the final Product, Platform, Linux 6.1,
 and UI commit identities into the public build metadata and generated

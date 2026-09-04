@@ -117,6 +117,8 @@ class InstallerPublicationTests(unittest.TestCase):
             "https://github.com/aslater3/LibreEcho/blob/radar-puffin-v0.13.10/docs/install/README.md",
             release_notes,
         )
+        self.assertIn("publication metadata remains `PREPARED_NOT_FLASHED`", release_notes)
+        self.assertNotIn("exact coordinated 0.13.10 candidate", release_notes)
 
     def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
         readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
