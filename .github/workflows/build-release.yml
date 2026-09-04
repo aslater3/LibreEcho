@@ -121,7 +121,8 @@ jobs:
               [[ -f "$RELEASE_NOTES" && ! -L "$RELEASE_NOTES" ]] || {
                 echo "ERROR: stable release requires authored release notes: $RELEASE_NOTES" >&2; exit 1;
               }
-              grep -Fqx "# LibreEcho radar-puffin v${RELEASE_VERSION}" "$RELEASE_NOTES" || {
+              IFS= read -r release_notes_title <"$RELEASE_NOTES"
+              [[ "$release_notes_title" == "# LibreEcho radar-puffin v${RELEASE_VERSION}" ]] || {
                 echo "ERROR: stable release-notes title must match the requested version" >&2; exit 1;
               }
               [[ -n "$AMONET_TAG" ]] || {
