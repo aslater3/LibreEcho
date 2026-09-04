@@ -104,9 +104,14 @@ class InstallerPublicationTests(unittest.TestCase):
             "[Echo 2nd Gen one-shot installation guide](docs/install/README.md)",
             product_readme,
         )
+        self.assertIn("TAG=latest", product_readme)
+        self.assertIn(
+            './run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware',
+            product_readme,
+        )
         for marker in (
-            "TAG=radar-puffin-vX.Y.Z",
-            "libreecho-${TAG}-run-one-shot.sh",
+            "TAG=latest",
+            "https://raw.githubusercontent.com/aslater3/LibreEcho/main/tools/run-one-shot.sh",
             './run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware',
             "stages the feature payloads",
             "http://libreecho.local:8080/",
@@ -149,11 +154,58 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("if python3", source)
         self.assertIn("exit \"$status\"", source)
 
-    def test_run_one_shot_requires_an_explicit_immutable_tag(self) -> None:
-        source = (ROOT / "tools/run-one-shot.sh").read_text(encoding="utf-8")
-        self.assertIn("Usage: $0 RADAR_PUFFIN_RELEASE_TAG", source)
-        self.assertIn("radar-puffin-(v[0-9]+", source)
-        self.assertNotIn("if [[ \"$TAG\" == latest ]]", source)
+    def test_run_one_shot_defaults_latest_and_resolves_an_immutable_tag(self) -> None:
+        tag = "radar-puffin-v1.2.3"
+        prefix = f"libreecho-{tag}"
+        installer = b"#!/usr/bin/env python3\n"
+        digest = hashlib.sha256(installer).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / "bin"
+            tmpdir = root / "tmp"
+            argv_log = root / "installer-argv"
+            bindir.mkdir()
+            tmpdir.mkdir()
+            (bindir / "curl").write_text(
+                "#!/bin/sh\n"
+                "out=\n"
+                "url=\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = -o ]; then out=$2; shift 2; continue; fi\n"
+                "  url=$1; shift\n"
+                "done\n"
+                "case \"$url\" in\n"
+                f"  */releases/latest) printf '%s\\n' '{{\"draft\":false,\"prerelease\":false,\"tag_name\":\"{tag}\"}}' ;;\n"
+                f"  *SHA256SUMS) printf '%s  %s\\n' '{digest}' '{prefix}-installer.py' >\"$out\" ;;\n"
+                "  *-installer.py) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n"
+                "  *) exit 9 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            (bindir / "python3").write_text(
+                "#!/bin/sh\n"
+                f"if [ \"${{1:-}}\" = -c ]; then exec {sys.executable} \"$@\"; fi\n"
+                f"printf '%s\\n' \"$@\" > {argv_log}\n"
+                "exit 23\n",
+                encoding="utf-8",
+            )
+            for tool in (bindir / "curl", bindir / "python3"):
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir))
+            result = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), "latest",
+                 "--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
+                text=True, capture_output=True, env=env,
+            )
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertIn(f"Resolved latest stable release: {tag}", result.stdout)
+            argv = argv_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(argv[1:4], ["one-shot", "--release-tag", tag])
+            self.assertEqual(
+                argv[4:],
+                ["--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
+            )
+            self.assertEqual(list(tmpdir.iterdir()), [])
 
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"

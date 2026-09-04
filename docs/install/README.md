@@ -59,29 +59,25 @@ adapter TX and VCC disconnected.
 
 ## 1. Download and verify the release
 
-LibreEcho stable releases use immutable tags in the form
-`radar-puffin-vX.Y.Z`. Select the intended tag before beginning the BROM
-sequence. The installer, checksum inventory, and release assets must all refer
-to that exact immutable tag.
-
-Download the matching wrapper from a **published stable** release. Do not use
-an unpublished development candidate or prerelease as a public installation
-instruction:
+Copy and paste these commands. `latest` resolves to the current published stable
+release, then the wrapper downloads, verifies, and runs its immutable installer:
 
 ```sh
-TAG=radar-puffin-vX.Y.Z  # replace with the published stable tag you selected
-curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
+TAG=latest
+curl -fL -o run-one-shot.sh "https://raw.githubusercontent.com/aslater3/LibreEcho/main/tools/run-one-shot.sh"
 chmod +x run-one-shot.sh
 ```
 
-For a development or nightly build, download its complete immutable wrapper asset
-instead. Do not start the installer until the Echo and USB are prepared in
-sections 2–4.
+To deliberately install a development or nightly build, replace `latest` with
+that build's complete immutable `radar-puffin-build-*` or
+`radar-puffin-nightly-*` tag. Do not start the installer until the Echo and USB
+are prepared in sections 2–4.
 
-The wrapper verifies the installer checksum using public GitHub download URLs
-and does not require a GitHub account or token. For a development or nightly
-build, pass that build's complete immutable tag. Do not rename or mix asset
-files from another release.
+The wrapper resolves `latest` through GitHub's public release API, rejects draft
+and prerelease results, and passes the resolved immutable tag to the installer.
+It verifies the installer checksum using public GitHub download URLs and does
+not require a GitHub account or token. Do not rename or mix asset files from
+another release.
 
 ## 2. Open the Echo
 
