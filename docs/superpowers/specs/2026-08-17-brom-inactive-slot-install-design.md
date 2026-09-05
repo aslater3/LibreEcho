@@ -1,0 +1,440 @@
+# BROM Inactive-Slot LibreEcho Installation Design
+
+## Status
+
+**Proposed.** This document is a design under review, not an approved
+implementation plan, and nothing in it has been executed against a device.
+
+The first live operation must be inventory-only. Installation remains disabled
+until the inventory output and backups have been reviewed.
+
+## Where the implementation lands
+
+This repository holds the design and the plan. The code they describe does not
+belong here:
+
+- the installer, its tests and its launcher belong in **LibreEcho-Platform**,
+  alongside the existing OTA and image tooling;
+- any device-side or UI-visible behaviour belongs in **LibreEcho-UI**.
+
+Splitting the documents from the implementation is deliberate. These are
+recovery-safety contracts, and they should be reviewable without the diff that
+implements them.
+
+## Objective
+
+Create a recovery-safe, BROM-native path that deploys the signed LibreEcho
+development OTA boot image to one redirected Amonet payload slot on an Amazon
+Echo 2nd generation (`radar_puffin`, MT8163). The first milestone ends when the
+device boots the release initramfs and exposes a working ADB shell over USB.
+
+Feature payloads, Wi-Fi firmware, and product configuration are explicitly
+deferred until ADB works.
+
+## Context
+
+The public release does not contain the initial-install bundle required by the
+installation guide. The current device has already passed through the Amonet
+K32 flow and has the modified 18-partition Biscuit GPT:
+
+The disk GUID observed on the current device is
+`081BEED7-DF86-4A71-864E-435385BA18D9`. This constant is a convenience check
+for that one device only. **An install binds to the GUID recorded by its own
+inventory run**, not to this value, so the tool cannot be pointed at a second
+device and silently accept it because someone edited a constant.
+
+| Purpose | GPT name | Start LBA | Sectors |
+| --- | --- | ---: | ---: |
+| A redirected image | `boot_a_x` | 163840 | 32768 |
+| B redirected image | `boot_b_x` | 196608 | 32768 |
+| A Amonet wrapper | `boot_a` | 7183360 | 225280 |
+| B Amonet wrapper | `boot_b` | 7408640 | 225280 |
+| Boot control | `misc` | 118784 | 1025 |
+| Fastboot marker | `expdb` | 98304 | 20480 |
+| Persistent data | `userdata` | 5046272 | 2137088 |
+
+The 110 MiB `boot_a` and `boot_b` partitions are Amonet wrapper invariants.
+The actual 16 MiB Android boot images belong in `boot_a_x` and `boot_b_x`.
+
+The current Amonet installer source appears to write an Android-style `BCb`
+record where the LibreEcho Platform and Amonet boot-control library require a
+seven-byte Amazon `ABB` record. The live BCB must therefore be treated as
+unknown until read from the device. Inventory must not repair or reinterpret
+an invalid record.
+
+## Release Input
+
+The only accepted first-boot input is the published development-channel OTA:
+
+- Filename: `libreecho-radar-puffin-dev.ota.tar`
+- Archive SHA-256:
+  `5eb210077527449fc831b88bc0776022b72538a635c76720c9f01e781af58a3f`
+- Exact members, in order: `manifest`, `manifest.sig`, `boot.img`
+- Embedded boot image size: 16777216 bytes
+- Embedded boot image SHA-256:
+  `5ca302c958c1449a569db646b4b743ae5be5baaf8ec58a2eb86161ab1c286e15`
+
+The installer must verify the manifest's Ed25519 signature using the published
+OTA public key.
+
+Both the public key and `manifest.sig` are stored **hex-encoded** and must be
+decoded before PyNaCl sees them. In the published bundle the key file is 64 hex
+characters and the signature file is 128, each with a trailing newline that must
+be stripped, decoding to the 32-byte key and 64-byte signature Ed25519 requires.
+Verification is over the exact manifest bytes as they appear in the archive.
+
+The manifest carries two kinds of field, and conflating them is what makes an
+allowlist reject a genuine release. These are **fixed** and compared against
+constants:
+
+```text
+format=libreecho-ota-v1
+manifest_version=1
+board=radar_puffin
+soc=mt8163
+architecture=armv7
+boot_filename=boot.img
+boot_size=16777216
+feature_policy=community-noncommercial
+image_profile=ota
+service_profile=production
+update_channel=dev
+```
+
+These are **per-release**: they must be present and well-formed, but their
+values are properties of the build rather than constants.
+
+```text
+version         # [A-Za-z0-9._+~-]+
+boot_sha256     # 64 lowercase hex characters
+```
+
+`boot_sha256` is required, not optional. It is part of every manifest the
+production tooling emits, so a strict allowlist that does not know about it
+rejects the real OTA rather than accepting it.
+
+It must validate the Android boot magic, and compare the extracted image hash
+against both the signed `boot_sha256` and the pinned expected hash above, using
+constant-time comparisons. The signed value proves the archive is internally
+consistent; the pin proves it is the release this document was written against.
+
+## Architecture
+
+### Launcher
+
+A shell launcher in `$WORKDIR` on the operator workstation provides the entry
+point. It:
+
+1. Confirms the active user and `dialout` membership.
+2. Creates the temporary Nix Python/PySerial environment.
+3. Verifies pinned hashes for the reused Amonet payload and transport modules.
+4. Runs offline tests and the existing Amonet preflight.
+5. Waits only for MediaTek BROM USB ID `0e8d:0003` and refuses Preloader
+   `0e8d:2000`.
+6. Starts the Python tool with either `--inventory-only` or `--install`.
+
+### Python core
+
+The Python implementation separates pure validation and transaction planning
+from the live Amonet transport. Pure functions accept byte strings, parsed GPT
+records, and manifests so their behavior can be exhaustively tested without a
+device.
+
+The live layer reuses only the verified Amonet `Device`, handshake, and payload
+loader. It must never invoke Amonet's full installer entry point.
+
+It must **not** reuse Amonet's GPT parser for validation. That parser accepts
+the primary *or* the backup table, whichever it can read, which is precisely
+the substitution this design needs to detect: a device whose primary table has
+been corrupted would validate against its backup and be reported healthy. Amonet
+may be used to read the sectors; parsing and validation are ours, operate on raw
+bytes, and treat the two copies as independent evidence.
+
+### Artifacts on the operator workstation
+
+The installer, tests, launcher, README, downloaded OTA, and per-device backup
+directory live under `$WORKDIR`. Backups use a timestamped
+directory and are never uploaded.
+
+## Inventory-Only Transaction
+
+Inventory is the mandatory first live run and has no write-capable code path.
+After the BROM handshake and payload upload, it performs these steps:
+
+1. Switch to the eMMC user area.
+2. Read the primary and backup GPTs as raw bytes and validate each
+   **independently** before either is trusted, then require them to agree.
+   Reusing a parser that accepts the primary *or* the backup hides exactly the
+   corruption this step exists to detect. For each copy: signature, revision,
+   header size, header CRC32 computed with the CRC field zeroed, entry-array
+   CRC32, entry size and count, reciprocal `my_lba`/`alternate_lba`, and
+   first/last usable LBA. Then, over the raw entry array: no duplicate
+   partition names, no duplicate unique GUIDs, no overlapping ranges, and no
+   entry outside the usable range. Only once all of that passes may a
+   name-keyed mapping be constructed, and the disk GUID, partition count,
+   exact names, start LBAs and sizes compared against the expected layout.
+3. Save the primary and backup GPT sectors.
+4. Save the complete `misc` partition.
+5. Save complete 16 MiB images from `boot_a_x` and `boot_b_x`.
+6. Read and save the first and last sectors of `boot_a` and `boot_b`.
+7. Compute evidence hashes for both full wrapper partitions by streaming reads
+   to the host. Full wrapper bytes do not need to be retained if the stream
+   hash succeeds, but retaining them is permitted when disk space allows.
+8. Save the first `expdb` sector.
+9. Decode, but do not modify, the seven BCB bytes at absolute `misc` offset
+   `0x360`.
+10. Write a machine-readable JSON report and a human-readable summary.
+
+The report contains geometry, hashes, BCB bytes and decoded fields, Android
+boot headers, wrapper boundary bytes, and tool identities. It must not contain
+device serial numbers, MAC addresses, Wi-Fi credentials, private keys, or
+calibration data.
+
+Inventory succeeds only after every requested read completes and every backup
+file is re-read and hashed locally. A successful inventory report is immutable
+input to a later install run.
+
+## Install Transaction
+
+### Two modes, deliberately separate
+
+This design previously required the currently selected slot to be `successful`
+while also claiming to cover devices where neither slot is known to boot. Those
+cannot both hold, so the operation is split in two. The mode is chosen
+explicitly by the operator and recorded in the transaction report; it is never
+inferred.
+
+**Mode A -- known-good inactive-slot update.** The currently selected slot has
+actually booted and been confirmed. It is preserved untouched as a genuine
+rollback target, and BCB rollback safety may be claimed, because there is
+something known-good to roll back to.
+
+**Mode B -- no-known-good BROM recovery.** Neither slot is proven. This is the
+mode that applies to the current device, whose two redirected slots both hold
+an unproven diagnostic image. **Mode B must not claim rollback safety**, and
+must not encode any unverified image as `successful`. Its recovery path is BROM
+plus the local backups, not the BCB.
+
+Both modes require:
+
+- a previously successful inventory report;
+- all backup files and hashes matching that report;
+- the live GPT, disk GUID and wrapper boundary evidence matching the inventory report, byte for byte, rather than matching a compiled-in constant;
+- a valid Amazon `ABB` BCB;
+- one currently selected slot and the other inactive slot;
+- the signed OTA passing every release-input check; and
+- typed operator confirmation containing the mode, the target slot and the short image hash.
+
+Mode A additionally requires the currently selected slot to already read
+`successful=1` in the live BCB. Mode B requires that it does not, and refuses to
+run if it does -- a device with a known-good slot must be updated as Mode A, so
+that the rollback target is preserved as one.
+
+The transaction is ordered to remain recoverable:
+
+1. Extract the verified `boot.img` to a local temporary file.
+2. Select only the inactive redirected `_x` partition.
+3. Write exactly 32768 sectors to that partition.
+4. Read all 32768 sectors back and verify the complete SHA-256 equals the
+   signed release hash.
+5. Re-read the 512-byte `misc` sector containing the BCB and require it to equal
+   the inventory copy.
+6. Preserve every byte in that sector except the seven-byte BCB record.
+7. Encode the existing slot as priority 14, zero tries, and **preserve its
+   existing `successful` bit exactly as read**. Mode A will therefore leave a
+   known-good slot marked successful; Mode B will leave an unproven one marked
+   unsuccessful. The tool never sets this bit: doing so would assert, on the
+   device, a fact about bootability that nothing has established.
+8. Encode the target slot as priority 15, three tries, not successful.
+9. Write exactly one 512-byte `misc` sector.
+10. Read back and verify the complete sector.
+11. Save a transaction result before requesting reboot.
+12. Reboot and monitor for LibreEcho ADB USB ID `18d1:d001`.
+
+If image writing or verification fails, the BCB is not changed. If the process
+stops after the image succeeds but before BCB activation, the new image remains
+inactive. No automatic retry may broaden the write set.
+
+## Write Outcome Model
+
+A write that reports an error has not necessarily failed. The Amonet transport
+sends a complete sector and then waits for its acknowledgement, so a lost,
+truncated or timed-out ACK is indistinguishable at the host from a sector that
+was committed and simply never confirmed. Treating that as "the write did not
+happen" is wrong, and treating it as "the write happened" is equally wrong.
+
+Every write is therefore tracked in three separate states, and the tool must
+never collapse them:
+
+| State | Meaning |
+| --- | --- |
+| `attempted` | the sector was sent |
+| `acknowledged` | the device confirmed it |
+| `verified` | the sector was read back and its contents matched |
+
+Only `verified` counts as done. `attempted` without `acknowledged` is
+**indeterminate**: the on-device state is unknown and cannot be inferred from
+the host's view.
+
+On an indeterminate outcome the tool must:
+
+1. stop immediately, performing no further writes;
+2. report the outcome as unknown -- never as success or as failure;
+3. **never retry automatically.** A retry after a lost ACK can write a sector
+   the device already holds, and if the transport has desynchronised it may not
+   land where the first one did; and
+4. require a reconnect followed by a **read-only reconciliation** run, which
+   re-reads the affected range and compares it against both the intended
+   contents and the inventory copy, before any further write is permitted.
+
+Reconciliation is read-only by construction: it is the inventory code path with
+the target range added, and has no writer at all. Its output says which of the
+three states each sector actually reached, which is the only sound basis for
+deciding what to do next.
+
+The exit report must state the outcome in these terms rather than as a boolean,
+and the operator-facing summary must distinguish "no writes occurred" from "the
+outcome of one or more writes is unknown".
+
+## Write Allowlist
+
+An install run may write only:
+
+- all 32768 sectors of one inventory-selected `boot_a_x` or `boot_b_x`; and
+- the single 512-byte `misc` sector containing the BCB.
+
+The implementation must have no path that writes GPT, `boot_a`, `boot_b`,
+`expdb`, `persist`, `userdata`, `lk_a`, `lk_b`, either TEE partition,
+`recovery`, `cache`, RPMB, preloader, TZ, LK, or either eMMC boot area.
+
+## Invalid BCB Handling
+
+Inventory accepts any seven bytes for reporting. Installation requires:
+
+- byte 0 equal to zero;
+- bytes 1 through 3 equal to `ABB`;
+- version byte equal to one;
+- both slot metadata bytes structurally valid; and
+- at least one selected bootable slot.
+
+If the live record is malformed, installation stops before any write. Repairing
+or migrating `BCb` to `ABB` is a separate design and transaction requiring its
+own evidence and approval.
+
+## Recovery Model
+
+The BCB gives the target three attempts and should return to the priority-14
+slot after exhaustion. Whether that constitutes a rollback depends entirely on
+the mode.
+
+In **Mode A** the preserved slot has booted and been confirmed, so BCB
+exhaustion is a real rollback and may be described as one.
+
+In **Mode B** it is not. Both redirected slots on the current device contain an
+unproven diagnostic image, so exhaustion returns to something that has never
+been shown to boot. Mode B must not describe this as rollback safety, and must
+not mark the preserved slot successful in order to make it look like one -- that
+would encode a claim about bootability that no evidence supports, and would make
+a device that cannot boot either slot look, to the boot control library, like
+one that can.
+
+BROM and the local backups are the authoritative recovery path. A recovery
+operation must be a separate mode that restores only artifacts previously
+captured by this tool, verifies their manifest hashes, requires exact live GPT
+identity, and performs full readback verification. Recovery implementation is
+out of scope for the first boot milestone, but inventory data must be sufficient
+to implement it without another successful boot.
+
+## First-Boot Acceptance
+
+The first milestone succeeds only when all of the following are observed:
+
+1. The host sees USB ID `18d1:d001`.
+2. `adb devices` lists exactly one LibreEcho device.
+3. `adb shell` executes a harmless command successfully.
+4. The running `/proc/cmdline`, GPT identities, selected slot, image version,
+   and boot image hash match the transaction report.
+5. A redacted first-boot report is saved locally.
+
+Wi-Fi, Bluetooth, audio, web setup, feature daemons, and OTA confirmation are
+not acceptance requirements for this milestone. The target slot must not be
+marked successful merely because ADB enumerates; confirmation requires a later
+runtime acceptance decision.
+
+## Deferred Feature Installation
+
+After ADB is stable, a separate transaction will stage each SquashFS and its
+manifest under:
+
+```text
+/data/libreecho/features/<feature>/payload.squashfs
+/data/libreecho/features/<feature>/manifest.json
+```
+
+The feature names are `airplay2`, `assistant`, `stt`, `tts`, and `wakeword`.
+The four owner-device-local MT8163 firmware files must be extracted from the
+owner's untouched stock system partition after exact path, size, and hash
+checks. They must not be sourced from or uploaded to CI by this workflow.
+
+## Testing
+
+Offline tests use a fake eMMC device with complete operation logging. They must
+prove:
+
+- inventory performs zero writes;
+- malformed, duplicated, missing, shifted, or resized GPT entries fail before
+  writes;
+- disk GUID mismatch fails before writes;
+- wrapper evidence mismatch fails before writes;
+- backup/report mismatch fails before writes;
+- OTA archive hash, member list, signature, manifest, Android magic, size, and
+  image hash are independently enforced;
+- malformed `BCb` and other invalid BCB values fail before writes;
+- only the inactive `_x` slot can be selected;
+- exactly 32768 contiguous image-sector writes occur;
+- image readback mismatch prevents the BCB write;
+- exactly one `misc` sector write occurs after successful image verification;
+- all non-BCB bytes in that sector remain unchanged;
+- BCB readback mismatch prevents reboot;
+- transport failure never causes a write outside the existing allowlist;
+- no production function can address forbidden partitions or eMMC areas; and
+- reboot occurs only after both complete readback verifications succeed.
+
+The test suite must demonstrate red-green behavior for each safety contract.
+Before any live run, shell syntax, Python compilation, unit tests, release
+verification, pinned artifact hashes, and the existing Amonet preflight must all
+pass freshly on the operator workstation.
+
+## Operational Stop Conditions
+
+Stop without writing when any of these occurs:
+
+- BROM USB disconnect or re-enumeration;
+- unexpected serial response;
+- GPT or disk GUID mismatch;
+- backup read or local hash failure;
+- invalid or ambiguous BCB;
+- wrapper evidence mismatch;
+- OTA verification failure;
+- target slot ambiguity;
+- image write/readback mismatch;
+- BCB sector changed since inventory; or
+- any requested operation falls outside the write allowlist.
+
+The tool must print, before exiting after an error, which of these occurred:
+zero writes; image-only writes; image-plus-BCB writes; or **an indeterminate
+outcome**, naming the exact sectors whose state is unknown. A run that cannot
+tell which of those applies is itself a defect.
+
+## Non-Goals
+
+- Rebuilding LibreEcho with Platform `release/0.12.0` or issue #18 diagnostics.
+- Repairing a malformed BCB.
+- Installing feature SquashFS payloads.
+- Extracting or activating connectivity firmware.
+- Configuring Wi-Fi or product services.
+- Confirming the new slot as successful.
+- Modifying Amonet wrappers or the signed vendor boot chain.
+
+Those are separate follow-up designs after the signed development image reaches
+ADB or produces enough evidence to justify a custom build.
