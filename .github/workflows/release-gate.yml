@@ -5,9 +5,21 @@ on:
     paths:
       - 'release/**'
       - 'tools/prepare-release.py'
+      - 'build/ci/prepare-stable-release.py'
+      - 'build/ci/publish-stable-release.sh'
+      - 'build/ci/generate-release-notes.py'
+      - 'build/tests/test_release_packaging.py'
+      - 'build/tests/test_generate_release_notes.py'
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
+      - 'tools/check-public-metadata.py'
       - 'tools/test_release_tools.py'
+      - 'tools/libreecho-install.py'
+      - 'tools/libreecho-install.py.sha256'
+      - 'tools/run-one-shot.sh'
+      - 'tools/test_initial_installer_publication.py'
+      - 'tools/test_brom_preflight.py'
+      - 'tools/test_oneshot_host_preflight.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -15,9 +27,21 @@ on:
     paths:
       - 'release/**'
       - 'tools/prepare-release.py'
+      - 'build/ci/prepare-stable-release.py'
+      - 'build/ci/publish-stable-release.sh'
+      - 'build/ci/generate-release-notes.py'
+      - 'build/tests/test_release_packaging.py'
+      - 'build/tests/test_generate_release_notes.py'
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
+      - 'tools/check-public-metadata.py'
       - 'tools/test_release_tools.py'
+      - 'tools/libreecho-install.py'
+      - 'tools/libreecho-install.py.sha256'
+      - 'tools/run-one-shot.sh'
+      - 'tools/test_initial_installer_publication.py'
+      - 'tools/test_brom_preflight.py'
+      - 'tools/test_oneshot_host_preflight.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -43,10 +67,18 @@ jobs:
         run: |
           python -m py_compile \
             tools/prepare-release.py \
+            build/ci/prepare-stable-release.py \
+            build/ci/generate-release-notes.py \
+            build/tests/test_release_packaging.py \
+            build/tests/test_generate_release_notes.py \
             tools/prepare-sbom.py \
             tools/check-release-components.py \
             tools/check-public-metadata.py \
-            tools/test_release_tools.py
+            tools/test_release_tools.py \
+            tools/libreecho-install.py \
+            tools/test_initial_installer_publication.py \
+            tools/test_brom_preflight.py \
+            tools/test_oneshot_host_preflight.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
       - name: Enforce full component and SBOM gate
@@ -60,3 +92,13 @@ jobs:
         run: |
           python3 tools/check-release-components.py \
             --release-scope community-noncommercial
+      - name: Verify stable OTA packaging and publication contract
+        run: |
+          bash -n build/ci/publish-stable-release.sh
+          python -B -m unittest build.tests.test_release_packaging -v
+      - name: Verify public installer mirror
+        run: python -B -m unittest tools.test_initial_installer_publication -v
+      - name: Verify BROM permission preflight suite
+        run: python -B -m unittest tools.test_brom_preflight -v
+      - name: Verify host fastboot preflight suite
+        run: python -B -m unittest tools.test_oneshot_host_preflight -v

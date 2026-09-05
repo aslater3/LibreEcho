@@ -15,26 +15,33 @@
 
 </div>
 
-The interface, API, and service daemons live in the separate
-[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI) repository. That
-repository is currently private pending a public-safety and licence review;
-the public website does not present it as a logged-out source download.
-
 LibreEcho is an open embedded voice-assistant operating system focused on
 privacy, repairability, and local control. The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
 tooling, a native web control centre, and a signed A/B update path.
 
-The Linux 6.1 LTS-based line is the current development baseline. A complete
-clean-source image has passed private hardware deployment and runtime
-validation, but the project is not yet presented as a general-purpose upstream
-Linux port or a stable public OTA release. Hardware fixes and service
-integration continue on review branches.
+The Linux 6.1 LTS-based line is the current release baseline. LibreEcho publishes
+signed stable OTA and one-shot installation assets for the supported Echo 2nd
+Gen target. It is not presented as a general-purpose upstream Linux port, and
+hardware support for other targets remains under development.
+
+## Getting Started
+
+- **Echo Gen 2 Disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
+- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md)
+
+```sh
+TAG=latest
+curl -fL -o run-one-shot.sh "https://raw.githubusercontent.com/aslater3/LibreEcho/main/tools/run-one-shot.sh"
+chmod +x run-one-shot.sh
+./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
+```
 
 ## Start Here
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
+- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, BROM sequence, first-boot steps, and recovery guidance for the latest stable release.
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
@@ -70,6 +77,8 @@ priority.
 
 - Local web administration for device, audio, wake word, networking, logs, and system settings.
 - Signed A/B OTA updates with opt-in automatic installation and a manual update action.
+- Optional password-authenticated root SSH in manually selected builds; public
+  builds keep it disabled unless the release operator explicitly enables it.
 - Linux kernel and initramfs bring-up for the MT8163 ARM32 platform.
 - Clear component boundaries so UI work, hardware work, and product support can evolve independently.
 
@@ -77,8 +86,8 @@ priority.
 
 | Repository | Owns |
 | --- | --- |
-| [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, documentation, support, roadmap, issues, release notes, and OTA distribution |
-| [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; the historical 3.18 tree remains here for compatibility |
+| [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, hosted image CI, documentation, support, roadmap, issues, release notes, and OTA distribution |
+| [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, and OTA verification/build inputs; the historical 3.18 tree remains here for compatibility |
 | [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1) | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 

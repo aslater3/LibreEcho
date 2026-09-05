@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,6 +38,163 @@ PREPARE_RELEASE = load_module("prepare_release", ROOT / "tools/prepare-release.p
 PUBLIC_METADATA = load_module(
     "check_public_metadata", ROOT / "tools/check-public-metadata.py"
 )
+INSTALLER = load_module("libreecho_install", ROOT / "tools/libreecho-install.py")
+
+
+def fake_executable(root: Path, name: str) -> Path:
+    path = root / name
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    path.chmod(0o755)
+    return path
+
+
+class OneShotFastbootTests(unittest.TestCase):
+    def test_prepare_fastboot_tools_stages_complete_toolset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            fake_executable(root, "mke2fs")
+            img2simg = fake_executable(root, "img2simg")
+            with mock.patch.object(INSTALLER, "_find_img2simg", return_value=img2simg):
+                staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
+            staged_path = Path(staged)
+            self.assertEqual(staged_path.parent, root / "cache" / "host-tools")
+            for name in ("fastboot", "mke2fs", "img2simg"):
+                self.assertTrue((staged_path.parent / name).is_file())
+            result = subprocess.run([staged, "--version"], text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0)
+
+    def test_prepare_fastboot_tools_fails_before_device_when_helper_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
+                 mock.patch.object(INSTALLER, "_find_img2simg", return_value=None), \
+                 mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
+                    INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
+            installer.assert_not_called()
+
+    def test_prepare_fastboot_tools_can_request_missing_dependency_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastboot = fake_executable(root, "fastboot")
+            mke2fs = fake_executable(root, "mke2fs")
+            img2simg = fake_executable(root, "img2simg")
+            with mock.patch.object(INSTALLER, "_find_mke2fs", side_effect=[None, mke2fs]), \
+                 mock.patch.object(INSTALLER, "_find_img2simg", side_effect=[None, img2simg]), \
+                 mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
+                staged = INSTALLER.prepare_fastboot_tools(
+                    str(fastboot), root / "cache", install_host_deps=True
+                )
+        installer.assert_called_once_with()
+        self.assertTrue(staged.endswith("/host-tools/fastboot"))
+
+    def test_state_accepts_legacy_without_userdata_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            path.write_text(json.dumps({
+                "phase": "READBACK_VERIFIED",
+                "release": "radar-puffin-v0.13.7",
+                "bundle_sha256": "a" * 64,
+            }))
+            state = INSTALLER._read_state(path)
+        self.assertFalse(state.get("userdata_formatted", False))
+
+    def test_state_accepts_userdata_format_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.json"
+            path.write_text(json.dumps({
+                "phase": "READBACK_VERIFIED",
+                "release": "radar-puffin-v0.13.7",
+                "bundle_sha256": "a" * 64,
+                "userdata_formatted": True,
+            }))
+            state = INSTALLER._read_state(path)
+        self.assertTrue(state["userdata_formatted"])
+
+    def test_fastboot_partition_size_parses_hex_prefix(self) -> None:
+        result = subprocess.CompletedProcess(
+            ["fastboot"], 0, "", "partition-size:userdata: 0x41380000\n"
+        )
+        with mock.patch.object(INSTALLER, "_run_command", return_value=result):
+            self.assertEqual(
+                INSTALLER._fastboot_partition_size("fastboot", "SERIAL", "userdata"),
+                INSTALLER.USERDATA_BYTES,
+            )
+
+    def test_userdata_format_rejects_unexpected_partition_size(self) -> None:
+        with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES + 512), \
+             mock.patch.object(INSTALLER, "_run_command") as command:
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+                INSTALLER.format_userdata_in_fastboot("fastboot", "SERIAL", 120)
+        command.assert_not_called()
+
+    def test_userdata_format_avoids_fastboot_internal_formatter(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        self.assertIn('"flash", "userdata", str(sparse)', source)
+        self.assertIn("^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file", source)
+
+    def test_adb_diagnostics_capture_read_only_command_bundle(self) -> None:
+        calls = []
+        result = subprocess.CompletedProcess(["adb"], 0, "diagnostic output\n", "")
+
+        def fake_run(argv, timeout, *, check=True):
+            calls.append((argv, timeout, check))
+            return result
+
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=fake_run), \
+             mock.patch.object(INSTALLER, "_append_log") as log:
+            INSTALLER.collect_adb_diagnostics("adb", "SERIAL", 30, "test")
+        remote = [call[0][4:] for call in calls]
+        self.assertIn(["id"], remote)
+        self.assertIn(["cat", "/proc/mounts"], remote)
+        self.assertIn(["blkid", "/dev/mmcblk0p16"], remote)
+        self.assertIn(["dmesg"], remote)
+        self.assertTrue(any("ADB_DIAGNOSTICS begin" in str(call.args[0]) for call in log.call_args_list))
+        self.assertTrue(any("ADB_DIAGNOSTICS end" in str(call.args[0]) for call in log.call_args_list))
+
+    def test_wait_for_transport_does_not_artificially_cap_slow_probe(self) -> None:
+        result = subprocess.CompletedProcess(["probe"], 0, "device\n", "")
+        with mock.patch.object(INSTALLER.subprocess, "run", return_value=result) as run:
+            INSTALLER.wait_for_transport(["probe"], "device", 60, "ADB")
+        self.assertGreater(run.call_args.kwargs["timeout"], 10)
+
+    def test_source_announces_fastboot_and_payload_boundaries(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        for marker in (
+            "FASTBOOT STAGE: waiting for the unlocked fastboot device.",
+            "FASTBOOT STAGE: detected device",
+            "FASTBOOT STAGE: userdata filesystem format complete.",
+            "FASTBOOT STAGE: flashing verified boot payload to boot_",
+            "PAYLOAD STAGE: beginning verified feature payload staging.",
+        ):
+            self.assertIn(marker, source)
+
+    def test_feature_stager_syncs_committed_files_before_removing_marker(self) -> None:
+        stager = INSTALLER.ROOT_FEATURE_STAGER
+        move = stager.index('$BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"')
+        manifest = stager.index('$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"', move)
+        first_sync = stager.index("$BB sync", manifest)
+        cleanup = stager.index('$BB rmdir "$DEST/staging"', manifest)
+        second_sync = stager.index("$BB sync", cleanup)
+        self.assertLess(move, manifest)
+        self.assertLess(manifest, first_sync)
+        self.assertLess(first_sync, cleanup)
+        self.assertLess(cleanup, second_sync)
+        self.assertIn(
+            "|| { echo FEATURE_STAGE_COMMIT_SYNC_FAILED; exit 1; }",
+            stager[first_sync:first_sync + 100],
+        )
+        self.assertIn(
+            "|| { echo FEATURE_STAGE_STAGING_CLEANUP_FAILED; exit 1; }",
+            stager[cleanup:cleanup + 100],
+        )
+        self.assertIn(
+            "|| { echo FEATURE_STAGE_MARKER_SYNC_FAILED; exit 1; }",
+            stager[second_sync:second_sync + 100],
+        )
 
 
 class PublicMetadataTests(unittest.TestCase):
@@ -47,6 +205,26 @@ class PublicMetadataTests(unittest.TestCase):
                 "https://launchpad.net/source/2025.10.07-0ubuntu1~24.04.1/archive.tar.xz"
             )
             self.assertEqual(PUBLIC_METADATA.violations(root), [])
+
+    def test_wildcard_serial_device_documentation_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "installer.py").write_text(
+                "scan /dev/ttyACM* and /dev/ttyUSB*; do not use a concrete node\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(PUBLIC_METADATA.violations(root), [])
+
+    def test_concrete_serial_device_path_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "metadata.txt").write_text(
+                "captured from /dev/ttyACM0 and /dev/ttyUSB1\n",
+                encoding="utf-8",
+            )
+            failures = PUBLIC_METADATA.violations(root)
+            self.assertEqual(len(failures), 2)
+            self.assertTrue(all("concrete serial device path" in item for item in failures))
 
     def test_private_identifiers_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -86,6 +264,34 @@ class PublicMetadataTests(unittest.TestCase):
                     self.assertTrue(any(f"{run_id}.json" in item for item in failures))
             self.assertTrue(any("20260811T214603Z/metadata.json" in item for item in failures))
 
+    def test_prepare_release_allows_wildcard_serial_documentation(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = dict(next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga"))
+        audio["download_location"] = "documented device class /dev/ttyACM*"
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            (repository / "release/THIRD_PARTY_NOTICES.md").write_text("notices\n")
+            (repository / "release/FPGA-PROVENANCE.md").write_text("documented\n")
+            catalog = repository / "release/components.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            self.assertEqual(PREPARE_RELEASE.load_components(catalog), [audio])
+
+    def test_prepare_release_rejects_concrete_serial_device_path(self) -> None:
+        data = json.loads((ROOT / "release/components.json").read_text())
+        audio = dict(next(c for c in data["components"] if c["id"] == "mt8163-audio-fpga"))
+        audio["download_location"] = "captured from /dev/ttyACM0"
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            (repository / "release").mkdir()
+            (repository / "release/THIRD_PARTY_NOTICES.md").write_text("notices\n")
+            (repository / "release/FPGA-PROVENANCE.md").write_text("documented\n")
+            catalog = repository / "release/components.json"
+            catalog.write_text(json.dumps({"schema_version": 2, "components": [audio]}))
+            with self.assertRaises(SystemExit) as failure:
+                PREPARE_RELEASE.load_components(catalog)
+        self.assertIn("private value", str(failure.exception))
+
 
 class ComponentGateTests(unittest.TestCase):
     def test_public_catalog_scopes_noncommercial_wakeword(self) -> None:
@@ -96,7 +302,7 @@ class ComponentGateTests(unittest.TestCase):
             ROOT / "release/components.json", "community-noncommercial"
         )
         data = json.loads((ROOT / "release/components.json").read_text())
-        self.assertEqual(len(data["components"]), 17)
+        self.assertEqual(len(data["components"]), 18)
         self.assertNotIn("wakeword-payload", {c["id"] for c in unrestricted})
         self.assertIn("wakeword-payload", {c["id"] for c in community})
         for component_id in (
@@ -165,6 +371,10 @@ class ComponentGateTests(unittest.TestCase):
         self.assertIn("Normal public downloads", boundary)
         self.assertIn("Compliance materials", boundary)
         self.assertIn("furnished to recipients on", boundary)
+        self.assertIn("signed development OTA", boundary)
+        self.assertIn("dev` OTA channel", boundary)
+        self.assertIn("never marked `latest`", boundary)
+        self.assertNotIn("Hosted main-branch builds may also produce an **unsigned development", boundary)
 
     def test_documented_good_faith_fpga_record_is_accepted(self) -> None:
         data = json.loads((ROOT / "release/components.json").read_text())
@@ -231,7 +441,7 @@ class ComponentGateTests(unittest.TestCase):
             "--release-scope", "community-noncommercial",
         ], text=True, capture_output=True)
         self.assertEqual(community.returncode, 0, community.stderr)
-        self.assertIn("component_count=17", community.stdout)
+        self.assertIn("component_count=18", community.stdout)
         self.assertIn("release_scope=community-noncommercial", community.stdout)
 
     def test_restricted_component_requires_valid_release_scopes(self) -> None:
@@ -299,7 +509,7 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(output),
             ], check=True, text=True, capture_output=True)
             document = json.loads(output.read_text())
-        self.assertIn("package_count=14", result.stdout)
+        self.assertIn("package_count=15", result.stdout)
         names = {package["name"] for package in document["packages"]}
         self.assertNotIn("MT8163 connectivity firmware extracted from the owner device", names)
         self.assertNotIn("Amonet/BROM installer integration", names)
@@ -324,7 +534,7 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(root / "sbom.json"),
             ], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("package_count=14", result.stdout)
+        self.assertIn("package_count=15", result.stdout)
 
     def test_sbom_includes_wakeword_only_for_community_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -350,10 +560,11 @@ class ComponentGateTests(unittest.TestCase):
                 package["name"] for package in json.loads(output.read_text())["packages"]
             } if output.exists() else set()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("package_count=15", result.stdout)
+        self.assertIn("package_count=16", result.stdout)
         self.assertIn(
             "openWakeWord runtime and pretrained Alexa-compatible model", names
         )
+
     def test_component_gate_rejects_unresolved_redistributed_source_offer(self) -> None:
         catalog = json.loads((ROOT / "release/components.json").read_text())
         component = next(

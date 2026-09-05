@@ -17,6 +17,7 @@ COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EMPTY_DIFF_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 REPO = re.compile(r"^https://github\.com/[^/]+/[^/]+$")
 RUN_ID = re.compile(r"(?:^|[-_])20\d{6}T\d{6}Z(?:[-_]|$)")
+PRIVATE_SERIAL_DEVICE = re.compile(r"/dev/tty(?:ACM|USB|S)[0-9]+(?:\b|$)")
 
 
 def sha256(path: Path) -> str:
@@ -157,7 +158,7 @@ def load_components(
             value = component.get(key)
             if not isinstance(value, str) or not value:
                 failures.append(f"{component_id}: {key} is missing")
-            elif any(marker in value for marker in ("/home/", "192.168.", "/dev/tty")):
+            elif "/home/" in value or "192.168." in value or PRIVATE_SERIAL_DEVICE.search(value):
                 failures.append(f"{component_id}: {key} contains a private value")
         if scope in local_scopes or release_scope in component_release_scopes:
             applicable.append(component)

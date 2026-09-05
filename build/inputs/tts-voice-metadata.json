@@ -1,0 +1,34 @@
+{
+  "schema": "libreecho-tts-voice-derivation-v1",
+  "description": "Reviewed LibreEcho TTS voice models are byte-for-byte reproducible derivatives of pinned upstream Piper voices (rhasspy/piper-voices revision ea046e8458f6acd997706d6e6066a022b42f6fb1): the upstream blob with these exact ONNX metadata_props appended. Graph and tensor data are untouched. Reviewed hashes match tools/mt8163-arm32/tts/package_feature.sh in LibreEcho-Kernel.",
+  "voices": {
+    "northern-male": {
+      "upstream_file": "piper-en_GB-northern_english_male-medium.onnx",
+      "output_file": "northern-male.derived.onnx",
+      "reviewed_sha256": "d23e7891af7062eb188283dba94866e25ffd5b01a0d9fb9a23c71a39b75b2308",
+      "metadata_props": [
+        ["model_type", "vits"],
+        ["comment", "piper"],
+        ["language", "English"],
+        ["voice", "en-gb-x-rp"],
+        ["has_espeak", "1"],
+        ["n_speakers", "1"],
+        ["sample_rate", "22050"]
+      ]
+    },
+    "southern-female": {
+      "upstream_file": "piper-en_GB-southern_english_female-low.onnx",
+      "output_file": "southern-female.derived.onnx",
+      "reviewed_sha256": "cf7f487689da2ec115cb5e9b5fb5ff4450f24e0c45565e0b72dd1eb4ed4caf65",
+      "metadata_props": [
+        ["model_type", "vits"],
+        ["comment", "piper"],
+        ["language", "English"],
+        ["voice", "en-gb-x-rp"],
+        ["has_espeak", "1"],
+        ["n_speakers", "1"],
+        ["sample_rate", "16000"]
+      ]
+    }
+  }
+}

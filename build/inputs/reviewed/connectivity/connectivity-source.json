@@ -1,0 +1,36 @@
+{
+  "compiler": "armv7-alpine-linux-musleabihf-gcc (Alpine 15.2.0) 15.2.0",
+  "license": "GPL-2.0-only",
+  "name": "LibreEcho MT8163 connectivity helpers",
+  "outputs": {
+    "wmt_bt_on": {
+      "sha256": "985320b270149cd27bc59d7f34d0da829817f225a4e712037633517c843cc745",
+      "size": 21648
+    },
+    "wmt_configure": {
+      "sha256": "e0ff85f0ac2cb2b98718556470444cafd1fcd8865cdba27aa67e2c7d7a3303e0",
+      "size": 25744
+    },
+    "wmt_launcher": {
+      "sha256": "65cb5c0c49bb61aec657c114cf67269e398bf41ff7b70a4abb8eb0ec36ff2c99",
+      "size": 21648
+    },
+    "wmt_responder": {
+      "sha256": "46170ddc1d1ddf21a85ec16df129aac47a258a439bc9e6ed061d1e5942aa48eb",
+      "size": 21648
+    },
+    "wmt_stock_compat": {
+      "sha256": "7e3afe31b706029ebf6e271f5cda6e3880cfc5b184abb052a190662759708c87",
+      "size": 21648
+    }
+  },
+  "sources": {
+    "SOURCE.lock": "4fd59d1fd8292f279d8f570036adcccda7531b365592907e0d3b35652a7af886",
+    "wmt_bt_on.c": "168513f35635d0e25519c036bfd237d047251fc411d41fcc02958b3f56592abc",
+    "wmt_configure.c": "d785ca33a6d9027e77f809c3a4c388d4bd0116cef03deafd80f6c0ce0e56e1c1",
+    "wmt_ioctl.h": "194f22e760e4639b7205770e47ada6ce6ecdd02bf57e9ee712bf3c532e84f4b8",
+    "wmt_launcher.c": "ee160819fd78e76c5d306f27f8ec6f8b4530186dea9f9deb7b5bcfb293d7c0dc",
+    "wmt_responder.c": "3fa9946a05b1306103490718b1905c1612dc198665fd0d8166c3454a935afc5e",
+    "wmt_stock_compat.c": "cd9d84ed6e55c81c5b7f4cd30db1510194df66d4ec8f5bf6aa8e454d8d3adc1f"
+  }
+}
