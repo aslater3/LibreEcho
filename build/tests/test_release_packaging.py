@@ -14,7 +14,10 @@ from nacl.signing import SigningKey
 
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "build/ci/prepare-stable-release.py"
-PLATFORM_TOOL = ROOT.parent / "platform/tools/mt8163-arm32/ota/make_ota_bundle.py"
+PLATFORM_TOOL = Path(os.environ.get(
+    "LIBREECHO_PLATFORM_SRC",
+    str(ROOT.parent / "platform"),
+)) / "tools/mt8163-arm32/ota/make_ota_bundle.py"
 WORKING_AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 

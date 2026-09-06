@@ -35,7 +35,11 @@ from ota_v2_product import (  # noqa: E402
     validate_v2_publisher_asset_set,
 )
 
-PLATFORM_TOOL = ROOT.parent / "platform/tools/mt8163-arm32/ota/make_ota_bundle.py"
+PLATFORM_ROOT = Path(os.environ.get(
+    "LIBREECHO_PLATFORM_SRC",
+    str(ROOT.parent / "platform"),
+))
+PLATFORM_TOOL = PLATFORM_ROOT / "tools/mt8163-arm32/ota/make_ota_bundle.py"
 
 
 class OtaV2InputTests(unittest.TestCase):

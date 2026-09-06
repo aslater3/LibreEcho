@@ -168,22 +168,39 @@ jobs:
             *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
           esac
           component_ref=main
+          platform_ref=main
+          linux_ref=main
+          ui_ref=main
           if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == release/* ]]; then
             component_ref="$GITHUB_BASE_REF"
+            platform_ref="$component_ref"
+            linux_ref="$component_ref"
+            ui_ref="$component_ref"
+            if [[ "$GITHUB_HEAD_REF" == feature/*-product ]]; then
+              candidate_stem="${GITHUB_HEAD_REF%-product}"
+              platform_ref="${candidate_stem}-platform"
+              ui_ref="${candidate_stem}-ui"
+            fi
           elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
             component_ref="$GITHUB_REF_NAME"
+            platform_ref="$component_ref"
+            linux_ref="$component_ref"
+            ui_ref="$component_ref"
           fi
-          if [[ "$component_ref" != main ]]; then
-            for component in LibreEcho-Platform LibreEcho-Linux-6.1 LibreEcho-UI; do
-              git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$component_ref" >/dev/null || {
-                echo "ERROR: coordinated component ref is missing: $component:$component_ref" >&2
-                exit 1
-              }
-            done
-          fi
-          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$component_ref" | cut -f1)
-          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$component_ref" | cut -f1)
-          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$component_ref" | cut -f1)
+          for ref_spec in \
+            "LibreEcho-Platform:$platform_ref" \
+            "LibreEcho-Linux-6.1:$linux_ref" \
+            "LibreEcho-UI:$ui_ref"; do
+            component="${ref_spec%%:*}"
+            ref_name="${ref_spec#*:}"
+            git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$ref_name" >/dev/null || {
+              echo "ERROR: coordinated component ref is missing: $component:$ref_name" >&2
+              exit 1
+            }
+          done
+          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$platform_ref" | cut -f1)
+          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$linux_ref" | cut -f1)
+          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$ui_ref" | cut -f1)
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
             --channel "$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
@@ -203,10 +220,18 @@ jobs:
 
   contract-checks:
     name: Product pipeline contract checks
+    needs: resolve-and-preflight
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          path: platform-source
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
@@ -225,6 +250,8 @@ jobs:
             --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
       - name: Run maintained Product pipeline suites
+        env:
+          LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
