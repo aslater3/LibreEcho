@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from nacl.signing import SigningKey
 
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "build/ci/prepare-dev-release.py"
+PLATFORM_TOOL = ROOT.parent / "platform/tools/mt8163-arm32/ota/make_ota_bundle.py"
 EMPTY = hashlib.sha256(b"").hexdigest()
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 
@@ -49,7 +52,7 @@ def fixture(root: Path) -> tuple[Path, dict[str, str]]:
         "ui_diff_sha256": EMPTY,
     }
     boot = run / "boot.img"
-    boot.write_bytes(b"boot")
+    boot.write_bytes(b"ANDROID!" + bytes(16 * 1024 * 1024 - 8))
     candidate["boot_image_sha256"] = digest(boot)
     for feature in FEATURES:
         key = "airplay" if feature == "airplay2" else feature
@@ -63,6 +66,9 @@ def fixture(root: Path) -> tuple[Path, dict[str, str]]:
     (run / "CURRENT.candidate").write_text("".join(f"{k}={v}\n" for k, v in candidate.items()))
     (run / "provenance.txt").write_text(f"kernel_git_head={commits['linux'][:12]}\n")
     (run / "manifest.json").write_text(json.dumps({
+        "output": {"sha256": digest(boot), "size": boot.stat().st_size},
+        "image_profile": "ota", "service_profile": "production",
+        "feature_policy": "community-noncommercial", "update_channel": "dev",
         "connectivity": {
             "embedded_vendor_file_count": 0,
             "vendor_delivery": "owner-device-local-extraction",
@@ -77,7 +83,161 @@ def fixture(root: Path) -> tuple[Path, dict[str, str]]:
     return run, commits
 
 
+def make_signed_ota(run: Path, output: Path, version: str = "fixture-v1", ota_format: str = "v1", plan: Path | None = None) -> None:
+    signing = SigningKey.generate()
+    signing_path = run / "fixture-signing-key.hex"
+    public_path = run / "ota-public-key.hex"
+    signing_path.write_text(signing.encode().hex() + "\n")
+    public_path.write_text(signing.verify_key.encode().hex() + "\n")
+    build = run / "manifest.json"
+    manifest = json.loads(build.read_text())
+    manifest.update({"output": {"sha256": digest(run / "boot.img"), "size": (run / "boot.img").stat().st_size},
+                    "image_profile": "ota", "service_profile": "production",
+                    "feature_policy": "community-noncommercial", "update_channel": "dev"})
+    build.write_text(json.dumps(manifest))
+    command = [sys.executable, str(PLATFORM_TOOL), "--format", ota_format,
+               "--boot-image", str(run / "boot.img"), "--build-manifest", str(build),
+               "--version", version, "--signing-key", str(signing_path),
+               "--public-key", str(public_path), "--service-profile", "production",
+               "--feature-policy", "community-noncommercial", "--update-channel", "dev"]
+    if plan is not None:
+        command.extend(("--feature-plan", str(plan)))
+    command.extend(("--output", str(output),))
+    result = subprocess.run(command, text=True, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr)
+
+
+def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11") -> dict[str, str]:
+    asset_dir = run / "ota-assets"
+    asset_dir.mkdir()
+    payload_name = f"libreecho-radar-puffin-{release}-assistant.runtime.squashfs"
+    manifest_name = f"libreecho-radar-puffin-{release}-assistant.runtime-manifest.json"
+    payload = asset_dir / payload_name
+    manifest = asset_dir / manifest_name
+    payload.write_bytes(b"assistant runtime capsule")
+    manifest.write_text("{\"feature_id\":\"assistant\"}\n")
+    records = []
+    for feature in FEATURES:
+        common: dict[str, object] = {
+            "feature_id": feature,
+            "activation": "reboot",
+            "base_payload_sha256": "a" * 64,
+            "base_manifest_sha256": "b" * 64,
+            "daemon_path": {
+                "airplay2": "usr/local/sbin/libreecho-audio-engine",
+                "tts": "usr/local/sbin/libreecho-ttsd",
+                "wakeword": "usr/local/sbin/libreecho-waked",
+                "stt": "usr/local/sbin/libreecho-sttd",
+                "assistant": "usr/local/sbin/libreecho-agentd",
+            }[feature],
+            "daemon_sha256": "c" * 64,
+            "release": release,
+            "source_commit": commits["ui"],
+        }
+        if feature == "assistant":
+            common.update({
+                "action": "runtime",
+                "asset": payload_name,
+                "size": payload.stat().st_size,
+                "sha256": digest(payload),
+                "manifest_asset": manifest_name,
+                "manifest_size": manifest.stat().st_size,
+                "manifest_sha256": digest(manifest),
+            })
+        else:
+            common["action"] = "preserve"
+        records.append(common)
+    plan = run / "feature-plan.json"
+    inventory = run / "feature-assets.json"
+    plan.write_text(json.dumps({
+        "schema": "libreecho-product-feature-plan-v1",
+        "transaction_type": "system",
+        "activation": "reboot",
+        "release": release,
+        "source_commit": commits["ui"],
+        "features": records,
+    }) + "\n")
+    inventory.write_text(json.dumps({
+        "schema": "libreecho-product-feature-assets-v1",
+        "transaction_type": "system",
+        "activation": "reboot",
+        "release": release,
+        "source_commit": commits["ui"],
+        "assets": [
+            {"feature_id": "assistant", "action": "runtime", "kind": "manifest", "name": manifest_name, "size": manifest.stat().st_size, "sha256": digest(manifest)},
+            {"feature_id": "assistant", "action": "runtime", "kind": "payload", "name": payload_name, "size": payload.stat().st_size, "sha256": digest(payload)},
+        ],
+    }) + "\n")
+    candidate = run / "CURRENT.candidate"
+    text = candidate.read_text()
+    text += (
+        "ota_format=v2\n"
+        f"ota_release={release}\n"
+        f"feature_plan={plan}\n"
+        f"feature_asset_inventory={inventory}\n"
+        f"feature_asset_dir={asset_dir}\n"
+    )
+    candidate.write_text(text)
+    return {"payload": payload_name, "manifest": manifest_name}
+
+
 class Tests(unittest.TestCase):
+    def test_prepares_v2_external_assets_without_renaming_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run, commits = fixture(root)
+            names = add_v2_contract(run, commits)
+            ota = run / "development.ota.tar"
+            make_signed_ota(run, ota, "0.13.11", "v2", run / "feature-plan.json")
+            candidate = run / "CURRENT.candidate"
+            text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
+            text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
+            text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
+            candidate.write_text(text)
+            output = root / "release"
+            result = subprocess.run([
+                sys.executable, str(SCRIPT), "--artifact-root", str(root),
+                "--output-dir", str(output), "--product-commit", commits["product"],
+            ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(run / "ota-public-key.hex")}, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((output / names["payload"]).is_file())
+            self.assertTrue((output / names["manifest"]).is_file())
+            self.assertIn(names["payload"], (next(output.glob("*-SHA256SUMS"))).read_text())
+            release_manifest = json.loads(next(output.glob("*-build.json")).read_text())
+            self.assertEqual({item["name"] for item in release_manifest["feature_assets"]}, set(names.values()))
+
+    def test_rejects_invalid_v2_feature_asset_inventory(self) -> None:
+        mutations = ("missing", "tampered", "mismatched", "duplicate", "unsafe", "partial")
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                run, commits = fixture(root)
+                names = add_v2_contract(run, commits)
+                inventory = run / "feature-assets.json"
+                data = json.loads(inventory.read_text())
+                if mutation == "missing":
+                    (run / "ota-assets" / names["payload"]).unlink()
+                elif mutation == "tampered":
+                    (run / "ota-assets" / names["payload"]).write_bytes(b"tampered")
+                elif mutation == "mismatched":
+                    data["assets"][0]["sha256"] = "d" * 64
+                    inventory.write_text(json.dumps(data))
+                elif mutation == "duplicate":
+                    data["assets"].append(dict(data["assets"][0]))
+                    inventory.write_text(json.dumps(data))
+                elif mutation == "unsafe":
+                    data["assets"][0]["name"] = "../unsafe.runtime.squashfs"
+                    inventory.write_text(json.dumps(data))
+                else:
+                    data["assets"] = data["assets"][:1]
+                    inventory.write_text(json.dumps(data))
+                result = subprocess.run([
+                    sys.executable, str(SCRIPT), "--artifact-root", str(root),
+                    "--output-dir", str(root / "release"),
+                    "--product-commit", commits["product"],
+                ], text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0, mutation)
     def test_prepares_bounded_unsigned_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -116,14 +276,13 @@ class Tests(unittest.TestCase):
             root = Path(temporary)
             run, commits = fixture(root)
             ota = run / "nightly.ota.tar"
-            ota.write_bytes(b"signed nightly ota")
+            make_signed_ota(run, ota)
             candidate = run / "CURRENT.candidate"
             text = candidate.read_text()
             text = text.replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
             text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
             text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
             candidate.write_text(text)
-            (run / "ota-public-key.hex").write_text("a" * 64 + "\n")
             output = root / "release"
             result = subprocess.run([
                 sys.executable, str(SCRIPT),
@@ -144,14 +303,13 @@ class Tests(unittest.TestCase):
             root = Path(temporary)
             run, commits = fixture(root)
             ota = run / "development.ota.tar"
-            ota.write_bytes(b"signed development ota")
+            make_signed_ota(run, ota)
             candidate = run / "CURRENT.candidate"
             text = candidate.read_text()
             text = text.replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
             text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
             text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
             candidate.write_text(text)
-            (run / "ota-public-key.hex").write_text("a" * 64 + "\n")
             output = root / "release"
             result = subprocess.run([
                 sys.executable, str(SCRIPT),
@@ -172,7 +330,7 @@ class Tests(unittest.TestCase):
             root = Path(temporary)
             run, commits = fixture(root)
             ota = run / "signed.ota.tar"
-            ota.write_bytes(b"signed dev ota")
+            make_signed_ota(run, ota)
             candidate = run / "CURRENT.candidate"
             text = candidate.read_text()
             text = text.replace(
@@ -182,7 +340,6 @@ class Tests(unittest.TestCase):
             text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
             text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
             candidate.write_text(text)
-            (run / "ota-public-key.hex").write_text("a" * 64 + "\n")
             output = root / "release"
             result = subprocess.run([
                 sys.executable, str(SCRIPT),

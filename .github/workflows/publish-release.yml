@@ -247,6 +247,7 @@ jobs:
           PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
           LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
           UI_HEAD: ${{ steps.sources.outputs.ui_head }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -272,6 +273,7 @@ jobs:
       - name: Publish stable Product release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
           RELEASE_DIR: release-assets
           RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}

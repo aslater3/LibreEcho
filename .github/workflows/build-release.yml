@@ -45,6 +45,24 @@ on:
         required: false
         default: dfefe52f0eed7296012707cfff1f753b0ea33257
         type: string
+      ota_format:
+        description: OTA contract; v1 is the retained bridge default
+        required: false
+        default: v1
+        type: choice
+        options: [v1, v2]
+      ota_release:
+        description: Explicit OTA v2 candidate release (must be 0.13.11)
+        required: false
+        type: string
+      ota_base_catalog_url:
+        description: Immutable prior-release feature catalog URL for OTA v2
+        required: false
+        type: string
+      ota_base_catalog_sha256:
+        description: SHA-256 of the exact prior-release feature catalog
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -71,6 +89,10 @@ jobs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
+      ota_format: ${{ steps.resolve.outputs.ota_format }}
+      ota_release: ${{ steps.resolve.outputs.ota_release }}
+      ota_base_catalog_url: ${{ steps.resolve.outputs.ota_base_catalog_url }}
+      ota_base_catalog_sha256: ${{ steps.resolve.outputs.ota_base_catalog_sha256 }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -81,6 +103,10 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
+          OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
+          OTA_RELEASE_INPUT: ${{ inputs.ota_release || '' }}
+          OTA_BASE_CATALOG_URL_INPUT: ${{ inputs.ota_base_catalog_url || '' }}
+          OTA_BASE_CATALOG_SHA256_INPUT: ${{ inputs.ota_base_catalog_sha256 || '' }}
           SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
@@ -131,6 +157,11 @@ jobs:
               ;;
             *) echo "ERROR: unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
           esac
+          python3 build/ci/ota_v2_inputs.py \
+            --format "$OTA_FORMAT_INPUT" --release "$OTA_RELEASE_INPUT" \
+            --base-catalog-url "$OTA_BASE_CATALOG_URL_INPUT" \
+            --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256_INPUT" \
+            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" >> "$GITHUB_OUTPUT"
           case "$SSH_ENABLED_INPUT" in
             disabled) SSH_ENABLED=0 ;;
             enabled) SSH_ENABLED=1 ;;
@@ -185,6 +216,8 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
+            build.tests.test_ota_v2_signing \
+            build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
@@ -876,6 +909,19 @@ jobs:
           }
           echo "$shim" >> "$GITHUB_PATH"
 
+      - name: Fetch authenticated OTA v2 base catalog
+        if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
+        env:
+          BASE_CATALOG_URL: ${{ needs.resolve-and-preflight.outputs.ota_base_catalog_url }}
+          BASE_CATALOG_SHA256: ${{ needs.resolve-and-preflight.outputs.ota_base_catalog_sha256 }}
+        run: |
+          set -euo pipefail
+          curl -4 --fail --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 30 --max-time 120 --retry 3 --retry-all-errors \
+            --output "$RUNNER_TEMP/ota-base-catalog.json" "$BASE_CATALOG_URL"
+          printf '%s  %s\n' "$BASE_CATALOG_SHA256" "$RUNNER_TEMP/ota-base-catalog.json" | sha256sum -c -
+          test -f "$RUNNER_TEMP/ota-base-catalog.json"
+
       - name: Build image and features
         env:
           # The staged ARMHF gcc/as/ld are dynamically linked against the
@@ -892,7 +938,13 @@ jobs:
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
           LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           LIBREECHO_OTA_SIGNING_MODE: ${{ needs.resolve-and-preflight.outputs.signing_mode }}
+          # Protected environment configuration, never a candidate field.
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           LIBREECHO_OTA_SIGNING_KEY: ${{ needs.resolve-and-preflight.outputs.signing_mode == 'local' && format('{0}/ota-signing-key.hex', runner.temp) || '' }}
+          LIBREECHO_OTA_FORMAT: ${{ needs.resolve-and-preflight.outputs.ota_format }}
+          LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
+          LIBREECHO_OTA_BASE_CATALOG: ${{ needs.resolve-and-preflight.outputs.ota_format == 'v2' && format('{0}/ota-base-catalog.json', runner.temp) || '' }}
+          LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ needs.resolve-and-preflight.outputs.ota_base_catalog_sha256 }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf

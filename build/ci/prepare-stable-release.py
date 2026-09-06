@@ -6,10 +6,19 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
+import sys
 import tarfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ota_v2_product import (  # noqa: E402
+    load_feature_contract,
+    validate_control_tar,
+    validate_v2_publisher_asset_set,
+)
 
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
@@ -162,6 +171,14 @@ def main() -> int:
     candidate = read_kv(run / "CURRENT.candidate")
     provenance = read_kv(run / "provenance.txt")
     sources = read_kv(run / "release-source-commits.txt")
+    ota_format = candidate.get("ota_format", "v1")
+    if ota_format not in {"v1", "v2"}:
+        fail("candidate has an unsupported OTA format")
+    feature_contract = load_feature_contract(run, candidate) if ota_format == "v2" else None
+    feature_plan = feature_contract[0] if feature_contract else None
+    feature_inventory = feature_contract[1] if feature_contract else None
+    feature_asset_dir = feature_contract[2] if feature_contract else None
+    feature_assets = feature_contract[3] if feature_contract else None
     request_path = run / "release-request.json"
     regular(request_path)
     request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -243,6 +260,16 @@ def main() -> int:
     expect_hash(ota[0], candidate.get("ota_bundle_sha256", ""), "OTA bundle")
     public_key = run / "ota-public-key.hex"
     regular(public_key)
+    validate_control_tar(
+        ota[0], public_key, ota_format, ota_format == "v2" and args.release_version or "",
+        feature_plan=feature_plan,
+        feature_inventory=feature_inventory,
+        feature_asset_dir=feature_asset_dir,
+        expected_channel=candidate.get("update_channel") if ota_format == "v2" else None,
+        boot_path=run / "boot.img" if ota_format == "v2" else None,
+        expected_key_sha256=(os.environ.get("LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256")
+                             if ota_format == "v2" else None),
+    )
 
     output = args.output_dir.resolve()
     if output.exists():
@@ -273,6 +300,23 @@ def main() -> int:
         key = "airplay" if feature == "airplay2" else feature
         copy(run / "features" / f"{feature}.squashfs", f"{feature}.squashfs", candidate.get(f"{key}_payload_sha256", ""), candidate.get(f"{key}_payload_size", ""))
         copy(run / "features" / f"{feature}.manifest.json", f"{feature}.manifest.json", candidate.get(f"{key}_feature_manifest_sha256", ""))
+    if feature_assets is not None and feature_asset_dir is not None:
+        for item in feature_assets:
+            source = feature_asset_dir / str(item["name"])
+            regular(source)
+            expect_hash(source, str(item["sha256"]), str(item["name"]))
+            target = output / str(item["name"])
+            shutil.copyfile(source, target)
+            copied.append(target)
+        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets)
+        copy(
+            run / "feature-plan.json", "feature-plan.json",
+            sha256(run / "feature-plan.json"),
+        )
+        copy(
+            run / "feature-assets.json", "feature-assets.json",
+            sha256(run / "feature-assets.json"),
+        )
 
     install_manifest = initial_install_manifest(release_tag, output / f"{prefix}-boot.img", output / f"{prefix}-ota-public-key.hex", output, args.amonet_repository, args.amonet_tag, args.amonet_commit)
     bundle = write_initial_install_bundle(output, release_tag, install_manifest)
@@ -298,6 +342,16 @@ def main() -> int:
         "sources": sources,
         "artifacts": records,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if feature_plan is not None:
+        release_data = json.loads(build_manifest.read_text(encoding="utf-8"))
+        release_data["ota_format"] = "v2"
+        release_data["ota_release"] = candidate["ota_release"]
+        release_data["feature_plan"] = feature_plan
+        release_data["feature_assets"] = [
+            dict(item)
+            for item in feature_assets or []
+        ]
+        build_manifest.write_text(json.dumps(release_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     copied.append(build_manifest)
 
     sums = output / f"{prefix}-SHA256SUMS"
