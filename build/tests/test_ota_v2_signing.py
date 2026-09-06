@@ -199,7 +199,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
 
     def test_platform_tool_substitution_is_rejected_before_signer(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ota-platform-binding-") as directory:
-            identity = _platform_identity(ROOT.parent / "platform", PLATFORM_TOOL)
+            identity = _platform_identity(PLATFORM_ROOT, PLATFORM_TOOL)
             binding = {
                 "platform_source": {
                     "path": identity["path"], "commit": identity["commit"],
@@ -237,7 +237,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
                 create_handoff(
                     run, "0.13.11", commits["ui"], "stable", base,
                     hashlib.sha256(base.read_bytes()).hexdigest(), handoff,
-                    ROOT.parent / "platform", PLATFORM_TOOL,
+                    PLATFORM_ROOT, PLATFORM_TOOL,
                 )
                 output = root / "signed-v2.ota.tar"
                 sign(handoff, PLATFORM_TOOL, signing_path, public_path, output)
