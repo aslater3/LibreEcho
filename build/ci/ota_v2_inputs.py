@@ -41,6 +41,13 @@ def validate_inputs(
         raise InputError("ota_format must be v1 or v2")
     if event_name != "workflow_dispatch":
         raise InputError("OTA v2 is an explicit workflow_dispatch opt-in")
+    if not base_catalog_url and not base_catalog_sha256:
+        if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", ota_release):
+            raise InputError("OTA v2 requires a numeric candidate release")
+        if ref != f"refs/heads/release/{ota_release}":
+            raise InputError("OTA v2 candidate must match its release branch")
+        return {"ota_format": "v2", "ota_release": ota_release,
+                "ota_base_catalog_url": "", "ota_base_catalog_sha256": ""}
     if ref != f"refs/heads/release/{EXPECTED_RELEASE}":
         raise InputError(f"OTA v2 is only authorized for release/{EXPECTED_RELEASE}")
     if ota_release != EXPECTED_RELEASE:

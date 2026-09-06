@@ -52,15 +52,7 @@ on:
         type: choice
         options: [v1, v2]
       ota_release:
-        description: Explicit OTA v2 candidate release (must be 0.13.11)
-        required: false
-        type: string
-      ota_base_catalog_url:
-        description: Immutable prior-release feature catalog URL for OTA v2
-        required: false
-        type: string
-      ota_base_catalog_sha256:
-        description: SHA-256 of the exact prior-release feature catalog
+        description: OTA v2 candidate version (defaults to release branch version)
         required: false
         type: string
 
@@ -104,9 +96,9 @@ jobs:
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
           OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
-          OTA_RELEASE_INPUT: ${{ inputs.ota_release || '' }}
-          OTA_BASE_CATALOG_URL_INPUT: ${{ inputs.ota_base_catalog_url || '' }}
-          OTA_BASE_CATALOG_SHA256_INPUT: ${{ inputs.ota_base_catalog_sha256 || '' }}
+          OTA_RELEASE_INPUT: ${{ inputs.ota_release || (inputs.ota_format == 'v2' && inputs.release_version) || '' }}
+          OTA_BASE_CATALOG_URL_INPUT: ''
+          OTA_BASE_CATALOG_SHA256_INPUT: ''
           SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
@@ -257,6 +249,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
+            build.tests.test_fetch_ota_base \
             build.tests.test_ota_v2_signing \
             build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
@@ -950,18 +943,16 @@ jobs:
           }
           echo "$shim" >> "$GITHUB_PATH"
 
-      - name: Fetch authenticated OTA v2 base catalog
+      - name: Resolve and verify prior GitHub release features
+        id: ota_base
+        timeout-minutes: 10
         if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
         env:
-          BASE_CATALOG_URL: ${{ needs.resolve-and-preflight.outputs.ota_base_catalog_url }}
-          BASE_CATALOG_SHA256: ${{ needs.resolve-and-preflight.outputs.ota_base_catalog_sha256 }}
+          OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
         run: |
           set -euo pipefail
-          curl -4 --fail --location --proto '=https' --tlsv1.2 \
-            --connect-timeout 30 --max-time 120 --retry 3 --retry-all-errors \
-            --output "$RUNNER_TEMP/ota-base-catalog.json" "$BASE_CATALOG_URL"
-          printf '%s  %s\n' "$BASE_CATALOG_SHA256" "$RUNNER_TEMP/ota-base-catalog.json" | sha256sum -c -
-          test -f "$RUNNER_TEMP/ota-base-catalog.json"
+          python3 build/ci/fetch-ota-base.py --release "$OTA_RELEASE" \
+            --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
 
       - name: Build image and features
         env:
@@ -984,8 +975,8 @@ jobs:
           LIBREECHO_OTA_SIGNING_KEY: ${{ needs.resolve-and-preflight.outputs.signing_mode == 'local' && format('{0}/ota-signing-key.hex', runner.temp) || '' }}
           LIBREECHO_OTA_FORMAT: ${{ needs.resolve-and-preflight.outputs.ota_format }}
           LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
-          LIBREECHO_OTA_BASE_CATALOG: ${{ needs.resolve-and-preflight.outputs.ota_format == 'v2' && format('{0}/ota-base-catalog.json', runner.temp) || '' }}
-          LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ needs.resolve-and-preflight.outputs.ota_base_catalog_sha256 }}
+          LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
+          LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
