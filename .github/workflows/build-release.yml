@@ -210,6 +210,20 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
+      - name: Install reviewed Product gate dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          test -f "$wheelhouse/requirements.txt"
+          test -f "$wheelhouse/PyNaCl-1.5.0-cp36-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/cffi-1.17.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/pycparser-2.22-py3-none-any.whl"
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --find-links "$wheelhouse" \
+            --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
       - name: Run maintained Product pipeline suites
         run: |
           set -euo pipefail
