@@ -51,6 +51,10 @@ on:
         default: v1
         type: choice
         options: [v1, v2]
+      device_baseline_json:
+        description: Optional hash-only dev device migration baseline (manual v2 only)
+        required: false
+        type: string
       ota_release:
         description: OTA v2 candidate version (defaults to release branch version)
         required: false
@@ -97,11 +101,18 @@ jobs:
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
           OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
           OTA_RELEASE_INPUT: ${{ inputs.ota_release || (inputs.ota_format == 'v2' && inputs.release_version) || '' }}
+          DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
           OTA_BASE_CATALOG_URL_INPUT: ''
           OTA_BASE_CATALOG_SHA256_INPUT: ''
           SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
+          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.13.11 ]] || {
+              echo "ERROR: device migration requires manual dev v2 release/0.13.11 dispatch" >&2; exit 1;
+            }
+            UPDATE_CHANNEL="$RELEASE_CHANNEL" python3 -c 'import os,sys; sys.path.insert(0,"build/ci"); from device_baseline import parse; parse(os.environ["DEVICE_BASELINE_JSON"], os.environ["UPDATE_CHANNEL"])'
+          fi
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             case "$GITHUB_BASE_REF" in
               main|release/*) ;;
@@ -250,6 +261,7 @@ jobs:
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
+            build.tests.test_device_baseline \
             build.tests.test_ota_v2_signing \
             build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
@@ -949,10 +961,17 @@ jobs:
         if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
         env:
           OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
+          DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
+          UPDATE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
+          OTA_FORMAT: ${{ inputs.ota_format || 'v1' }}
         run: |
           set -euo pipefail
-          python3 build/ci/fetch-ota-base.py --release "$OTA_RELEASE" \
-            --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
+          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
+            python3 build/ci/device_baseline.py
+          else
+            python3 build/ci/fetch-ota-base.py --release "$OTA_RELEASE" \
+              --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
+          fi
 
       - name: Build image and features
         env:
