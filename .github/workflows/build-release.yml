@@ -185,6 +185,8 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
+            build.tests.test_release_route \
+            build.tests.test_publish_dev_pointer \
             build.tests.test_public_inputs \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
