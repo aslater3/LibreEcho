@@ -2223,6 +2223,10 @@ ota_bundle_sha=
 if [[ "$OTA_FORMAT" == v2 ]]; then
   ota_base_catalog_copy="$RUN/ota-base-catalog.json"
   cp -- "$OTA_BASE_CATALOG" "$ota_base_catalog_copy"
+  # The v2 handoff validates and records the run-local public key before the
+  # protected signer runs.  The workflow also copies this key after the build
+  # for artifact publication, but that is too late for create-handoff.
+  install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"
   python3 -B "$PIPELINE/ci/sign_ota_candidate.py" create-handoff \
     --run-dir "$RUN" --release "$OTA_RELEASE" --source-commit "$ui_commit" \
     --update-channel "$UPDATE_CHANNEL" --base-catalog "$ota_base_catalog_copy" \

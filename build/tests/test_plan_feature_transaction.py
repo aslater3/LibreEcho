@@ -243,6 +243,13 @@ class FeaturePlanTests(unittest.TestCase):
         self.assertIn('--platform-tool "$OTA_DIR/make_ota_bundle.py"', build)
         self.assertIn("LIBREECHO_OTA_BASE_CATALOG", build)
 
+    def test_v2_stages_run_local_public_key_before_handoff(self) -> None:
+        build = (SCRIPT.parents[1] / "build.sh").read_text()
+        key_stage = 'install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"'
+        handoff = 'python3 -B "$PIPELINE/ci/sign_ota_candidate.py" create-handoff'
+        self.assertIn(key_stage, build)
+        self.assertLess(build.index(key_stage), build.index(handoff))
+
 
 if __name__ == "__main__":
     unittest.main()
