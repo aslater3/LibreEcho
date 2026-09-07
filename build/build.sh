@@ -2205,6 +2205,7 @@ for offset in range(0, len(args), 3):
 output_path.write_text(json.dumps({"features": features}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
   planner_args=(
+    --update-channel "$UPDATE_CHANNEL"
     --base-catalog "$OTA_BASE_CATALOG"
     --candidate-catalog "$feature_candidate_catalog"
     --release "$OTA_RELEASE"

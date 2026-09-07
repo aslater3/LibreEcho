@@ -334,6 +334,12 @@ def validate_handoff(path: Path, expected_release: str = EXPECTED_RELEASE) -> di
     if not isinstance(data["base_catalog_sha256"], str) or len(data["base_catalog_sha256"]) != 64 or any(c not in "0123456789abcdef" for c in data["base_catalog_sha256"]):
         raise HandoffError("signing handoff base catalog hash is malformed")
     base_catalog = _check_record(data["base_catalog"], "base catalog")
+    from device_baseline import SCHEMA as DEVICE_SCHEMA, parse as parse_device, validate_plan as validate_device_plan
+    baseline_data = json.loads(base_catalog.read_text())
+    if isinstance(baseline_data, dict) and baseline_data.get("schema") == DEVICE_SCHEMA:
+        device = parse_device(base_catalog.read_text(), data["update_channel"])
+        plan_path = _check_record(data["feature_plan"], "feature plan")
+        validate_device_plan(device, json.loads(plan_path.read_text()))
     if data["base_catalog"]["sha256"] != data["base_catalog_sha256"]:
         raise HandoffError("signing handoff base catalog identity mismatch")
     if not isinstance(data["run_dir"], str):

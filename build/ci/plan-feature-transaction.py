@@ -131,6 +131,7 @@ def runtime_record(path: Path, feature: str, base: dict[str, Any], candidate: di
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update-channel", choices=("dev", "stable"), default="stable")
     parser.add_argument("--base-catalog", type=Path, required=True)
     parser.add_argument("--candidate-catalog", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path)
@@ -146,7 +147,23 @@ def main() -> int:
             fail("release must be numeric SemVer")
         if COMMIT40.fullmatch(args.source_commit) is None:
             fail("source commit is malformed")
-        base, candidate = strict_catalog(args.base_catalog), strict_catalog(args.candidate_catalog)
+        from device_baseline import SCHEMA as DEVICE_SCHEMA, parse as parse_device, validate_plan as validate_device_plan
+        candidate = strict_catalog(args.candidate_catalog)
+        raw_base = load_json(args.base_catalog, "base catalog")
+        device = None
+        if isinstance(raw_base, dict) and raw_base.get("schema") == DEVICE_SCHEMA:
+            device = parse_device(args.base_catalog.read_text(), args.update_channel)
+            if args.runtime_dir:
+                fail("device migration forbids runtime capsules")
+            base = {fid: {
+                "payload": {"sha256": r["payload_sha256"]},
+                "manifest": {"sha256": r["manifest_sha256"]},
+                "files": {DAEMONS[fid]: {"sha256": r["daemon_sha256"]}},
+            } for fid, r in device["features"].items()}
+            # Excluded wakeword keeps the observed device generation, not CI's.
+            candidate["wakeword"] = base["wakeword"]
+        else:
+            base = strict_catalog(args.base_catalog)
         if args.runtime_dir and args.runtime_dir.is_symlink():
             fail("runtime directory must not be a symlink")
         records: list[dict[str, Any]] = []
@@ -184,6 +201,8 @@ def main() -> int:
                 ])
         plan = {"schema": "libreecho-product-feature-plan-v1", "transaction_type": "system", "activation": "reboot", "release": args.release, "source_commit": args.source_commit, "features": records}
         validate_plan(plan, args.release, args.source_commit)
+        if device is not None:
+            validate_device_plan(device, plan)
         if args.asset_output_dir:
             if args.asset_output_dir.exists():
                 fail("OTA asset output directory already exists")
