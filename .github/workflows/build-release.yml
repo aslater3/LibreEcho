@@ -262,6 +262,8 @@ jobs:
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
             build.tests.test_device_baseline \
+            build.tests.test_release_route \
+            build.tests.test_publish_dev_pointer \
             build.tests.test_ota_v2_signing \
             build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
