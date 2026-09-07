@@ -45,6 +45,16 @@ on:
         required: false
         default: dfefe52f0eed7296012707cfff1f753b0ea33257
         type: string
+      ota_format:
+        description: OTA contract; v1 is the retained bridge default
+        required: false
+        default: v1
+        type: choice
+        options: [v1, v2]
+      ota_release:
+        description: OTA v2 candidate version (defaults to release branch version)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -71,6 +81,10 @@ jobs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
+      ota_format: ${{ steps.resolve.outputs.ota_format }}
+      ota_release: ${{ steps.resolve.outputs.ota_release }}
+      ota_base_catalog_url: ${{ steps.resolve.outputs.ota_base_catalog_url }}
+      ota_base_catalog_sha256: ${{ steps.resolve.outputs.ota_base_catalog_sha256 }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -81,6 +95,10 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
+          OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
+          OTA_RELEASE_INPUT: ${{ inputs.ota_release || (inputs.ota_format == 'v2' && inputs.release_version) || '' }}
+          OTA_BASE_CATALOG_URL_INPUT: ''
+          OTA_BASE_CATALOG_SHA256_INPUT: ''
           SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
@@ -131,28 +149,50 @@ jobs:
               ;;
             *) echo "ERROR: unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
           esac
+          python3 build/ci/ota_v2_inputs.py \
+            --format "$OTA_FORMAT_INPUT" --release "$OTA_RELEASE_INPUT" \
+            --base-catalog-url "$OTA_BASE_CATALOG_URL_INPUT" \
+            --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256_INPUT" \
+            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" >> "$GITHUB_OUTPUT"
           case "$SSH_ENABLED_INPUT" in
             disabled) SSH_ENABLED=0 ;;
             enabled) SSH_ENABLED=1 ;;
             *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
           esac
           component_ref=main
+          platform_ref=main
+          linux_ref=main
+          ui_ref=main
           if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == release/* ]]; then
             component_ref="$GITHUB_BASE_REF"
+            platform_ref="$component_ref"
+            linux_ref="$component_ref"
+            ui_ref="$component_ref"
+            if [[ "$GITHUB_HEAD_REF" == feature/*-product ]]; then
+              candidate_stem="${GITHUB_HEAD_REF%-product}"
+              platform_ref="${candidate_stem}-platform"
+              ui_ref="${candidate_stem}-ui"
+            fi
           elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
             component_ref="$GITHUB_REF_NAME"
+            platform_ref="$component_ref"
+            linux_ref="$component_ref"
+            ui_ref="$component_ref"
           fi
-          if [[ "$component_ref" != main ]]; then
-            for component in LibreEcho-Platform LibreEcho-Linux-6.1 LibreEcho-UI; do
-              git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$component_ref" >/dev/null || {
-                echo "ERROR: coordinated component ref is missing: $component:$component_ref" >&2
-                exit 1
-              }
-            done
-          fi
-          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$component_ref" | cut -f1)
-          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$component_ref" | cut -f1)
-          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$component_ref" | cut -f1)
+          for ref_spec in \
+            "LibreEcho-Platform:$platform_ref" \
+            "LibreEcho-Linux-6.1:$linux_ref" \
+            "LibreEcho-UI:$ui_ref"; do
+            component="${ref_spec%%:*}"
+            ref_name="${ref_spec#*:}"
+            git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$ref_name" >/dev/null || {
+              echo "ERROR: coordinated component ref is missing: $component:$ref_name" >&2
+              exit 1
+            }
+          done
+          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$platform_ref" | cut -f1)
+          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$linux_ref" | cut -f1)
+          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$ui_ref" | cut -f1)
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
             --channel "$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
@@ -172,19 +212,46 @@ jobs:
 
   contract-checks:
     name: Product pipeline contract checks
+    needs: resolve-and-preflight
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          path: platform-source
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
+      - name: Install reviewed Product gate dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          test -f "$wheelhouse/requirements.txt"
+          test -f "$wheelhouse/PyNaCl-1.5.0-cp36-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/cffi-1.17.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/pycparser-2.22-py3-none-any.whl"
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --find-links "$wheelhouse" \
+            --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
       - name: Run maintained Product pipeline suites
+        env:
+          LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
+            build.tests.test_fetch_ota_base \
+            build.tests.test_ota_v2_signing \
+            build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
@@ -876,6 +943,17 @@ jobs:
           }
           echo "$shim" >> "$GITHUB_PATH"
 
+      - name: Resolve and verify prior GitHub release features
+        id: ota_base
+        timeout-minutes: 10
+        if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
+        env:
+          OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
+        run: |
+          set -euo pipefail
+          python3 build/ci/fetch-ota-base.py --release "$OTA_RELEASE" \
+            --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
+
       - name: Build image and features
         env:
           # The staged ARMHF gcc/as/ld are dynamically linked against the
@@ -892,7 +970,13 @@ jobs:
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
           LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           LIBREECHO_OTA_SIGNING_MODE: ${{ needs.resolve-and-preflight.outputs.signing_mode }}
+          # Protected environment configuration, never a candidate field.
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           LIBREECHO_OTA_SIGNING_KEY: ${{ needs.resolve-and-preflight.outputs.signing_mode == 'local' && format('{0}/ota-signing-key.hex', runner.temp) || '' }}
+          LIBREECHO_OTA_FORMAT: ${{ needs.resolve-and-preflight.outputs.ota_format }}
+          LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
+          LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
+          LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf

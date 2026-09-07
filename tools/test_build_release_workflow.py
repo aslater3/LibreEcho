@@ -326,10 +326,17 @@ class Tests(unittest.TestCase):
 
  def test_release_branch_dev_uses_release_component_refs(self):
   start = W.index('          component_ref=main')
-  end = W.index('          if [[ "$component_ref" != main ]]', start)
+  end = W.index('          python3 build/ci/resolve-source-set.py', start)
   selection = W[start:end]
   self.assertIn('elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then', selection)
   self.assertIn('component_ref="$GITHUB_REF_NAME"', selection)
+
+ def test_feature_pr_uses_immutable_sibling_component_heads(self):
+  self.assertIn('candidate_stem="${GITHUB_HEAD_REF%-product}"', W)
+  self.assertIn('platform_ref="${candidate_stem}-platform"', W)
+  self.assertIn('ui_ref="${candidate_stem}-ui"', W)
+  self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', W)
+  self.assertIn('LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source', W)
 
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;
