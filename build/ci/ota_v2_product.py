@@ -597,11 +597,10 @@ def validate_v2_publisher_asset_set(output: Path, release: str, feature_assets: 
     """Ensure the prepared publisher directory has exactly its v2 capsule set."""
     expected = {str(item["name"]) for item in feature_assets}
     prefix = f"libreecho-radar-puffin-{release}-"
-    actual = {
-        path.name for path in output.iterdir()
-        if path.is_file() and not path.is_symlink() and path.name.startswith(prefix)
-        and (".runtime" in path.name or ".payload" in path.name)
-    }
+    members = [path for path in output.iterdir() if path.name.startswith(prefix)]
+    if any(path.is_symlink() or not path.is_file() for path in members):
+        fail("v2 publisher asset set contains a non-regular member")
+    actual = {path.name for path in members}
     if actual != expected:
         fail(f"v2 publisher asset set is incomplete or contains an unexpected capsule: expected={sorted(expected)} actual={sorted(actual)}")
 
