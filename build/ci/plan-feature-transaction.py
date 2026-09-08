@@ -160,8 +160,9 @@ def main() -> int:
                 "manifest": {"sha256": r["manifest_sha256"]},
                 "files": {DAEMONS[fid]: {"sha256": r["daemon_sha256"]}},
             } for fid, r in device["features"].items()}
-            # Excluded wakeword keeps the observed device generation, not CI's.
-            candidate["wakeword"] = base["wakeword"]
+            # Keep the observed wakeword unless the hash-bound dev input opts in.
+            if device.get("replace_wakeword") is not True:
+                candidate["wakeword"] = base["wakeword"]
         else:
             base = strict_catalog(args.base_catalog)
         if args.runtime_dir and args.runtime_dir.is_symlink():
