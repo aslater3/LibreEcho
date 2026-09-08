@@ -111,7 +111,7 @@ def make_signed_ota(run: Path, output: Path, version: str = "fixture-v1", ota_fo
         raise RuntimeError(result.stderr)
 
 
-def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.12", *, action: str = "runtime") -> dict[str, str]:
+def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.13", *, action: str = "runtime") -> dict[str, str]:
     asset_dir = run / "ota-assets"
     asset_dir.mkdir()
     payload_suffix = "runtime.squashfs" if action == "runtime" else "payload.squashfs"
@@ -194,7 +194,7 @@ class Tests(unittest.TestCase):
             run, commits = fixture(root)
             names = add_v2_contract(run, commits, action="replace")
             ota = run / "development.ota.tar"
-            make_signed_ota(run, ota, "0.13.12", "v2", run / "feature-plan.json")
+            make_signed_ota(run, ota, "0.13.13", "v2", run / "feature-plan.json")
             candidate = run / "CURRENT.candidate"
             text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
             text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
@@ -217,14 +217,14 @@ class Tests(unittest.TestCase):
     def test_v2_asset_namespace_rejects_missing_extra_and_unsafe_members(self):
         sys.path.insert(0, str(ROOT / "build/ci"))
         from ota_v2_product import ContractError, validate_v2_publisher_asset_set
-        prefix = "libreecho-radar-puffin-0.13.12-"
+        prefix = "libreecho-radar-puffin-0.13.13-"
         names = [prefix + "wakeword.payload.squashfs", prefix + "wakeword.manifest.json"]
         for mutation in ("valid", "missing-manifest", "extra-manifest", "extra-file", "symlink", "directory"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
                 out = Path(temporary)
                 for name in names:
                     (out/name).write_bytes(b"fixture")
-                (out/"libreecho-radar-puffin-v0.13.12-build.json").write_text("{}")
+                (out/"libreecho-radar-puffin-v0.13.13-build.json").write_text("{}")
                 if mutation == "missing-manifest":
                     (out/names[1]).unlink()
                 elif mutation == "extra-manifest":
@@ -236,10 +236,10 @@ class Tests(unittest.TestCase):
                 elif mutation == "directory":
                     (out/(prefix+"extra.manifest.json")).mkdir()
                 if mutation == "valid":
-                    validate_v2_publisher_asset_set(out, "0.13.12", [{"name": name} for name in names])
+                    validate_v2_publisher_asset_set(out, "0.13.13", [{"name": name} for name in names])
                 else:
                     with self.assertRaises(ContractError):
-                        validate_v2_publisher_asset_set(out, "0.13.12", [{"name": name} for name in names])
+                        validate_v2_publisher_asset_set(out, "0.13.13", [{"name": name} for name in names])
 
     def test_signed_all_preserve_publication_without_empty_asset_directory(self):
         import shutil
@@ -260,7 +260,7 @@ class Tests(unittest.TestCase):
                 inventory['assets'] = []
                 inventory_path.write_text(json.dumps(inventory))
                 ota = run / 'development.ota.tar'
-                make_signed_ota(run, ota, '0.13.12', 'v2', plan_path)
+                make_signed_ota(run, ota, '0.13.13', 'v2', plan_path)
                 candidate = run / 'CURRENT.candidate'
                 text = candidate.read_text().replace('ota_signing_mode=github\n', 'ota_signing_mode=local\n')
                 text = text.replace('ota_bundle=\n', 'ota_bundle=' + str(ota) + '\n')
@@ -287,7 +287,7 @@ class Tests(unittest.TestCase):
             run, commits = fixture(root)
             names = add_v2_contract(run, commits)
             ota = run / "development.ota.tar"
-            make_signed_ota(run, ota, "0.13.12", "v2", run / "feature-plan.json")
+            make_signed_ota(run, ota, "0.13.13", "v2", run / "feature-plan.json")
             candidate = run / "CURRENT.candidate"
             text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
             text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")

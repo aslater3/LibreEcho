@@ -36,7 +36,7 @@ def sha256(data: bytes) -> str:
 
 
 def contract(root: Path) -> tuple[dict[str, object], dict[str, object], Path, Path, SigningKey]:
-    release = "0.13.12"
+    release = "0.13.13"
     source = "4" * 40
     asset_dir = root / "ota-assets"
     asset_dir.mkdir()
@@ -126,7 +126,7 @@ class CompleteControlGateTests(unittest.TestCase):
         write_control(bundle, raw, key, boot)
         with self.assertRaises(ContractError):
             validate_control_tar(
-                bundle, root / "public.hex", "v2", "0.13.12",
+                bundle, root / "public.hex", "v2", "0.13.13",
                 feature_plan=plan, feature_inventory=inventory, feature_asset_dir=asset_dir,
                 expected_channel="stable", boot_path=boot,
                 expected_key_sha256=sha256((root / "public.hex").read_bytes()),

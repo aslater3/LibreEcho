@@ -1,5 +1,9 @@
 # Changelog
 
+## radar-puffin-v0.13.13 (UNRELEASED)
+
+See [the 0.13.13 release note](release/radar-puffin-v0.13.13.md).
+
 ## radar-puffin-v0.13.12 (UNRELEASED)
 
 See [the 0.13.12 release note](release/radar-puffin-v0.13.12.md).
