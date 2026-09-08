@@ -264,6 +264,39 @@ class Tests(unittest.TestCase):
   self.assertIn('--tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity"', B)
   # The vendored path must not invoke the musl toolchain rebuild anymore.
   self.assertNotIn('build_connectivity_helpers.sh', B)
+ def test_stable_publisher_installs_reviewed_verifier_closure(self):
+  import os, subprocess, tempfile, textwrap, venv
+  stable = PUBLISH.split('  publish-stable:', 1)[1]
+  self.assertEqual(stable.count('LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}'), 2)
+  marker = '      - name: Install reviewed OTA verification dependencies'
+  self.assertIn(marker, stable)
+  self.assertIn("python-version: '3.11'", stable)
+  self.assertLess(stable.index('actions/setup-python@'), stable.index(marker))
+  self.assertLess(stable.index(marker), stable.index('Prepare signed stable release assets'))
+  step = stable.split(marker, 1)[1].split('\n      - ', 1)[0]
+  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+  for guard in ('--no-index', '--require-hashes',
+                '--find-links "$wheelhouse"', '--requirement "$wheelhouse/requirements.txt"'):
+   self.assertIn(guard, script)
+  # Replay the shipped step in an isolated interpreter with no ambient PyNaCl.
+  with tempfile.TemporaryDirectory() as directory:
+   envroot = Path(directory)/'venv'
+   venv.EnvBuilder(with_pip=True).create(envroot)
+   env = dict(os.environ, PATH=str(envroot/'bin')+os.pathsep+os.environ['PATH'],
+              GITHUB_WORKSPACE=str(ROOT.resolve()), PYTHONNOUSERSITE='1')
+   env.pop('PYTHONPATH', None)
+   before = subprocess.run([str(envroot/'bin/python'), '-c', 'import nacl'],
+                           env=env, capture_output=True, timeout=10)
+   self.assertNotEqual(before.returncode, 0)
+   installed = subprocess.run(['bash', '-c', script], env=env, cwd=ROOT,
+                              capture_output=True, text=True, timeout=90)
+   self.assertEqual(installed.returncode, 0, installed.stdout+installed.stderr)
+   verified = subprocess.run([str(envroot/'bin/python'), '-c',
+       'from nacl.signing import SigningKey; k=SigningKey.generate(); '
+       'assert k.verify_key.verify(k.sign(b"test fixture")) == b"test fixture"'],
+       env=env, capture_output=True, text=True, timeout=10)
+   self.assertEqual(verified.returncode, 0, verified.stderr)
+
  def test_reviewed_signing_dependencies_are_downloaded_before_install(self):
   build_image = W.index('  build-image:')
   download = W.index('name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}', build_image)
