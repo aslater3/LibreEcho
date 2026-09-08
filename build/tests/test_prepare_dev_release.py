@@ -186,6 +186,46 @@ def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11"
 
 
 class Tests(unittest.TestCase):
+    def test_signed_all_preserve_publication_without_empty_asset_directory(self):
+        import shutil
+        for shape in ('missing', 'symlink', 'file'):
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                run, commits = fixture(root)
+                add_v2_contract(run, commits)
+                plan_path = run / 'feature-plan.json'
+                plan = json.loads(plan_path.read_text())
+                for record in plan['features']:
+                    record['action'] = 'preserve'
+                    for key in ('asset', 'size', 'sha256', 'manifest_asset', 'manifest_size', 'manifest_sha256'):
+                        record.pop(key, None)
+                plan_path.write_text(json.dumps(plan))
+                inventory_path = run / 'feature-assets.json'
+                inventory = json.loads(inventory_path.read_text())
+                inventory['assets'] = []
+                inventory_path.write_text(json.dumps(inventory))
+                ota = run / 'development.ota.tar'
+                make_signed_ota(run, ota, '0.13.11', 'v2', plan_path)
+                candidate = run / 'CURRENT.candidate'
+                text = candidate.read_text().replace('ota_signing_mode=github\n', 'ota_signing_mode=local\n')
+                text = text.replace('ota_bundle=\n', 'ota_bundle=' + str(ota) + '\n')
+                text = text.replace('ota_bundle_sha256=\n', 'ota_bundle_sha256=' + digest(ota) + '\n')
+                candidate.write_text(text)
+                shutil.rmtree(run / 'ota-assets')
+                if shape == 'symlink':
+                    (run / 'ota-assets').symlink_to(root / 'absent')
+                elif shape == 'file':
+                    (run / 'ota-assets').write_text('not a directory')
+                result = subprocess.run([
+                    sys.executable, str(SCRIPT), '--artifact-root', str(root),
+                    '--output-dir', str(root / 'release'), '--product-commit', commits['product'],
+                ], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}, capture_output=True, text=True, timeout=30)
+                if shape == 'missing':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(list((root / 'release').glob('*.ota.tar')))
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+
     def test_prepares_v2_external_assets_without_renaming_them(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

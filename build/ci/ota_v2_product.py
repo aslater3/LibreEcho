@@ -232,15 +232,19 @@ def load_feature_contract(run: Path, candidate: dict[str, str]) -> tuple[dict[st
     if not isinstance(asset_dir_value, str) or Path(asset_dir_value).name != "ota-assets":
         fail("candidate has an invalid feature_asset_dir")
     asset_dir = run / "ota-assets"
-    if asset_dir.is_symlink() or not asset_dir.is_dir():
-        fail("candidate is missing ota-assets")
+    if asset_dir.is_symlink() or (asset_dir.exists() and not asset_dir.is_dir()):
+        fail("candidate has an unsafe ota-assets path")
 
     plan = load_json(plan_path, "feature plan")
     records = validate_plan(plan, release, source_commit)
     inventory = load_json(inventory_path, "feature asset inventory")
     assets = validate_inventory(inventory, records, release)
     expected_names = {item["name"] for item in assets}
-    entries = list(asset_dir.iterdir())
+    # Artifact transport omits empty directories. Only an independently
+    # validated empty plan/inventory may omit this directory.
+    if not asset_dir.exists() and expected_names:
+        fail("candidate is missing ota-assets")
+    entries = list(asset_dir.iterdir()) if asset_dir.exists() else []
     if any(entry.is_symlink() or not entry.is_file() for entry in entries):
         fail("feature asset directory contains an unsafe entry")
     if {entry.name for entry in entries} != expected_names:
@@ -425,7 +429,9 @@ def _bind_control_to_feature_contract(
     expected_assets.sort(key=lambda item: item["name"])
     if assets != expected_assets:
         fail("signed control feature records do not match feature-assets.json")
-    if asset_dir.is_symlink() or not asset_dir.is_dir():
+    if (asset_dir.is_symlink()
+            or (asset_dir.exists() and not asset_dir.is_dir())
+            or (assets and not asset_dir.is_dir())):
         fail("feature asset directory is unavailable")
     for item in assets:
         actual_hash, actual_size = digest(asset_dir / item["name"])
