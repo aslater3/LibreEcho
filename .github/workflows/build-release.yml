@@ -108,8 +108,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
-            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.13.12 ]] || {
-              echo "ERROR: device migration requires manual dev v2 release/0.13.12 dispatch" >&2; exit 1;
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.13.13 ]] || {
+              echo "ERROR: device migration requires manual dev v2 release/0.13.13 dispatch" >&2; exit 1;
             }
             UPDATE_CHANNEL="$RELEASE_CHANNEL" python3 -c 'import os,sys; sys.path.insert(0,"build/ci"); from device_baseline import parse; parse(os.environ["DEVICE_BASELINE_JSON"], os.environ["UPDATE_CHANNEL"])'
           fi
