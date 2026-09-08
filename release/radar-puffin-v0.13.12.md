@@ -7,6 +7,9 @@ installer.
 
 ## OTA v2 maintenance
 
+- Fix stable OTA checks that rejected a retained control package with
+  `download_type`; preserve cached evidence while fetching the stable alias
+  (LibreEcho-Platform #130).
 - Advance the protected Product signing handoff to the 0.13.12 release.
 - Keep the signer bound to v2 candidates, the trusted OTA public-key digest,
   measured source/tool/dependency identities, and the complete feature asset
