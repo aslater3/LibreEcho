@@ -111,11 +111,13 @@ def make_signed_ota(run: Path, output: Path, version: str = "fixture-v1", ota_fo
         raise RuntimeError(result.stderr)
 
 
-def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11") -> dict[str, str]:
+def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11", *, action: str = "runtime") -> dict[str, str]:
     asset_dir = run / "ota-assets"
     asset_dir.mkdir()
-    payload_name = f"libreecho-radar-puffin-{release}-assistant.runtime.squashfs"
-    manifest_name = f"libreecho-radar-puffin-{release}-assistant.runtime-manifest.json"
+    payload_suffix = "runtime.squashfs" if action == "runtime" else "payload.squashfs"
+    manifest_suffix = "runtime-manifest.json" if action == "runtime" else "manifest.json"
+    payload_name = f"libreecho-radar-puffin-{release}-assistant.{payload_suffix}"
+    manifest_name = f"libreecho-radar-puffin-{release}-assistant.{manifest_suffix}"
     payload = asset_dir / payload_name
     manifest = asset_dir / manifest_name
     payload.write_bytes(b"assistant runtime capsule")
@@ -140,7 +142,7 @@ def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11"
         }
         if feature == "assistant":
             common.update({
-                "action": "runtime",
+                "action": action,
                 "asset": payload_name,
                 "size": payload.stat().st_size,
                 "sha256": digest(payload),
@@ -168,8 +170,8 @@ def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11"
         "release": release,
         "source_commit": commits["ui"],
         "assets": [
-            {"feature_id": "assistant", "action": "runtime", "kind": "manifest", "name": manifest_name, "size": manifest.stat().st_size, "sha256": digest(manifest)},
-            {"feature_id": "assistant", "action": "runtime", "kind": "payload", "name": payload_name, "size": payload.stat().st_size, "sha256": digest(payload)},
+            {"feature_id": "assistant", "action": action, "kind": "manifest", "name": manifest_name, "size": manifest.stat().st_size, "sha256": digest(manifest)},
+            {"feature_id": "assistant", "action": action, "kind": "payload", "name": payload_name, "size": payload.stat().st_size, "sha256": digest(payload)},
         ],
     }) + "\n")
     candidate = run / "CURRENT.candidate"
@@ -186,6 +188,59 @@ def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.13.11"
 
 
 class Tests(unittest.TestCase):
+    def test_signed_replacement_publishes_payload_and_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run, commits = fixture(root)
+            names = add_v2_contract(run, commits, action="replace")
+            ota = run / "development.ota.tar"
+            make_signed_ota(run, ota, "0.13.11", "v2", run / "feature-plan.json")
+            candidate = run / "CURRENT.candidate"
+            text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
+            text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
+            text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
+            candidate.write_text(text)
+            output = root / "release"
+            result = subprocess.run([
+                sys.executable, str(SCRIPT), "--artifact-root", str(root),
+                "--output-dir", str(output), "--product-commit", commits["product"],
+            ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(run / "ota-public-key.hex")},
+                text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            sums = next(output.glob("*-SHA256SUMS")).read_text()
+            published = json.loads(next(output.glob("*-build.json")).read_text())
+            self.assertEqual({item["name"] for item in published["feature_assets"]}, set(names.values()))
+            for name in names.values():
+                self.assertEqual((output / name).read_bytes(), (run / "ota-assets" / name).read_bytes())
+                self.assertIn(digest(output / name) + "  " + name, sums)
+
+    def test_v2_asset_namespace_rejects_missing_extra_and_unsafe_members(self):
+        sys.path.insert(0, str(ROOT / "build/ci"))
+        from ota_v2_product import ContractError, validate_v2_publisher_asset_set
+        prefix = "libreecho-radar-puffin-0.13.11-"
+        names = [prefix + "wakeword.payload.squashfs", prefix + "wakeword.manifest.json"]
+        for mutation in ("valid", "missing-manifest", "extra-manifest", "extra-file", "symlink", "directory"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                out = Path(temporary)
+                for name in names:
+                    (out/name).write_bytes(b"fixture")
+                (out/"libreecho-radar-puffin-v0.13.11-build.json").write_text("{}")
+                if mutation == "missing-manifest":
+                    (out/names[1]).unlink()
+                elif mutation == "extra-manifest":
+                    (out/(prefix+"tts.manifest.json")).write_text("{}")
+                elif mutation == "extra-file":
+                    (out/(prefix+"unexpected.txt")).write_text("unexpected")
+                elif mutation == "symlink":
+                    (out/(prefix+"extra.manifest.json")).symlink_to(out/names[1])
+                elif mutation == "directory":
+                    (out/(prefix+"extra.manifest.json")).mkdir()
+                if mutation == "valid":
+                    validate_v2_publisher_asset_set(out, "0.13.11", [{"name": name} for name in names])
+                else:
+                    with self.assertRaises(ContractError):
+                        validate_v2_publisher_asset_set(out, "0.13.11", [{"name": name} for name in names])
+
     def test_signed_all_preserve_publication_without_empty_asset_directory(self):
         import shutil
         for shape in ('missing', 'symlink', 'file'):
