@@ -245,6 +245,16 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Install reviewed OTA verification dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          python -m pip install --disable-pip-version-check --no-index \
+            --find-links "$wheelhouse" --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
       - name: Read stable release request
         id: request
         run: |
