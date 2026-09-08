@@ -53,6 +53,65 @@ class DeviceBaselineTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, key)
         self.assertIn('build.tests.test_device_baseline', workflow)
 
+    def test_explicit_wakeword_replacement_is_strict_and_dev_only(self):
+        data = dict(self.baseline(), replace_wakeword=True)
+        self.assertEqual(device.parse(json.dumps(data), 'dev'), data)
+        with self.assertRaises(ValueError):
+            device.parse(json.dumps(data), 'stable')
+        for value in (False, 0, 1, 'true', None, [], {}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                device.parse(json.dumps(dict(data, replace_wakeword=value)), 'dev')
+
+    def test_real_planner_stages_only_explicit_wakeword_replacement(self):
+        from build.tests.test_plan_feature_transaction import DAEMONS, digest
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            candidate = write_catalog(root, 'candidate')
+            catalog = json.loads(candidate.read_text())['features']
+            baseline = self.baseline()
+            for fid, entry in catalog.items():
+                manifest = json.loads(Path(entry['manifest']['path']).read_text())
+                baseline['features'][fid] = {
+                    'payload_sha256': entry['payload']['sha256'],
+                    'manifest_sha256': entry['manifest']['sha256'],
+                    'daemon_sha256': manifest['files'][DAEMONS[fid]]['sha256'],
+                }
+            baseline['features']['wakeword'] = {k: 'a' * 64 for k in device.FIELDS}
+            baseline['replace_wakeword'] = True
+            base = root / 'device.json'
+            base.write_text(json.dumps(baseline))
+            output, assets = root / 'plan.json', root / 'ota-assets'
+            args = ['--base-catalog', str(base), '--candidate-catalog', str(candidate),
+                    '--release', '0.13.11', '--source-commit', COMMIT,
+                    '--output', str(output), '--asset-output-dir', str(assets)]
+            rejected = run_plan(*args, '--update-channel', 'stable')
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(output.exists())
+            self.assertFalse(assets.exists())
+            accepted = run_plan(*args, '--update-channel', 'dev')
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            plan = json.loads(output.read_text())
+            device.validate_plan(baseline, plan)
+            self.assertEqual({r['feature_id']: r['action'] for r in plan['features']},
+                             {f: 'replace' if f == 'wakeword' else 'preserve' for f in device.FEATURES})
+            wake = next(r for r in plan['features'] if r['feature_id'] == 'wakeword')
+            self.assertEqual({p.name for p in assets.iterdir()}, {wake['asset'], wake['manifest_asset']})
+            for name, key in ((wake['asset'], 'sha256'), (wake['manifest_asset'], 'manifest_sha256')):
+                self.assertEqual(digest(assets / name), wake[key])
+            for flag in (False, True):
+                altered = copy.deepcopy(plan)
+                record = next(r for r in altered['features'] if r['feature_id'] == 'wakeword')
+                if flag:
+                    record['base_payload_sha256'] = 'b' * 64
+                else:
+                    record['action'] = 'runtime'
+                with self.assertRaises(ValueError):
+                    device.validate_plan(baseline, altered)
+            without_opt_in = copy.deepcopy(baseline)
+            del without_opt_in['replace_wakeword']
+            with self.assertRaises(ValueError):
+                device.validate_plan(without_opt_in, plan)
+
     def test_real_planner_preserves_excluded_wakeword(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -2,6 +2,9 @@
 
 The target must still verify every preserved byte; this input never authorizes
 runtime capsules, stable signing, or publishing a release from device data.
+Wakeword remains preserved unless the hash-bound JSON explicitly includes
+``"replace_wakeword": true`` to adopt the validated Product candidate payload.
+Omit the field to retain the previous behavior; strings and false are rejected.
 """
 import hashlib
 import json
@@ -30,8 +33,11 @@ def parse(text, channel):
     if len(text.encode('utf-8')) > MAX_BYTES:
         raise ValueError('device baseline exceeds limit')
     data = json.loads(text, object_pairs_hook=pairs)
-    if not isinstance(data, dict) or set(data) != {'schema', 'features'} or data['schema'] != SCHEMA:
+    allowed_keys = ({'schema', 'features'}, {'schema', 'features', 'replace_wakeword'})
+    if not isinstance(data, dict) or set(data) not in allowed_keys or data['schema'] != SCHEMA:
         raise ValueError('device baseline schema mismatch')
+    if 'replace_wakeword' in data and data['replace_wakeword'] is not True:
+        raise ValueError('replace_wakeword must be the explicit boolean true')
     features = data['features']
     if not isinstance(features, dict) or set(features) != set(FEATURES):
         raise ValueError('device baseline requires all five features')
@@ -57,8 +63,9 @@ def validate_plan(data, plan):
             raise ValueError('device migration forbids runtime capsules')
         if record['action'] == 'preserve' and record['daemon_sha256'] != base['daemon_sha256']:
             raise ValueError('device migration preserved daemon mismatch')
-        if record['feature_id'] == 'wakeword' and record['action'] != 'preserve':
-            raise ValueError('device migration must preserve wakeword')
+        if (record['feature_id'] == 'wakeword' and record['action'] != 'preserve'
+                and data.get('replace_wakeword') is not True):
+            raise ValueError('device migration must preserve wakeword without explicit opt-in')
 
 
 def main():
