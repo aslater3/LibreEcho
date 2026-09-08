@@ -18,7 +18,7 @@ from ota_v2_product import (
 )
 
 SCHEMA = "libreecho-ota-v2-signing-handoff-v1"
-EXPECTED_RELEASE = "0.13.13"
+EXPECTED_RELEASE = "0.13.14"
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 HEX64 = set("0123456789abcdef")
 
