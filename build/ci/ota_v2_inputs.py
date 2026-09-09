@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
-EXPECTED_RELEASE = "0.13.14"
+EXPECTED_RELEASE = "0.14.0"
 EXPECTED_BASE_RELEASE = "radar-puffin-v0.13.13"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 BASE_URL_PREFIX = (

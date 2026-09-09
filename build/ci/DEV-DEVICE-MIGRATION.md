@@ -6,7 +6,7 @@ payloads can therefore differ from the public baseline and correctly fail a
 preserve check.
 
 For explicitly authorized development migration only, manual Hosted build
-supports `device_baseline_json` on `release/0.13.14`, with `update_channel=dev`
+supports `device_baseline_json` on `release/0.14.0`, with `update_channel=dev`
 and `ota_format=v2`. Other combinations fail before build. Leaving the input
 empty retains the release-derived baseline and v1 defaults unchanged.
 

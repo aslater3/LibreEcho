@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "ci/plan-feature-transaction.py"
-PLATFORM = SCRIPT.parents[3] / "platform/tools/mt8163-arm32"
+PLATFORM = Path(os.environ["LIBREECHO_PLATFORM_SRC"]) / "tools/mt8163-arm32"
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 DAEMONS = {
     "airplay2": "usr/local/sbin/libreecho-audio-engine",
@@ -96,7 +97,7 @@ class FeaturePlanTests(unittest.TestCase):
         return [
             "--base-catalog", str(base),
             "--candidate-catalog", str(candidate),
-            "--release", "0.13.14",
+            "--release", "0.14.0",
             "--source-commit", COMMIT,
             "--output", str(output),
             "--inventory-output", str(inventory),
@@ -113,14 +114,14 @@ class FeaturePlanTests(unittest.TestCase):
             plan = json.loads(output.read_text())
             self.assertEqual([record["feature_id"] for record in plan["features"]], list(FEATURES))
             self.assertEqual(plan["features"][4]["action"], "replace")
-            self.assertEqual(plan["features"][4]["asset"], "libreecho-radar-puffin-0.13.14-assistant.payload.squashfs")
+            self.assertEqual(plan["features"][4]["asset"], "libreecho-radar-puffin-0.14.0-assistant.payload.squashfs")
             self.assertEqual(plan["features"][1]["action"], "preserve")
             self.assertNotIn("path", plan["features"][4])
             inventory_data = json.loads(inventory.read_text())
             self.assertEqual(inventory_data["transaction_type"], "system")
             self.assertEqual([asset["name"] for asset in inventory_data["assets"]], [
-                "libreecho-radar-puffin-0.13.14-assistant.manifest.json",
-                "libreecho-radar-puffin-0.13.14-assistant.payload.squashfs",
+                "libreecho-radar-puffin-0.14.0-assistant.manifest.json",
+                "libreecho-radar-puffin-0.14.0-assistant.payload.squashfs",
             ])
 
     def test_runtime_is_selected_only_for_a_compatible_capsule_pair(self) -> None:
@@ -150,7 +151,7 @@ class FeaturePlanTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             record = json.loads(output.read_text())["features"][4]
             self.assertEqual(record["action"], "runtime")
-            self.assertEqual(record["asset"], "libreecho-radar-puffin-0.13.14-assistant.runtime.squashfs")
+            self.assertEqual(record["asset"], "libreecho-radar-puffin-0.14.0-assistant.runtime.squashfs")
             self.assertTrue((root / "assets" / record["asset"]).is_file())
 
     def test_real_platform_capsule_producer_and_product_consumer_verify_semantics(self) -> None:
@@ -166,8 +167,8 @@ class FeaturePlanTests(unittest.TestCase):
                 sys.executable, str(PLATFORM / "feature_runtime/package_runtime.py"),
                 "--feature-id", "assistant", "--base-payload", str(base_root / "assistant.squashfs"),
                 "--base-manifest", str(base_root / "assistant.manifest.json"),
-                "--product-release", "0.13.14", "--source-commit", COMMIT,
-                "--component", "libreecho-agentd", "--component-version", "0.13.14",
+                "--product-release", "0.14.0", "--source-commit", COMMIT,
+                "--component", "libreecho-agentd", "--component-version", "0.14.0",
                 "--build-identity", "fixture-build", "--service-dependency", "libreecho-runtime-base",
                 "--compatibility", json.dumps({"abi": "arm32-linux-gnueabihf-v1", "model": "mt8163-radar-puffin", "mounts": ["/usr/local/sbin"], "dependencies": ["libreecho-runtime-base"]}, sort_keys=True),
                 "--replacement", f"usr/local/sbin/libreecho-agentd={source}", "--max-bytes", "1048576",
@@ -196,8 +197,8 @@ class FeaturePlanTests(unittest.TestCase):
                 sys.executable, str(PLATFORM / "feature_runtime/package_runtime.py"),
                 "--feature-id", "assistant", "--base-payload", str(base_root / "assistant.squashfs"),
                 "--base-manifest", str(base_root / "assistant.manifest.json"),
-                "--product-release", "0.13.14", "--source-commit", COMMIT,
-                "--component", "libreecho-agentd", "--component-version", "0.13.14",
+                "--product-release", "0.14.0", "--source-commit", COMMIT,
+                "--component", "libreecho-agentd", "--component-version", "0.14.0",
                 "--build-identity", "fixture-build", "--service-dependency", "libreecho-runtime-base",
                 "--compatibility", json.dumps({"abi": "arm32-linux-gnueabihf-v1", "model": "mt8163-radar-puffin", "mounts": ["/usr/local/sbin"], "dependencies": ["libreecho-runtime-base"]}, sort_keys=True),
                 "--replacement", f"usr/local/sbin/libreecho-agentd={source}", "--max-bytes", "1048576",

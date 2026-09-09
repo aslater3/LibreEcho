@@ -44,7 +44,7 @@ class DeviceBaselineTests(unittest.TestCase):
         guard = textwrap.dedent(block.split('          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then', 1)[0])
         env = dict(os.environ, DEVICE_BASELINE_JSON=json.dumps(self.baseline()),
                    GITHUB_EVENT_NAME='workflow_dispatch', RELEASE_CHANNEL='dev',
-                   OTA_FORMAT_INPUT='v2', GITHUB_REF='refs/heads/release/0.13.14')
+                   OTA_FORMAT_INPUT='v2', GITHUB_REF='refs/heads/release/0.14.0')
         self.assertEqual(subprocess.run(['bash', '-c', guard], env=env, cwd=root, capture_output=True, timeout=10).returncode, 0)
         for key, value in [('RELEASE_CHANNEL', 'stable'), ('OTA_FORMAT_INPUT', 'v1'),
                            ('GITHUB_EVENT_NAME', 'push'), ('GITHUB_REF', 'refs/heads/main'),
@@ -82,7 +82,7 @@ class DeviceBaselineTests(unittest.TestCase):
             base.write_text(json.dumps(baseline))
             output, assets = root / 'plan.json', root / 'ota-assets'
             args = ['--base-catalog', str(base), '--candidate-catalog', str(candidate),
-                    '--release', '0.13.14', '--source-commit', COMMIT,
+                    '--release', '0.14.0', '--source-commit', COMMIT,
                     '--output', str(output), '--asset-output-dir', str(assets)]
             rejected = run_plan(*args, '--update-channel', 'stable')
             self.assertNotEqual(rejected.returncode, 0)
@@ -120,7 +120,7 @@ class DeviceBaselineTests(unittest.TestCase):
             base.write_text(json.dumps(self.baseline()))
             output = root / 'plan.json'
             args = ['--base-catalog', str(base), '--candidate-catalog', str(candidate),
-                    '--release', '0.13.14', '--source-commit', COMMIT, '--output', str(output)]
+                    '--release', '0.14.0', '--source-commit', COMMIT, '--output', str(output)]
             rejected = run_plan(*args)
             self.assertNotEqual(rejected.returncode, 0)
             self.assertFalse(output.exists())
