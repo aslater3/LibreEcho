@@ -6,17 +6,27 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
+import sys
 import tarfile
 from pathlib import Path
+from typing import NoReturn
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ota_v2_product import (  # noqa: E402
+    load_feature_contract,
+    validate_control_tar,
+    validate_v2_publisher_asset_set,
+)
 
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     raise SystemExit(f"ERROR: {message}")
 
 
@@ -66,6 +76,9 @@ def prepare_complete_initial_install(
     source_set_id: str,
     artifact_set_id: str,
     release_kind: str,
+    feature_plan: dict[str, object] | None = None,
+    feature_asset_dir: Path | None = None,
+    feature_assets: list[dict[str, object]] | None = None,
 ) -> tuple[str, int]:
     """Add the complete one-shot asset set to a dev or nightly release."""
     product = Path(__file__).resolve().parents[2]
@@ -120,6 +133,19 @@ def prepare_complete_initial_install(
                 expected = candidate.get(f"{key}_feature_manifest_sha256", "")
         expect_hash(source, expected)
         shutil.copyfile(source, output / target_name)
+
+    if feature_plan is not None:
+        if feature_asset_dir is None or feature_assets is None:
+            fail("v2 feature contract is incomplete")
+        checked_asset_dir = feature_asset_dir
+        checked_assets = feature_assets
+        for item in checked_assets:
+            source = checked_asset_dir / str(item["name"])
+            regular(source)
+            expect_hash(source, str(item["sha256"]))
+            files.append((str(item["name"]), source))
+            shutil.copyfile(source, output / str(item["name"]))
+        validate_v2_publisher_asset_set(output, candidate["ota_release"], checked_assets)
 
     records = {
         name: {"name": name, "size": (output / name).stat().st_size, "sha256": sha256(output / name)}
@@ -180,6 +206,11 @@ def prepare_complete_initial_install(
         "sources": sources,
         "artifacts": [records[name] for name, _ in files],
     }
+    if feature_plan is not None:
+        build_manifest["ota_format"] = "v2"
+        build_manifest["ota_release"] = candidate["ota_release"]
+        build_manifest["feature_plan"] = feature_plan
+        build_manifest["feature_assets"] = [dict(item) for item in feature_assets or []]
     (output / f"{prefix}-build.json").write_text(json.dumps(build_manifest, indent=2, sort_keys=True) + "\n")
     notes = output / f"{prefix}-release-notes.md"
     notes.write_text(
@@ -211,6 +242,14 @@ def main() -> int:
     manifest_path = run / "manifest.json"
     regular(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    ota_format = candidate.get("ota_format", "v1")
+    if ota_format not in {"v1", "v2"}:
+        fail("candidate has an unsupported OTA format")
+    feature_contract = load_feature_contract(run, candidate) if ota_format == "v2" else None
+    feature_plan = feature_contract[0] if feature_contract else None
+    feature_inventory = feature_contract[1] if feature_contract else None
+    feature_asset_dir = feature_contract[2] if feature_contract else None
+    feature_assets = feature_contract[3] if feature_contract else None
 
     required_sources = {"product", "platform", "linux", "ui"}
     if set(sources) != required_sources or not all(COMMIT.fullmatch(value) for value in sources.values()):
@@ -254,6 +293,19 @@ def main() -> int:
         if len(ota_bundles) != 1:
             fail("signed dev candidate requires exactly one OTA bundle")
         expect_hash(ota_bundles[0], candidate.get("ota_bundle_sha256", ""))
+        public_key = run / "ota-public-key.hex"
+        regular(public_key)
+        validate_control_tar(
+            ota_bundles[0], public_key, ota_format,
+            candidate.get("ota_release", "") if ota_format == "v2" else "",
+            feature_plan=feature_plan,
+            feature_inventory=feature_inventory,
+            feature_asset_dir=feature_asset_dir,
+            expected_channel=candidate.get("update_channel") if ota_format == "v2" else None,
+            boot_path=run / "boot.img" if ota_format == "v2" else None,
+            expected_key_sha256=(os.environ.get("LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256")
+                                 if ota_format == "v2" else None),
+        )
     elif candidate.get("ota_bundle") or candidate.get("ota_bundle_sha256") or ota_bundles:
         fail("unsigned dev candidate unexpectedly contains an OTA bundle")
     if candidate.get("product_git_head") != sources["product"]:
@@ -320,6 +372,15 @@ def main() -> int:
             f"{feature}.manifest.json",
             candidate.get(f"{key}_feature_manifest_sha256", ""),
         )
+    if feature_assets is not None and feature_asset_dir is not None:
+        for item in feature_assets:
+            source = feature_asset_dir / str(item["name"])
+            regular(source)
+            expect_hash(source, str(item["sha256"]))
+            target = output / str(item["name"])
+            shutil.copyfile(source, target)
+            copied.append(target)
+        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets)
     verification_target = output / f"{prefix}-verification.txt"
     shutil.copyfile(verification, verification_target)
     copied.append(verification_target)
@@ -365,6 +426,16 @@ def main() -> int:
         },
         "artifacts": records,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if feature_plan is not None:
+        release_data = json.loads(release_manifest.read_text(encoding="utf-8"))
+        release_data["ota_format"] = "v2"
+        release_data["ota_release"] = candidate["ota_release"]
+        release_data["feature_plan"] = feature_plan
+        release_data["feature_assets"] = [
+            dict(item)
+            for item in feature_assets or []
+        ]
+        release_manifest.write_text(json.dumps(release_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     copied.append(release_manifest)
 
     sums = output / f"{prefix}-SHA256SUMS"
@@ -380,6 +451,7 @@ def main() -> int:
         release_tag, asset_count = prepare_complete_initial_install(
             run, output, candidate, sources, verification, ota_bundles[0],
             source_set_id, artifact_set_id, args.release_kind,
+            feature_plan, feature_asset_dir, feature_assets,
         )
         print(f"release_dir={output}")
         print(f"release_tag={release_tag}")
