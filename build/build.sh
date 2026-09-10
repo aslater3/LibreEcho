@@ -137,8 +137,10 @@ PLATFORM_RUNTIME_VERIFIER="$TOOLS_DIR/feature_runtime/verify_runtime.py"
 OTA_PUBLIC_KEY="$OTA_DIR/ota-public-key.hex"
 OTA_SIGNING_KEY="${LIBREECHO_OTA_SIGNING_KEY:-$PRIVATE_ROOT/ota-signing-key.hex}"
 OTA_SIGNING_MODE="${LIBREECHO_OTA_SIGNING_MODE:-github}"
-# v1 remains the bridge default.  v2 is opt-in and requires the exact prior
-# release catalog; no Product-side compatibility fields are invented here.
+# The release workflow dispatches default to v2 and always pass the format
+# explicitly; v1 remains the fallback for local builds that do not name one.
+# v2 requires the exact prior release catalog; no Product-side compatibility
+# fields are invented here.
 OTA_FORMAT="${LIBREECHO_OTA_FORMAT:-v1}"
 OTA_RELEASE="${LIBREECHO_OTA_RELEASE:-}"
 OTA_BASE_CATALOG="${LIBREECHO_OTA_BASE_CATALOG:-}"

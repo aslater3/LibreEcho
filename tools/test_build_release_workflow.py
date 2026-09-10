@@ -405,6 +405,17 @@ class Tests(unittest.TestCase):
   self.assertIn('IFS= read -r release_notes_title <"$RELEASE_NOTES"', W)
   self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
 
+ def test_ota_v2_dispatch_default(self):
+  # v2 is the release dispatch default; the v1 bridge remains only the
+  # non-dispatch fallback literal.  A dispatch that does not name a
+  # candidate derives it from the release branch; main builds must select
+  # v1 explicitly.
+  self.assertIn('description: OTA contract; v2 is the release dispatch default', W)
+  self.assertIn('default: v2', W)
+  self.assertIn("OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}", W)
+  self.assertIn('OTA_RELEASE_INPUT="${GITHUB_REF_NAME#release/}"', W)
+  self.assertIn('select v1 for main builds', W)
+
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
   self.assertIn('(?:nightly|build)-[0-9a-f-]+', installer)
