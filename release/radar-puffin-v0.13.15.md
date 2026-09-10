@@ -2,8 +2,8 @@
 
 LibreEcho 0.13.15 is a focused compatibility hotfix for the Amazon Echo 2nd
 Gen (`radar_puffin`, ARMv7, Linux 6.1), based on the coordinated 0.13.14 source
-set. It contains two functional fixes only and does not incorporate the separate
-0.14.0 workstream or change feature payloads.
+set. It contains three functional fixes only and does not incorporate the
+separate 0.14.0 workstream or change feature payloads.
 
 ## MT8163 owner-local connectivity firmware compatibility
 
@@ -39,6 +39,14 @@ set. It contains two functional fixes only and does not incorporate the separate
   equals the factory IDME value across warm and cold reboots and that DHCP
   identity remains stable.
 
+## Home Assistant Wyoming satellite metadata
+
+- Include the `attribution` and `installed` metadata that Home Assistant's
+  Wyoming client requires on the satellite, microphone, and speaker entries of
+  the `describe`/`info` exchange. Home Assistant rejects the whole info event
+  when either field is missing, so adding the device through the Wyoming
+  integration failed with an unknown error and created no config entry.
+
 ## OTA v2 maintenance
 
 - Advance the protected Product signing handoff and candidate contract to
@@ -62,8 +70,9 @@ Source merges and host checks do not establish physical hardware acceptance.
 Publication requires reviewed component changes, exact-head checks, the
 canonical hosted Product build, independent image/provenance verification, and
 complete signed asset validation. For this hotfix, hardware validation must also
-cover both supported hash-pinned stock firmware revisions and stable IDME-backed
-Wi-Fi identity across reboots before publication.
+cover both supported hash-pinned stock firmware revisions, stable IDME-backed
+Wi-Fi identity across reboots, and a Home Assistant Wyoming integration setup
+that adds the satellite and creates its config entry, before publication.
 
 ## Installation and verification
 
