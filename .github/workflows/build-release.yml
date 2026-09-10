@@ -46,9 +46,9 @@ on:
         default: dfefe52f0eed7296012707cfff1f753b0ea33257
         type: string
       ota_format:
-        description: OTA contract; v1 is the retained bridge default
+        description: OTA contract; v2 is the release dispatch default (v1 remains the bridge format)
         required: false
-        default: v1
+        default: v2
         type: choice
         options: [v1, v2]
       device_baseline_json:
@@ -160,6 +160,15 @@ jobs:
               ;;
             *) echo "ERROR: unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
           esac
+          # A release dispatch that does not name an OTA v2 candidate uses the
+          # branch version.  Non-dispatch builds still enter with the v1
+          # bridge literal and never reach this branch.
+          if [[ "$OTA_FORMAT_INPUT" == v2 && -z "$OTA_RELEASE_INPUT" ]]; then
+            case "$GITHUB_REF" in
+              refs/heads/release/*) OTA_RELEASE_INPUT="${GITHUB_REF_NAME#release/}" ;;
+              *) echo "ERROR: OTA v2 requires a release/X.Y.Z ref (got $GITHUB_REF); select v1 for main builds" >&2; exit 1 ;;
+            esac
+          fi
           python3 build/ci/ota_v2_inputs.py \
             --format "$OTA_FORMAT_INPUT" --release "$OTA_RELEASE_INPUT" \
             --base-catalog-url "$OTA_BASE_CATALOG_URL_INPUT" \
