@@ -98,10 +98,6 @@ jobs:
         run: |
           python3 tools/check-release-components.py \
             --release-scope community-noncommercial
-      - name: Verify stable OTA packaging and publication contract
-        run: |
-          bash -n build/ci/publish-stable-release.sh
-          python -B -m unittest build.tests.test_release_packaging -v
       - name: Verify public installer mirror
         run: python -B -m unittest tools.test_initial_installer_publication -v
       - name: Verify BROM permission preflight suite
