@@ -17,6 +17,12 @@ set. It contains two functional fixes only and does not incorporate the separate
   persist only the exact SHA-256/size manifest locally with mode `0600`; vendor
   firmware bytes remain on the owner's stock partition and are not persisted or
   redistributed by LibreEcho.
+- During first-run setup, distinguish a complete, structurally compatible but
+  previously unknown owner-local revision from an ordinary import failure and
+  offer an explicit `Accept device firmware` action. Acceptance schedules the
+  existing one-boot validation/enrolment path; malformed, incomplete, unsafe,
+  or changed enrolled sets are not offered for acceptance and continue to fail
+  closed.
 - Require the exact enrolled manifest on later boots and fail closed if the
   enrolled set changes.
 - Report a real no-approved-revision result when safe regular files are present,
