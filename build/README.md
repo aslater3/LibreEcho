@@ -58,7 +58,8 @@ are deliberately separate:
   no-publish OTA-profile image with the development channel. The run artifact is
   validation evidence only and never publishes a release.
 - **SSH option:** all non-dispatch builds keep SSH disabled. A manual GitHub
-  Actions run may select `ssh_enabled=enabled`; that run requires the protected
+  Actions run defaults to `ssh_enabled=enabled` and may select `disabled`; an
+  enabled run requires the protected
   `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret and embeds the static ARM32 Dropbear
   server plus `dropbearkey` in the initramfs. The image uses password-only root
   login, does not include public-key authorization or persistent host keys, and
