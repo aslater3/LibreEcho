@@ -1,0 +1,121 @@
+name: Verify installer integrity checkpoint
+on:
+  push:
+    branches: ['fix/014-readiness-materialize']
+    paths: ['.github/workflows/resume-installer-integrity.yml']
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: bb201658107080fbbf4e650ee0d6e1e58b01db36
+          persist-credentials: false
+      - name: Reconstruct exact tested changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,hashlib,json,re,subprocess
+          p=Path('tools/libreecho-install.py');s=p.read_text()
+          assert hashlib.sha256(p.read_bytes()).hexdigest()=='8f34c8634d3524250436bdffae7d17540746d9178add75c1a0c6f670445a53f6'
+          start=s.index('        installed = _run_command(',s.index('def stage_device_features('))
+          end=s.index('        print(f"Feature {name} staged and verified.',start)
+          s=s[:start]+'''        verify_device_features(adb_bin, serial, {"features": [feature]}, timeout)
+          '''+s[end:]
+          s=s.replace('''        _safe_regular(feature_manifest)
+                  remote_payload =''','''        _safe_regular(feature_manifest)
+                  for path, record in ((payload, feature["payload"]), (feature_manifest, feature["manifest"])):
+                      if path.stat().st_size != record["size"] or _sha256(path) != record["sha256"]:
+                          raise InstallerError(f"feature {name} cached {path.name} changed before staging")
+                  remote_payload =''')
+          s=s.replace('''            f"MANIFEST_FILE={remote_manifest}\\n",
+          ''','''            f"MANIFEST_FILE={remote_manifest}\\n"
+                      f"MANIFEST_SHA256={feature['manifest']['sha256']}\\n"
+                      f"MANIFEST_SIZE={feature['manifest']['size']}\\n",
+          ''')
+          idx=s.index('ROOT_FEATURE_STAGER = r"""')
+          s=s[:idx]+'''def verify_device_features(
+              adb_bin: str, serial: str, manifest: dict[str, Any], timeout: float = 180,
+          ) -> None:
+              """Read back each installed payload and manifest; an upload acknowledgement is not proof."""
+              for feature in manifest["features"]:
+                  for kind, filename in (("payload", "payload.squashfs"), ("manifest", "manifest.json")):
+                      path = f"/data/libreecho/features/{feature['name']}/{filename}"
+                      output = _run_command(
+                          [adb_bin, "-s", serial, "shell", "sha256sum", path], timeout,
+                      ).stdout.strip()
+                      digest = re.fullmatch(r"([0-9a-fA-F]{64})[ \\t]+\\*?" + re.escape(path), output)
+                      if digest is None or digest.group(1).lower() != feature[kind]["sha256"].lower():
+                          raise InstallerError(f"feature {feature['name']} installed {kind} hash mismatch")
+
+
+          '''+s[idx:]
+          s=s.replace('''MANIFEST_FILE=
+          while IFS''','''MANIFEST_FILE=
+          MANIFEST_SHA256=
+          MANIFEST_SIZE=
+          while IFS''')
+          s=s.replace('''        MANIFEST_FILE) MANIFEST_FILE=$value ;;
+          ''','''        MANIFEST_FILE) MANIFEST_FILE=$value ;;
+                  MANIFEST_SHA256) MANIFEST_SHA256=$value ;;
+                  MANIFEST_SIZE) MANIFEST_SIZE=$value ;;
+          ''')
+          s=s.replace('''case "$FEATURE_ID" in ''|*[!a-z0-9._-]*)''','''case "$FEATURE_ID" in ''|.|..|*[!a-z0-9._-]*)''')
+          s=s.replace('''[ -f "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+          ''','''[ -f "$MANIFEST_FILE" ] && [ ! -L "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+          case "$MANIFEST_SHA256" in ''|*[!0-9a-f]*) echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1 ;; esac
+          [ "${#MANIFEST_SHA256}" -eq 64 ] || { echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1; }
+          case "$MANIFEST_SIZE" in ''|*[!0-9]*) echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1 ;; esac
+          [ "$MANIFEST_SIZE" -gt 0 ] || { echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1; }
+          ''')
+          s=s.replace('''DEST=/data/libreecho/features/$FEATURE_ID
+          ''','''actual=$($BB sha256sum "$MANIFEST_FILE" | $BB awk '{print $1}')
+          [ "$actual" = "$MANIFEST_SHA256" ] || { echo FEATURE_STAGE_MANIFEST_HASH_MISMATCH; exit 1; }
+          actual_size=$($BB stat -c %s "$MANIFEST_FILE" 2>/dev/null)
+          [ "$actual_size" = "$MANIFEST_SIZE" ] || { echo FEATURE_STAGE_MANIFEST_SIZE_MISMATCH; exit 1; }
+          DEST=/data/libreecho/features/$FEATURE_ID
+          ''')
+          s=s.replace('''$BB rm -f "$DEST/payload.squashfs.previous"
+          ''','''# Prepare and verify BOTH files while the staging marker prevents activation.
+          $BB cp "$MANIFEST_FILE" "$DEST/staging/manifest.json.new"
+          staged=$($BB sha256sum "$DEST/staging/manifest.json.new" | $BB awk '{print $1}')
+          [ "$staged" = "$MANIFEST_SHA256" ] || { echo FEATURE_STAGE_MANIFEST_COPY_HASH_MISMATCH; exit 1; }
+          $BB rm -f "$DEST/payload.squashfs.previous"
+          ''')
+          s=s.replace('''$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"
+          ''','''$BB mv "$DEST/staging/manifest.json.new" "$DEST/manifest.json"
+          ''')
+          p.write_text(s)
+          Path('tools/libreecho-install.py.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  libreecho-install.py\n')
+          p=Path('tools/test_release_tools.py');s=p.read_text().replace('import importlib.util','import hashlib\nimport os\nimport shutil\nimport importlib.util')
+          s=s.replace('''manifest = stager.index('$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"', move)''','''manifest = stager.index('$BB mv "$DEST/staging/manifest.json.new" "$DEST/manifest.json"', move)''')
+          obj=json.loads(subprocess.check_output(['gh','api','repos/aslater3/LibreEcho/git/blobs/95bfe1694a1c73450c69729816c95cbe2d01ae59'],text=True,timeout=30))
+          addition='\n\n'+base64.b64decode(obj['content']).decode().strip()+'\n'
+          s=s.replace('\nif __name__ == "__main__":',addition+'\n\nif __name__ == "__main__":');p.write_text(s)
+          expected={'tools/libreecho-install.py':'18c7b925f1651304ee87c8bab59bf02c2d1ded90','tools/libreecho-install.py.sha256':'6ddcfb672fe9b462e171acfd5f01d21b3cc18b25','tools/test_release_tools.py':'f4b4ef1d82346d6faef4fdb3e346cbb68194fe55'}
+          for name,sha in expected.items():
+              b=Path(name).read_bytes();actual=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest();assert actual==sha,(name,actual,sha)
+          Path('/tmp/integrity-checkpoint.json').write_text(json.dumps(expected))
+          PY
+          python -B -m unittest -v tools.test_release_tools.FeatureStagingIntegrityTests tools.test_release_tools.OneShotFastbootTests tools.test_initial_installer_publication tools.test_oneshot_host_preflight
+          git diff --check
+      - name: Save verified source blobs without updating any source branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,json,pathlib,subprocess
+          for name,sha in json.loads(pathlib.Path('/tmp/integrity-checkpoint.json').read_text()).items():
+              b=pathlib.Path(name).read_bytes()
+              obj=json.loads(subprocess.check_output(['gh','api','--method','POST','repos/aslater3/LibreEcho/git/blobs','--input','-'],input=json.dumps({'content':base64.b64encode(b).decode(),'encoding':'base64'}),text=True,timeout=30))
+              assert obj['sha']==sha
+              print('CHECKPOINT_BLOB '+name+' '+sha)
+          PY
