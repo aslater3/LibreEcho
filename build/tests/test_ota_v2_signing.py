@@ -55,7 +55,7 @@ class OtaV2InputTests(unittest.TestCase):
         with self.assertRaisesRegex(InputError, "0.14.0"):
             validate_inputs(
                 "v2", "0.14.0",
-                "https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.13/libreecho-radar-puffin-v0.13.13-feature-catalog.json",
+                "https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.15/libreecho-radar-puffin-v0.13.15-feature-catalog.json",
                 "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.14",
             )
         with self.assertRaises(InputError):
@@ -66,20 +66,20 @@ class OtaV2InputTests(unittest.TestCase):
             )
         accepted = validate_inputs(
             "v2", "0.14.0",
-            "https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.13/libreecho-radar-puffin-v0.13.13-feature-catalog.json",
+            "https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.15/libreecho-radar-puffin-v0.13.15-feature-catalog.json",
             "a" * 64, "workflow_dispatch", "refs/heads/release/0.14.0",
         )
         self.assertEqual(accepted["ota_format"], "v2")
 
-    def test_0140_accepts_only_the_pinned_01313_catalog(self) -> None:
+    def test_0140_accepts_only_the_pinned_01315_catalog(self) -> None:
         url = ("https://github.com/aslater3/LibreEcho/releases/download/"
-               "radar-puffin-v0.13.13/libreecho-radar-puffin-v0.13.13-feature-catalog.json")
+               "radar-puffin-v0.13.15/libreecho-radar-puffin-v0.13.15-feature-catalog.json")
         accepted = validate_inputs("v2", "0.14.0", url, "a" * 64,
                                    "workflow_dispatch", "refs/heads/release/0.14.0")
         self.assertEqual(accepted["ota_release"], "0.14.0")
-        for stale in ("0.13.12", "0.13.14"):
+        for stale in ("0.13.12", "0.13.13", "0.13.14"):
             with self.assertRaises(InputError):
-                validate_inputs("v2", "0.14.0", url.replace("0.13.13", stale),
+                validate_inputs("v2", "0.14.0", url.replace("0.13.15", stale),
                                 "a" * 64, "workflow_dispatch", "refs/heads/release/0.14.0")
 
     def test_base_catalog_hash_mismatch_is_rejected(self) -> None:
