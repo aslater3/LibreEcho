@@ -416,6 +416,15 @@ class Tests(unittest.TestCase):
   self.assertIn('OTA_RELEASE_INPUT="${GITHUB_REF_NAME#release/}"', W)
   self.assertIn('select v1 for main builds', W)
 
+ def test_ssh_enabled_default(self):
+  # Manual dispatches default to including the SSH option; an enabled run is
+  # gated on the protected root password hash materialization, and
+  # non-dispatch builds keep the documented disabled fallback invariant.
+  self.assertIn('description: Include password-authenticated root SSH in the image', W)
+  self.assertIn('default: enabled', W)
+  self.assertIn("SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}", W)
+  self.assertIn("needs.resolve-and-preflight.outputs.ssh_enabled == '1'", W)
+
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
   self.assertIn('(?:nightly|build)-[0-9a-f-]+', installer)
