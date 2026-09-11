@@ -1,0 +1,55 @@
+name: Verify pinned ORT cache correction
+on:
+  push:
+    branches: ['fix/014-readiness-materialize']
+    paths: ['.github/workflows/fix-wake-cache-closure.yml']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 02d5a57cffbf177bd277cb1986e95559d9311bec
+          persist-credentials: false
+      - name: Reconstruct and test exact cache correction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/aslater3/LibreEcho/git/blobs/7238800c2b0d5b502928bafc9a4e66052cbe0184 --jq .content | base64 --decode > build/tests/test_component_cache.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('build/build.sh')
+          text = p.read_text()
+          changes = {
+              'contract=reduced-static-archives-v6-nsync-closure': 'contract=reduced-static-archives-v7-pinned-ort-closure',
+              '          _deps/nsync-build/libnsync_cpp.a \\\n': '',
+              '      # archives (onnx, nsync, protobuf-lite, flatbuffers, and Abseil). They must be\n': '      # archives (onnx, protobuf-lite, flatbuffers, and Abseil). Pinned ORT\n      # 8f0278c7 has no nsync target. Required dependencies must be\n',
+          }
+          for old, new in changes.items():
+              assert text.count(old) == 1, old
+              text = text.replace(old, new)
+          p.write_text(text)
+          PY
+          test "$(git hash-object build/build.sh)" = f62d54529fe95ba327caa282d8065df80f71e1d0
+          test "$(git hash-object build/tests/test_component_cache.py)" = 7238800c2b0d5b502928bafc9a4e66052cbe0184
+          python3 -m unittest build.tests.test_component_cache
+          bash -n build/build.sh
+          git diff --check
+      - name: Save verified builder blob without moving source branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          request = json.dumps({'content': pathlib.Path('build/build.sh').read_text(), 'encoding': 'utf-8'})
+          result = subprocess.run(['gh', 'api', '--method', 'POST', 'repos/aslater3/LibreEcho/git/blobs', '--input', '-'], input=request, text=True, capture_output=True, check=True)
+          sha = json.loads(result.stdout)['sha']
+          assert sha == 'f62d54529fe95ba327caa282d8065df80f71e1d0', sha
+          print('build/build.sh', sha)
+          PY
