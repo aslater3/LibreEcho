@@ -1,0 +1,56 @@
+name: Pinned 0.14 repair inputs
+on:
+  push:
+    branches: ['fix/014-readiness-materialize']
+    paths: ['.github/workflows/readiness-inputs-014.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 0a1c502b62f277f23a407750d6e53ebb701246e6
+          fetch-depth: 3
+          persist-credentials: false
+          path: product
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: 3f34a9ea2d1f19253af4f2453e3c42a697f697d8
+          fetch-depth: 2
+          persist-credentials: false
+          path: platform
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-UI
+          ref: ca456aa0df76d0ee6fe11718c4093b086dd19c21
+          persist-credentials: false
+          path: ui-maintenance
+      - name: Export exact changes and read completed image-job log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          git -C product diff --binary 0cbe2bc9618d7b81ccf957e4e020733ed9372cf4 HEAD > evidence/product.diff
+          git -C product ls-tree -r HEAD > evidence/product.tree
+          git -C platform diff --binary 8a65ab28166c85bd0998461ca229969422fa700d HEAD > evidence/platform.diff
+          git -C platform ls-tree -r HEAD > evidence/platform.tree
+          git -C ui-maintenance archive --format=tar.gz HEAD src/http_server.c src/api.c src/config_store.c tests/test_setup_account_first.sh > evidence/ui-maintenance.tar.gz
+          python3 - <<'PY'
+          import os, urllib.request
+          request = urllib.request.Request('https://api.github.com/repos/aslater3/LibreEcho/actions/jobs/103168816429/logs', headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          with urllib.request.urlopen(request, timeout=60) as response:
+              data = response.read(16000000)
+          open('evidence/image-job.log', 'wb').write(data)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pinned-014-repair-inputs
+          path: evidence/
+          retention-days: 1
+          if-no-files-found: error
