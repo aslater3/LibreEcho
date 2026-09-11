@@ -9,7 +9,7 @@ jobs:
   materialize:
     uses: aslater3/LibreEcho-UI/.github/workflows/materialize-source-objects.yml@ce4b02c6aae35b338eb8f9bf0d53315c925fca37
     with:
-      base_commit: 0cbe2bc9618d7b81ccf957e4e020733ed9372cf4
-      delta_blobs: 78b6e100a59329a9f7c830484fc7ddc3746072f8
-      delta_sha256: 12936aa64c992f7776ba4bd8b1466b3de66a6c7a515cd60f43cb33df90b17262
-      expected_tree: 387f79af78e10f9039e2abae3d1902ea32885f46
+      base_commit: f1368f860e68ca35af082c063ffb87b753e4af36
+      delta_blobs: 71694e08a4e55d5af08d96eaf7ce40593d714744
+      delta_sha256: 630f239197c191d70d595ee6759c6cbb871a7912738c6adfbbfdf8dd2a9044b4
+      expected_tree: daeba033ee9ac800b454c7eedaeb2ee782b4fbf7
