@@ -1,0 +1,36 @@
+name: Inspect current 0.14 image failure
+on:
+  push:
+    branches: ['fix/014-readiness-materialize']
+    paths: ['.github/workflows/read-current-build-failure.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Read completed image job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/current-build-evidence"
+          gh api --allow-escape-sequences repos/aslater3/LibreEcho/actions/jobs/103262559396/logs > "$RUNNER_TEMP/current-build-evidence/product-image.log"
+          python3 - <<'PY'
+          import os, pathlib, re
+          lines = pathlib.Path(os.environ['RUNNER_TEMP'], 'current-build-evidence/product-image.log').read_text(encoding='utf-8-sig').splitlines()
+          keep = set(range(max(0, len(lines)-60), len(lines)))
+          for i, line in enumerate(lines):
+              if re.search(r'cannot find|undefined reference|Traceback|AssertionError|CMake Error|FAILED:|fatal error:|##\[error\]', line):
+                  keep.update(range(max(0, i-4), min(len(lines), i+16)))
+          for i in sorted(keep)[-180:]:
+              print(f'{i+1}: {lines[i][:800]}')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: current-image-log
+          path: ${{ runner.temp }}/current-build-evidence/product-image.log
+          if-no-files-found: error
+          retention-days: 3
