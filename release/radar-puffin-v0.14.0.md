@@ -45,8 +45,9 @@ Missing or stale telemetry is degraded, silence is not a capture failure, and
 intentional disable/mute has a separate state. Playback-attributed wake peaks
 may use one supporting frame while idle detection retains two; threshold, VAD
 and lockout checks remain. Real interruption and false-activation acceptance is
-mandatory before this policy is described as hardware validated. Wake builds
-include the ONNX Runtime nsync static-link dependency.
+mandatory before this policy is described as hardware validated. The wake link
+recipe and reduced-dependency cache match the pinned ONNX Runtime archive set,
+rather than requiring an nsync library that the pinned revision does not produce.
 
 Invalid persisted button actions return to their validated defaults. The full
 UI source suite runs automatically for 0.14 PRs, in addition to browser and
@@ -59,6 +60,23 @@ The Platform DTB verifier accepts peripheral-only legacy images and 0.14's
 device-capable OTG mode, while still rejecting host-only mode and retaining
 clock, audio, pin, key, USB-controller and interrupt checks. Image verification
 also retains the boot-time device-role policy required for recovery ADB.
+
+### First installation and continuation
+
+Initial setup enables AirPlay before checking feature activation. Asynchronous
+setup completion carries that choice back to the parent HTTP process, so a
+subsequent unrelated settings save does not disable it. An explicit later
+AirPlay disable survives restart; other integration choices are preserved.
+
+One-shot staging checks both payload and manifest integrity, including device
+readback. Continuation is bound to the original release, bundle, device and
+boot slots. Once features are staged, it revalidates them and restores forwarding
+without repeating formatting, flashing, rebooting or payload writes. The retained
+local-release cache includes SHA256SUMS and its covered assets. The wrapper
+requires the original immutable tag for continuation, not mutable `latest`.
+
+These are source corrections backed by host tests, not completed physical
+installation acceptance. Do not describe a candidate as hardware validated from these tests.
 
 ## Release gates
 
@@ -74,8 +92,10 @@ Before stable publication, require:
 2. A normal signed 0.13.15-to-0.14.0 OTA update, candidate health confirmation,
    committed reboot, retained configuration/features and controlled fallback.
    Do not force confirmation or remove transaction evidence to pass the gate.
-3. Fresh setup for both approved vendor sets and an explicitly accepted unknown
-   compatible set; malformed/changed inputs must remain rejected.
+3. Fresh one-shot installation and setup for both approved vendor sets and an
+   explicitly accepted unknown compatible set; malformed/changed inputs must
+   remain rejected. Verify first-boot feature activation and safe continuation
+   after a forwarding interruption without repeating completed device writes.
 4. AirPlay activation on pre-mounted and normal boots; real Home Assistant
    satellite addition and local/HA mode switching; local spoken stop, timer
    priority and continued speech after cancellation.
