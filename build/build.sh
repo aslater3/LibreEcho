@@ -1329,7 +1329,7 @@ if [[ "$WAKEWORD_ENABLED" == 1 ]]; then
   wake_ort_head="$(git -C "$WAKE_ORT_SOURCE" rev-parse HEAD)"
   wake_ort_diff="$(source_state_sha256 "$WAKE_ORT_SOURCE")"
   wake_ort_cache_key="$(component_cache_key wake-ort \
-    --value "contract=reduced-static-archives-v6-nsync-closure" \
+    --value "contract=reduced-static-archives-v7-pinned-ort-closure" \
     --value "jobs=$JOBS" --value "ui_toolchain=$UI_TOOLCHAIN_KEY" \
     --value "ort_head=$wake_ort_head" --value "ort_diff=$wake_ort_diff" \
     --tree "platform-wakeword=$TOOLS_DIR/wakeword" \
@@ -1422,14 +1422,14 @@ if [[ "$WAKEWORD_ENABLED" == 1 ]]; then
         install -m 0644 "$WAKE_ORT_BUILD/$archive" "$WAKE_ORT_WORK/$archive"
       done
       # The wakeword daemon relink also consumes the reduced ORT dependency
-      # archives (onnx, nsync, protobuf-lite, flatbuffers, and Abseil). They must be
+      # archives (onnx, protobuf-lite, flatbuffers, and Abseil). Pinned ORT
+      # 8f0278c7 has no nsync target. Required dependencies must be
       # part of the cached wake-ort payload; otherwise a wake-ort cache hit
       # combined with a wake-runtime cache miss relinks against an incomplete
       # tree.
       for dep_archive in \
           _deps/onnx-build/libonnx.a \
           _deps/onnx-build/libonnx_proto.a \
-          _deps/nsync-build/libnsync_cpp.a \
           _deps/protobuf-build/libprotobuf-lite.a \
           _deps/flatbuffers-build/libflatbuffers.a; do
         [[ -f "$WAKE_ORT_BUILD/$dep_archive" && \

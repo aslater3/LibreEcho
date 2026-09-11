@@ -52,50 +52,60 @@ class WakeDependencyClosureTests(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
 
+    # The pinned ORT 8f0278c7 produces these dependencies, not an nsync target.
+    DEPENDENCIES = (
+        "onnx-build/libonnx.a", "onnx-build/libonnx_proto.a",
+        "protobuf-build/libprotobuf-lite.a", "flatbuffers-build/libflatbuffers.a",
+    )
+
     def fixture(self, source: Path):
-        for name in ("onnx-build/libonnx.a", "onnx-build/libonnx_proto.a",
-                     "nsync-build/libnsync_cpp.a", "protobuf-build/libprotobuf-lite.a",
-                     "flatbuffers-build/libflatbuffers.a"):
+        for name in self.DEPENDENCIES:
             path = source / "_deps" / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(b"archive fixture")
+            subprocess.run(["ar", "rcs", str(path)], check=True, timeout=10)
 
-    def test_cached_nsync_archive_can_be_linked(self):
+    def test_cached_pinned_ort_dependencies_can_be_linked_without_nsync(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source, cached = root / "source", root / "cached"
             self.fixture(source)
-            archive = source / "_deps/nsync-build/libnsync_cpp.a"
-            archive.unlink()
-            (root / "sync.c").write_text("int sync_fixture(void) { return 0; }\n")
+            archive = source / "_deps/onnx-build/libonnx_proto.a"
+            (root / "dependency.c").write_text("int dependency_probe(void) { return 42; }\n")
             (root / "main.c").write_text(
-                "int sync_fixture(void); int main(void) { return sync_fixture(); }\n")
-            subprocess.run(["cc", "-c", str(root / "sync.c"), "-o", str(root / "sync.o")],
+                "int dependency_probe(void); int main(void) { return dependency_probe() != 42; }\n")
+            subprocess.run(["cc", "-c", str(root / "dependency.c"), "-o", str(root / "dependency.o")],
                            check=True, timeout=10)
-            subprocess.run(["ar", "rcs", str(archive), str(root / "sync.o")],
+            subprocess.run(["ar", "rcs", str(archive), str(root / "dependency.o")],
                            check=True, timeout=10)
             result = self.stage(source, cached)
             self.assertEqual(result.returncode, 0, result.stderr)
-            restored = cached / "_deps/nsync-build/libnsync_cpp.a"
-            self.assertTrue(restored.is_file(), "nsync lost from reduced ORT cache closure")
-            self.assertEqual(restored.read_bytes(), archive.read_bytes())
+            for name in self.DEPENDENCIES:
+                restored = cached / "_deps" / name
+                self.assertTrue(restored.is_file(), f"dependency lost from reduced ORT cache: {name}")
+                self.assertEqual(restored.read_bytes(), (source / "_deps" / name).read_bytes())
+            self.assertFalse((source / "_deps/nsync-build").exists())
+            self.assertFalse((cached / "_deps/nsync-build").exists())
+            restored = cached / "_deps/onnx-build/libonnx_proto.a"
             subprocess.run(["cc", str(root / "main.c"), str(restored), "-o", str(root / "probe")],
                            check=True, timeout=10)
             subprocess.run([str(root / "probe")], check=True, timeout=10)
 
-    def test_missing_or_symlinked_nsync_is_not_cached(self):
-        for symlink in (False, True):
-            with self.subTest(symlink=symlink), tempfile.TemporaryDirectory() as temp:
-                root = Path(temp)
-                source = root / "source"
-                self.fixture(source)
-                archive = source / "_deps/nsync-build/libnsync_cpp.a"
-                archive.unlink()
-                if symlink:
-                    archive.symlink_to(source / "_deps/onnx-build/libonnx.a")
-                result = self.stage(source, root / "cached")
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("nsync-build/libnsync_cpp.a", result.stderr)
+    def test_each_missing_or_symlinked_required_dependency_is_rejected(self):
+        for name in self.DEPENDENCIES:
+            for symlink in (False, True):
+                with self.subTest(name=name, symlink=symlink), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    source = root / "source"
+                    self.fixture(source)
+                    archive = source / "_deps" / name
+                    archive.unlink()
+                    if symlink:
+                        substitute = root / "other.a"
+                        subprocess.run(["ar", "rcs", str(substitute)], check=True, timeout=10)
+                        archive.symlink_to(substitute)
+                    result = self.stage(source, root / "cached")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(name, result.stderr)
 
 if __name__ == "__main__":
     unittest.main()
