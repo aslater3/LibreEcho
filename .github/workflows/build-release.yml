@@ -24,7 +24,7 @@ on:
       ssh_enabled:
         description: Include password-authenticated root SSH in the image
         required: true
-        default: disabled
+        default: enabled
         type: choice
         options: [disabled, enabled]
       release_version:

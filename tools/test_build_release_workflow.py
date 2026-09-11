@@ -405,6 +405,15 @@ class Tests(unittest.TestCase):
   self.assertIn('IFS= read -r release_notes_title <"$RELEASE_NOTES"', W)
   self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
 
+ def test_ssh_enabled_default(self):
+  # Manual selection retains the protected password and non-dispatch gates.
+  field = W.split('      ssh_enabled:', 1)[1].split('      release_version:', 1)[0]
+  self.assertIn('default: enabled', field)
+  self.assertIn('options: [disabled, enabled]', field)
+  self.assertIn("SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}", W)
+  self.assertIn("needs.resolve-and-preflight.outputs.ssh_enabled == '1'", W)
+  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
+
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
   self.assertIn('(?:nightly|build)-[0-9a-f-]+', installer)
