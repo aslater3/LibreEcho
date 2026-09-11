@@ -72,7 +72,7 @@ jobs:
       ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {fetch-depth: 1, persist-credentials: false}
       - id: resolve
         env:
@@ -174,9 +174,9 @@ jobs:
     name: Product pipeline contract checks
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {fetch-depth: 1, persist-credentials: false}
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.11'
       - name: Run maintained Product pipeline suites
@@ -210,7 +210,7 @@ jobs:
     outputs:
       armhf_root_digest: ${{ steps.armhf-pkg.outputs.armhf_root_digest }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {fetch-depth: 1, persist-credentials: false}
 
       # --- Layer 1: fetched public inputs, keyed by the inventory digest ---
@@ -379,19 +379,19 @@ jobs:
       name: ${{ (needs.resolve-and-preflight.outputs.signing_mode == 'local' || needs.resolve-and-preflight.outputs.ssh_enabled == '1') && (needs.resolve-and-preflight.outputs.channel == 'stable' && 'stable-release' || 'dev-release') || 'dev-build' }}
     permissions: {contents: read}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: aslater3/LibreEcho-Platform
           ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
           path: sources/platform
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: aslater3/LibreEcho-Linux-6.1
           ref: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
@@ -404,14 +404,14 @@ jobs:
           epoch="$(git -C sources/linux show -s --format=%ct HEAD)"
           git -C sources/linux ls-files -z |
             (cd sources/linux && xargs -0 touch -h -d "@$epoch" --)
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: aslater3/LibreEcho-UI
           ref: ${{ needs.resolve-and-preflight.outputs.ui_sha }}
           path: sources/ui
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: aslater3/LibreEcho
           ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
@@ -430,7 +430,7 @@ jobs:
         with:
           name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/armhf-root
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.11'
       - name: Install reviewed OTA signing dependency closure
