@@ -247,6 +247,24 @@ class InstallerPublicationTests(unittest.TestCase):
                 ["--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
             )
             self.assertEqual(list(tmpdir.iterdir()), [])
+            result = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--continue",
+                 "--fastboot-serial", "SERIAL", "--execute-hardware"],
+                text=True, capture_output=True, env=env, timeout=10,
+            )
+            self.assertEqual(result.returncode, 23, result.stderr)
+            argv = argv_log.read_text().splitlines()
+            self.assertEqual(argv[1:4], ["continue-one-shot", "--release-tag", tag])
+            self.assertEqual(argv[4:], ["--fastboot-serial", "SERIAL", "--execute-hardware"])
+            self.assertEqual(list(tmpdir.iterdir()), [])
+            argv_log.unlink()
+            result = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), "latest", "--continue"],
+                text=True, capture_output=True, env=env, timeout=10,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("saved immutable release tag", result.stderr)
+            self.assertFalse(argv_log.exists())
 
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"

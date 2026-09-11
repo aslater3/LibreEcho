@@ -1361,34 +1361,40 @@ def _state_path(state_root: Path, install_id: str) -> Path:
     return state_root / install_id / "state.json"
 
 
-def _read_state(path: Path) -> dict[str, str]:
+def _read_state(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise InstallerError("malformed installer state") from error
     if (not isinstance(value, dict) or not {"phase", "release", "bundle_sha256"}.issubset(value)
-            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted"}
+            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted", "device_serial", "slots"}
+            or not isinstance(value["phase"], str)
             or value["phase"] not in ONE_SHOT_PHASES or not isinstance(value["release"], str)
             or not RELEASE.fullmatch(value["release"])
             or not isinstance(value["bundle_sha256"], str) or not SHA256.fullmatch(value["bundle_sha256"])
-            or ("userdata_formatted" in value and not isinstance(value["userdata_formatted"], bool))):
+            or ("userdata_formatted" in value and not isinstance(value["userdata_formatted"], bool))
+            or ("device_serial" in value and (not isinstance(value["device_serial"], str)
+                or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value["device_serial"])))
+            or ("slots" in value and (not isinstance(value["slots"], str)
+                or value["slots"] not in {"a", "b", "both"}))):
         raise InstallerError("malformed installer state")
     return value
 
 
 def _write_state(path: Path, state: dict[str, Any]) -> None:
-    # Preserve the durable userdata-format marker through later phase updates,
-    # but never carry it into a newly-started release state unless the caller
-    # explicitly sets it.
-    if "userdata_formatted" not in state and path.exists():
+    # Keep device/slot binding and format evidence only within this exact bundle.
+    # Starting a fresh installation explicitly resets the prior transaction.
+    state = dict(state)
+    if state.get("phase") != "RELEASE_READY" and path.exists():
         try:
-            previous = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            previous = _read_state(path)
+        except InstallerError:
             previous = {}
         if (previous.get("release") == state.get("release")
-                and previous.get("userdata_formatted") is True):
-            state = dict(state)
-            state["userdata_formatted"] = True
+                and previous.get("bundle_sha256") == state.get("bundle_sha256")):
+            for key in ("userdata_formatted", "device_serial", "slots"):
+                if key not in state and key in previous:
+                    state[key] = previous[key]
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(path.parent, 0o700)
     temporary = path.with_name(path.name + ".part")
@@ -1455,8 +1461,12 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
             raise InstallerError(f"checksum mismatch: {name}")
     cache = cache_root / release_tag
     downloads = cache / "downloads"
-    for name in expected:
-        _copy_atomic(release_dir / name, downloads / name)
+    # Continuation must revalidate the same complete release inventory, including
+    # optional checksum-covered metadata, even after a local source disappears.
+    if release_dir.resolve() != downloads.resolve():
+        for name in records:
+            _copy_atomic(release_dir / name, downloads / name)
+        _copy_atomic(checksums, downloads / checksums.name)
     _verify_bundle(downloads / bundle.name, manifest, cache / "bundle")
     return manifest, downloads / bundle.name
 
@@ -1514,6 +1524,9 @@ def one_shot(
     """Run Amonet, install logical boot payloads, and open first-boot setup."""
     if not execute_hardware:
         raise InstallerError("one-shot requires --execute-hardware")
+    if slots not in {"a", "b", "both"}:
+        raise InstallerError("slots must be a, b, or both")
+    adb_forward_command(adb_bin, fastboot_serial, local_port)
     cache_root = Path(cache_root)
     state_root = Path(state_root)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -1585,6 +1598,9 @@ def one_shot(
         print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
         serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
         print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
+        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag,
+                                  "bundle_sha256": bundle_sha, "userdata_formatted": False,
+                                  "device_serial": serial, "slots": slots})
         format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
         _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": True})
         print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
@@ -1662,117 +1678,157 @@ def continue_one_shot(
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
-    require_host_commands("bash", fastboot_bin, adb_bin)
     cache_root = Path(cache_root)
     cache_root.mkdir(parents=True, exist_ok=True)
-    fastboot_bin = prepare_fastboot_tools(
-        fastboot_bin, cache_root, install_host_deps=install_host_deps
-    )
-    state_path = _state_path(Path(state_root), install_id)
-    state = _read_state(state_path)
-    if not RELEASE.fullmatch(release_tag):
-        raise InstallerError("invalid continuation release tag")
-    if state["release"] != release_tag:
-        raise InstallerError(
-            f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
-        )
-    if state["phase"] not in {"AMONET_HANDOFF", "ADB_READY", "READBACK_VERIFIED"}:
-        raise InstallerError(f"continuation requires AMONET_HANDOFF, ADB_READY, or READBACK_VERIFIED state, got {state['phase']}")
-    release = state["release"]
-    cache_root = Path(cache_root)
-    release_sources = cache_root / "downloads" / release
-    if not release_sources.is_dir():
-        release_sources = cache_root / release / "downloads"
-    manifest, bundle = _prepare(release_sources, cache_root, release)
-    if _sha256(bundle) != state["bundle_sha256"]:
-        raise InstallerError("cached bundle hash changed since Amonet handoff")
-    boot = cache_root / release / "bundle" / manifest["boot"]["name"]
-    validate_public_boot_image(boot, manifest["boot"]["sha256"])
-    if slots not in {"a", "b", "both"}:
-        raise InstallerError("slots must be a, b, or both")
-    selected = ("a", "b") if slots == "both" else (slots,)
-    phase = state["phase"]
-    userdata_formatted = state.get("userdata_formatted", False)
-    if phase in {"ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted:
-        if not repair_userdata:
+    with (cache_root / ".lock").open("w") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise InstallerError("another installer is already running") from error
+        state_path = _state_path(Path(state_root), install_id)
+        state = _read_state(state_path)
+        if not isinstance(release_tag, str) or not RELEASE.fullmatch(release_tag):
+            raise InstallerError("invalid continuation release tag")
+        if state["release"] != release_tag:
             raise InstallerError(
-                "saved run reached ADB before userdata was formatted; "
-                "rerun continue-one-shot with --repair-userdata to perform "
-                "the explicit fastboot userdata format before feature staging"
+                f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
             )
-        serial = select_adb_serial(adb_bin, fastboot_serial)
-        print(
-            f"RECOVERY STAGE: exact ADB device {serial} selected; "
-            "rebooting to fastboot to repair userdata.",
-            flush=True,
-        )
-        _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20)
-        print("FASTBOOT STAGE: waiting for the repaired device.", flush=True)
-        fastboot = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
-        print(f"FASTBOOT STAGE: detected device {fastboot}; formatting userdata.", flush=True)
-        format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
-        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-        print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
-        try:
-            subprocess.run([fastboot_bin, "-s", fastboot, "reboot"], text=True, capture_output=True, timeout=20)
-        except subprocess.TimeoutExpired:
-            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
-        print("ADB STAGE: waiting for ADB after userdata repair.", flush=True)
-        wait_for_transport([adb_bin, "-s", fastboot, "get-state"], "device", adb_timeout, "ADB")
-        serial = select_adb_serial(adb_bin, fastboot)
-        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-userdata repair")
-        for slot in selected:
-            verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
-        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-    elif phase == "AMONET_HANDOFF":
-        print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
-        serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
-        print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
-        format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
-        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-        print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
-        _verify_fastboot_payload_geometry(fastboot_bin, serial)
-        _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        for slot in selected:
-            print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
-            _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
-        print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
-        _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
-        _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
-        try:
-            subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
-        except subprocess.TimeoutExpired:
-            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
-        print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
-        wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
-        print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
-        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
-        _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        print("PAYLOAD STAGE: verifying boot_a_x and boot_b_x readback.", flush=True)
-        for slot in selected:
-            verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
-        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
-    else:
-        serial = select_adb_serial(adb_bin, fastboot_serial)
-        print(f"Resuming from {phase}; no flash or reboot will be attempted ({serial}).", flush=True)
-        if phase == "ADB_READY":
+        if state["phase"] not in {"AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "ADB_READY",
+                                  "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED"}:
+            raise InstallerError(f"cannot continue before Amonet handoff: {state['phase']}")
+        bound_serial = state.get("device_serial")
+        if bound_serial:
+            if fastboot_serial not in {"auto", bound_serial}:
+                raise InstallerError("requested device does not match the saved installation")
+            fastboot_serial = bound_serial
+        elif fastboot_serial == "auto":
+            raise InstallerError("legacy state has no device binding; specify the original --fastboot-serial")
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", fastboot_serial):
+            raise InstallerError("invalid continuation device serial")
+        if "slots" in state and state["slots"] != slots:
+            raise InstallerError("requested slots do not match the saved installation")
+        adb_forward_command(adb_bin, fastboot_serial, local_port)
+        release = state["release"]
+        cache_root = Path(cache_root)
+        release_sources = cache_root / "downloads" / release
+        if not release_sources.is_dir():
+            release_sources = cache_root / release / "downloads"
+        manifest, bundle = _prepare(release_sources, cache_root, release)
+        if _sha256(bundle) != state["bundle_sha256"]:
+            raise InstallerError("cached bundle hash changed since Amonet handoff")
+        boot = cache_root / release / "bundle" / manifest["boot"]["name"]
+        validate_public_boot_image(boot, manifest["boot"]["sha256"])
+        if slots not in {"a", "b", "both"}:
+            raise InstallerError("slots must be a, b, or both")
+        selected = ("a", "b") if slots == "both" else (slots,)
+        phase = state["phase"]
+        userdata_formatted = state.get("userdata_formatted", False)
+        staged = phase in {"FEATURES_STAGED", "WEBUI_FORWARDED"}
+        if staged and not userdata_formatted:
+            raise InstallerError("completed staging lacks userdata-format evidence; refusing destructive repair")
+        needs_repair = phase in {"BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted
+        require_host_commands(adb_bin)
+        if phase in {"AMONET_HANDOFF", "FASTBOOT_READY"} or (needs_repair and repair_userdata):
+            require_host_commands("bash", fastboot_bin)
+            fastboot_bin = prepare_fastboot_tools(
+                fastboot_bin, cache_root, install_host_deps=install_host_deps
+            )
+        if needs_repair:
+            if not repair_userdata:
+                raise InstallerError(
+                    "saved run reached ADB before userdata was formatted; "
+                    "rerun continue-one-shot with --repair-userdata to perform "
+                    "the explicit fastboot userdata format before feature staging"
+                )
+            serial = select_adb_serial(adb_bin, fastboot_serial)
+            _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            print(
+                f"RECOVERY STAGE: exact ADB device {serial} selected; "
+                "rebooting to fastboot to repair userdata.",
+                flush=True,
+            )
+            _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20)
+            print("FASTBOOT STAGE: waiting for the repaired device.", flush=True)
+            fastboot = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
+            print(f"FASTBOOT STAGE: detected device {fastboot}; formatting userdata.", flush=True)
+            format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
+            _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+            print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
+            try:
+                subprocess.run([fastboot_bin, "-s", fastboot, "reboot"], text=True, capture_output=True, timeout=20)
+            except subprocess.TimeoutExpired:
+                print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+            print("ADB STAGE: waiting for ADB after userdata repair.", flush=True)
+            wait_for_transport([adb_bin, "-s", fastboot, "get-state"], "device", adb_timeout, "ADB")
+            serial = select_adb_serial(adb_bin, fastboot)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-userdata repair")
+            for slot in selected:
+                verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+            _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+        elif phase in {"AMONET_HANDOFF", "FASTBOOT_READY"}:
+            print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
+            serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
+            print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
+            _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            if not userdata_formatted:
+                if phase == "FASTBOOT_READY" and not repair_userdata:
+                    raise InstallerError("FASTBOOT_READY lacks userdata-format evidence; explicit --repair-userdata is required")
+                format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
+            _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+            print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
+            _verify_fastboot_payload_geometry(fastboot_bin, serial)
+            _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+            for slot in selected:
+                print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
+                _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+            print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
+            _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
+            _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
+            print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
+            try:
+                subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
+            except subprocess.TimeoutExpired:
+                print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+            print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
+            wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+            print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
+            _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+            print("PAYLOAD STAGE: verifying boot_a_x and boot_b_x readback.", flush=True)
             for slot in selected:
                 verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
             _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-    try:
-        stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
-    except InstallerError:
-        print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
-        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
-        raise
-    _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
-    url = f"http://127.0.0.1:{local_port}/setup.html"
-    _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-    if open_browser:
-        webbrowser.open(url)
-    return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+            print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
+        else:
+            serial = select_adb_serial(adb_bin, fastboot_serial)
+            _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            print(f"Resuming from {phase}; no flash or reboot will be attempted ({serial}).", flush=True)
+            # State from an earlier process is not current readback evidence.
+            for slot in selected:
+                verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+            _write_state(state_path, {**state, "phase": phase if staged else "READBACK_VERIFIED",
+                                      "device_serial": serial, "slots": slots})
+        try:
+            if staged:
+                # Never overwrite an already configured/running feature just to reopen a forward.
+                for feature in manifest["features"]:
+                    _run_command([adb_bin, "-s", serial, "shell", "test", "!", "-e",
+                                  f"/data/libreecho/features/{feature['name']}/staging"], adb_timeout)
+                verify_device_features(adb_bin, serial, manifest, adb_timeout)
+            else:
+                stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+        except InstallerError:
+            print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
+            raise
+        _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release,
+                                  "bundle_sha256": state["bundle_sha256"]})
+        _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
+        url = f"http://127.0.0.1:{local_port}/setup.html"
+        _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        if open_browser:
+            webbrowser.open(url)
+        return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
 
 
 def stage_device_features(
