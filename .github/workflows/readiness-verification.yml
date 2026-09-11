@@ -1,0 +1,38 @@
+name: Bounded 0.14 readiness verification inputs
+on:
+  push:
+    branches: ['fix/014-readiness-verification']
+    paths: ['.github/workflows/readiness-verification.yml']
+permissions:
+  contents: read
+jobs:
+  inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 0cbe2bc9618d7b81ccf957e4e020733ed9372cf4
+          persist-credentials: false
+          path: product
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: 8a65ab28166c85bd0998461ca229969422fa700d
+          persist-credentials: false
+          path: platform
+      - name: Archive only tracked source inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir inputs
+          git -C product rev-parse HEAD > inputs/product.sha
+          git -C platform rev-parse HEAD > inputs/platform.sha
+          git -C product archive --format=tar.gz HEAD > inputs/product.tar.gz
+          git -C platform archive --format=tar.gz HEAD > inputs/platform.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: readiness-verification-inputs
+          path: inputs/
+          retention-days: 1
+          if-no-files-found: error
