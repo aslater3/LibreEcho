@@ -10,14 +10,21 @@ jobs:
   evidence:
     runs-on: ubuntu-24.04
     steps:
-      - name: Read completed image job
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 02d5a57cffbf177bd277cb1986e95559d9311bec
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Read completed image job and exact source delta
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/current-build-evidence"
-          gh api --allow-escape-sequences repos/aslater3/LibreEcho/actions/jobs/103262559396/logs > "$RUNNER_TEMP/current-build-evidence/product-image.log"
+          gh api --allow-escape-sequences repos/aslater3/LibreEcho/actions/jobs/103266094791/logs > "$RUNNER_TEMP/current-build-evidence/product-image.log"
+          git diff --binary 0cbe2bc9618d7b81ccf957e4e020733ed9372cf4 HEAD > "$RUNNER_TEMP/current-build-evidence/product.delta"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/current-build-evidence/product.tree"
           python3 - <<'PY'
           import os, pathlib, re
           lines = pathlib.Path(os.environ['RUNNER_TEMP'], 'current-build-evidence/product-image.log').read_text(encoding='utf-8-sig').splitlines()
@@ -31,6 +38,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: current-image-log
-          path: ${{ runner.temp }}/current-build-evidence/product-image.log
+          path: ${{ runner.temp }}/current-build-evidence/
           if-no-files-found: error
           retention-days: 3
