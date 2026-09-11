@@ -1,0 +1,57 @@
+name: Verify one-shot continuation checkpoint
+on:
+  push:
+    branches: ['fix/014-readiness-materialize']
+    paths: ['.github/workflows/resume-installer-continuation.yml']
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 4cd65111228fe6e0960e68bb248eeeb7b3fcb500
+          persist-credentials: false
+      - name: Apply exact reviewed patch and verify file identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,gzip,hashlib,json,subprocess
+          from pathlib import Path
+          chunks=['abbafd664649f418e77981461f050de2e143a204','3f44791f6f7e4a652f9bf9a95251fd672bec2cf8','0303994b8ecb3f6e8e256bfeb03d5371b38ddd04','953b44d03405a1885f4f7eb587e38601489834f6']
+          def oid(b): return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+          data=b''
+          for sha in chunks:
+              obj=json.loads(subprocess.check_output(['gh','api','repos/aslater3/LibreEcho/git/blobs/'+sha],text=True,timeout=30))
+              chunk=base64.b64decode(obj['content']);assert oid(chunk)==sha
+              data+=chunk
+          assert hashlib.sha256(data).hexdigest()=='8ffa70d0709784480bd1faff81301bf9c47e06c477dece709815071bf267e131'
+          patch=gzip.decompress(data);assert len(patch)==43958
+          subprocess.run(['git','apply','--check','-'],input=patch,check=True,timeout=10)
+          subprocess.run(['git','apply','-'],input=patch,check=True,timeout=10)
+          expected={'tools/libreecho-install.py':'62279f9ea1afe05315f388c67a2375446673651f','tools/libreecho-install.py.sha256':'a968f5f222ae962a190eef0d2d83c7961b5bd446','tools/run-one-shot.sh':'44f61ea98e96ff81b744c016d60c3115c9a05f7a','tools/test_release_tools.py':'1dac6c6c352c160d2440ceb6c051faf4e202108f','tools/test_initial_installer_publication.py':'a47ac6c0ee2fffeaa1fd486c1ece08f1ed5b5395','tools/README.md':'70f1a10d0d041fad9a750c9a6ad110ccca1be053','docs/install/README.md':'c586cc5dc4eb79f7e82a6f3bde07b56950691cf7'}
+          for name,sha in expected.items():
+              actual=oid(Path(name).read_bytes());assert actual==sha,(name,actual,sha)
+          Path('/tmp/continuation-checkpoint.json').write_text(json.dumps(expected))
+          PY
+          python -B -m unittest -v tools.test_release_tools.OneShotContinuationTests tools.test_release_tools.FeatureStagingIntegrityTests tools.test_release_tools.OneShotFastbootTests tools.test_initial_installer_publication tools.test_oneshot_host_preflight
+          bash -n tools/run-one-shot.sh
+          git diff --check
+      - name: Save verified blobs without changing source branch refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,json,pathlib,subprocess
+          for name,sha in json.loads(pathlib.Path('/tmp/continuation-checkpoint.json').read_text()).items():
+              b=pathlib.Path(name).read_bytes()
+              obj=json.loads(subprocess.check_output(['gh','api','--method','POST','repos/aslater3/LibreEcho/git/blobs','--input','-'],input=json.dumps({'content':base64.b64encode(b).decode(),'encoding':'base64'}),text=True,timeout=30))
+              assert obj['sha']==sha
+              print('CHECKPOINT_BLOB '+name+' '+sha)
+          PY
