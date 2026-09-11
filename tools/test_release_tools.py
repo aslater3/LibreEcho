@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
+import os
+import shutil
 import importlib.util
 import json
 import subprocess
@@ -175,7 +178,7 @@ class OneShotFastbootTests(unittest.TestCase):
     def test_feature_stager_syncs_committed_files_before_removing_marker(self) -> None:
         stager = INSTALLER.ROOT_FEATURE_STAGER
         move = stager.index('$BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"')
-        manifest = stager.index('$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"', move)
+        manifest = stager.index('$BB mv "$DEST/staging/manifest.json.new" "$DEST/manifest.json"', move)
         first_sync = stager.index("$BB sync", manifest)
         cleanup = stager.index('$BB rmdir "$DEST/staging"', manifest)
         second_sync = stager.index("$BB sync", cleanup)
@@ -658,6 +661,167 @@ class ComponentGateTests(unittest.TestCase):
             commits["tooling"],
         )
         self.assertEqual(by_name["LibreEcho UI and service daemons"]["versionInfo"], commits["ui"])
+
+
+
+class FeatureStagingIntegrityTests(unittest.TestCase):
+    """Exercise the shipped shell; only host paths, mounts and sync are shimmed."""
+
+    def fixture(self, root: Path, *, wrong_size=False, omit_hash=False):
+        payload = root / "input.squashfs"
+        metadata = root / "input.json"
+        payload.write_bytes(b"verified payload fixture")
+        metadata.write_bytes(b'{"feature":"assistant","schema":1}\n')
+        config = root / "stage.conf"
+        config.write_text(
+            f"FEATURE_ID=assistant\nPAYLOAD_FILE={payload}\nMANIFEST_FILE={metadata}\n"
+            f"PAYLOAD_SHA256={hashlib.sha256(payload.read_bytes()).hexdigest()}\n"
+            f"PAYLOAD_SIZE={payload.stat().st_size}\n"
+            + ("" if omit_hash else f"MANIFEST_SHA256={hashlib.sha256(metadata.read_bytes()).hexdigest()}\n")
+            + f"MANIFEST_SIZE={metadata.stat().st_size + int(wrong_size)}\n"
+        )
+        dest = root / "features/assistant"
+        dest.mkdir(parents=True)
+        (dest / "payload.squashfs").write_bytes(b"old payload")
+        (dest / "manifest.json").write_bytes(b"old manifest")
+        return payload, metadata, config, dest
+
+    def run_stager(self, root: Path, *, corrupt_copy=False, fail_sync=False):
+        shim = root / "busybox-test"
+        # No command can mount or sync the host. File operations run unchanged
+        # in temporary paths against the real BusyBox implementation.
+        shim.write_text('''#!/bin/sh
+set -eu
+case "$1" in
+  grep) if [ "${4:-}" = /proc/mounts ]; then exit 0; fi ;;
+  mount) exit 0 ;;
+  sync) [ "$FAIL_SYNC" = 0 ]; exit $? ;;
+esac
+if [ -n "$REAL_BUSYBOX" ]; then "$REAL_BUSYBOX" "$@"; else "$@"; fi
+if [ "$1" = cp ] && [ "$CORRUPT_COPY" = 1 ]; then
+  case "$3" in */manifest.json.new) printf corrupt >> "$3" ;; esac
+fi
+''')
+        shim.chmod(0o755)
+        script = INSTALLER.ROOT_FEATURE_STAGER.replace(
+            "BB=/bin/busybox", f"BB={shim}"
+        ).replace(
+            "CONFIG=/tmp/libreecho-feature-stage.conf", f"CONFIG={root / 'stage.conf'}"
+        ).replace(
+            "DEST=/data/libreecho/features/$FEATURE_ID", f"DEST={root}/features/$FEATURE_ID"
+        )
+        busybox = shutil.which("busybox")
+        interpreter = [busybox, "sh"] if busybox else ["/bin/sh"]
+        return subprocess.run(
+            [*interpreter, "-c", script], capture_output=True, text=True, timeout=15,
+            env={**os.environ, "REAL_BUSYBOX": busybox or "",
+                 "FAIL_SYNC": str(int(fail_sync)), "CORRUPT_COPY": str(int(corrupt_copy))},
+        )
+
+    def test_valid_pair_is_committed_before_staging_marker_disappears(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload, metadata, config, dest = self.fixture(root)
+            expected_payload, expected_metadata = payload.read_bytes(), metadata.read_bytes()
+            result = self.run_stager(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("FEATURE_STAGE_OK:assistant", result.stdout)
+            self.assertEqual((dest / "payload.squashfs").read_bytes(), expected_payload)
+            self.assertEqual((dest / "manifest.json").read_bytes(), expected_metadata)
+            self.assertFalse((dest / "staging").exists())
+            self.assertFalse(config.exists())
+
+    def test_invalid_manifest_cannot_replace_existing_pair(self):
+        for failure in ("hash", "size", "missing-hash", "symlink"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                _, metadata, _, dest = self.fixture(
+                    root, wrong_size=failure == "size", omit_hash=failure == "missing-hash")
+                if failure == "hash":
+                    metadata.write_bytes(b"changed during transport")
+                elif failure == "symlink":
+                    original = root / "other.json"
+                    metadata.rename(original)
+                    metadata.symlink_to(original)
+                result = self.run_stager(root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("FEATURE_STAGE_MANIFEST_", result.stdout)
+                self.assertEqual((dest / "payload.squashfs").read_bytes(), b"old payload")
+                self.assertEqual((dest / "manifest.json").read_bytes(), b"old manifest")
+                self.assertNotIn("FEATURE_STAGE_OK", result.stdout)
+
+    def test_manifest_copy_corruption_preserves_old_pair_and_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _, _, _, dest = self.fixture(root)
+            result = self.run_stager(root, corrupt_copy=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FEATURE_STAGE_MANIFEST_COPY_HASH_MISMATCH", result.stdout)
+            self.assertEqual((dest / "payload.squashfs").read_bytes(), b"old payload")
+            self.assertEqual((dest / "manifest.json").read_bytes(), b"old manifest")
+            self.assertTrue((dest / "staging").is_dir())
+
+    def test_sync_failure_keeps_activation_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _, _, _, dest = self.fixture(root)
+            result = self.run_stager(root, fail_sync=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FEATURE_STAGE_COMMIT_SYNC_FAILED", result.stdout)
+            self.assertTrue((dest / "staging").is_dir())
+            self.assertNotIn("FEATURE_STAGE_OK", result.stdout)
+
+    def test_host_reads_back_both_files_and_rejects_manifest_mismatch(self):
+        for tampered in (False, True):
+            with self.subTest(tampered=tampered), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                tag = "radar-puffin-v0.14.0"
+                bundle = root / tag / "bundle"
+                bundle.mkdir(parents=True)
+                payload = bundle / "assistant.squashfs"
+                metadata = bundle / "assistant.json"
+                payload.write_bytes(b"fixture payload")
+                metadata.write_bytes(b'{"fixture":true}')
+                feature = {"name": "assistant"}
+                for kind, path in (("payload", payload), ("manifest", metadata)):
+                    feature[kind] = {"name": path.name, "size": path.stat().st_size,
+                                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                calls = []
+                configs = []
+                def command(argv, timeout, *, check=True):
+                    calls.append(argv)
+                    out = ""
+                    if argv[3] == "push" and argv[-1].endswith("stage.conf"):
+                        configs.append(Path(argv[-2]).read_text())
+                    elif argv[3:5] == ["shell", "sh"]:
+                        out = "FEATURE_STAGE_OK:assistant\n"
+                    elif argv[3:5] == ["shell", "sha256sum"]:
+                        kind = "manifest" if argv[-1].endswith("manifest.json") else "payload"
+                        digest = "0" * 64 if tampered and kind == "manifest" else feature[kind]["sha256"]
+                        out = f"{digest}  {argv[-1]}\r\n"
+                    return subprocess.CompletedProcess(argv, 0, out, "")
+                with mock.patch.object(INSTALLER, "_run_command", side_effect=command):
+                    if tampered:
+                        with self.assertRaisesRegex(INSTALLER.InstallerError, "installed manifest hash mismatch"):
+                            INSTALLER.stage_device_features("adb", "SERIAL", root, {"release": tag, "features": [feature]})
+                    else:
+                        INSTALLER.stage_device_features("adb", "SERIAL", root, {"release": tag, "features": [feature]})
+                self.assertIn(f"MANIFEST_SHA256={feature['manifest']['sha256']}\n", configs[0])
+                self.assertIn(f"MANIFEST_SIZE={feature['manifest']['size']}\n", configs[0])
+                readbacks = [c[-1] for c in calls if c[3:5] == ["shell", "sha256sum"]]
+                self.assertEqual(readbacks, ["/data/libreecho/features/assistant/payload.squashfs",
+                                            "/data/libreecho/features/assistant/manifest.json"])
+
+    def test_readback_rejects_unrelated_hash_or_extra_output(self):
+        feature = {"name": "assistant", "payload": {"sha256": "a" * 64},
+                   "manifest": {"sha256": "b" * 64}}
+        for output in ("a" * 64 + "  /tmp/other", "noise\n" + "a" * 64 +
+                       "  /data/libreecho/features/assistant/payload.squashfs"):
+            with self.subTest(output=output), mock.patch.object(
+                INSTALLER, "_run_command", return_value=subprocess.CompletedProcess([], 0, output, "")
+            ):
+                with self.assertRaises(INSTALLER.InstallerError):
+                    INSTALLER.verify_device_features("adb", "SERIAL", {"features": [feature]})
 
 
 if __name__ == "__main__":

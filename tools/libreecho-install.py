@@ -1799,6 +1799,9 @@ def stage_device_features(
         feature_manifest = payload_root / feature["manifest"]["name"]
         _safe_regular(payload)
         _safe_regular(feature_manifest)
+        for path, record in ((payload, feature["payload"]), (feature_manifest, feature["manifest"])):
+            if path.stat().st_size != record["size"] or _sha256(path) != record["sha256"]:
+                raise InstallerError(f"feature {name} cached {path.name} changed before staging")
         remote_payload = f"/tmp/libreecho-{name}.squashfs"
         remote_manifest = f"/tmp/libreecho-{name}.manifest.json"
         print(f"Staging feature {name} ({feature['payload']['size']} bytes)...", flush=True)
@@ -1810,7 +1813,9 @@ def stage_device_features(
             f"PAYLOAD_SHA256={feature['payload']['sha256']}\n"
             f"PAYLOAD_SIZE={feature['payload']['size']}\n"
             f"PAYLOAD_FILE={remote_payload}\n"
-            f"MANIFEST_FILE={remote_manifest}\n",
+            f"MANIFEST_FILE={remote_manifest}\n"
+            f"MANIFEST_SHA256={feature['manifest']['sha256']}\n"
+            f"MANIFEST_SIZE={feature['manifest']['size']}\n",
             encoding="ascii",
         )
         config.chmod(0o600)
@@ -1819,15 +1824,24 @@ def stage_device_features(
         if result.returncode != 0 or f"FEATURE_STAGE_OK:{name}" not in result.stdout:
             detail = (result.stderr or result.stdout).strip()[-500:]
             raise InstallerError(f"feature staging failed for {name}: {detail}")
-        installed = _run_command(
-            [adb_bin, "-s", serial, "shell", "sha256sum", f"/data/libreecho/features/{name}/payload.squashfs"],
-            timeout,
-        ).stdout
-        digest = re.search(r"\b([0-9a-f]{64})\b", installed, re.IGNORECASE)
-        if digest is None or digest.group(1).lower() != feature["payload"]["sha256"].lower():
-            raise InstallerError(f"feature {name} installed hash mismatch")
+        verify_device_features(adb_bin, serial, {"features": [feature]}, timeout)
         print(f"Feature {name} staged and verified.", flush=True)
         config.unlink(missing_ok=True)
+
+
+def verify_device_features(
+    adb_bin: str, serial: str, manifest: dict[str, Any], timeout: float = 180,
+) -> None:
+    """Read back each installed payload and manifest; an upload acknowledgement is not proof."""
+    for feature in manifest["features"]:
+        for kind, filename in (("payload", "payload.squashfs"), ("manifest", "manifest.json")):
+            path = f"/data/libreecho/features/{feature['name']}/{filename}"
+            output = _run_command(
+                [adb_bin, "-s", serial, "shell", "sha256sum", path], timeout,
+            ).stdout.strip()
+            digest = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?" + re.escape(path), output)
+            if digest is None or digest.group(1).lower() != feature[kind]["sha256"].lower():
+                raise InstallerError(f"feature {feature['name']} installed {kind} hash mismatch")
 
 
 ROOT_FEATURE_STAGER = r"""#!/bin/busybox sh
@@ -1840,6 +1854,8 @@ PAYLOAD_SHA256=
 PAYLOAD_SIZE=
 PAYLOAD_FILE=
 MANIFEST_FILE=
+MANIFEST_SHA256=
+MANIFEST_SIZE=
 while IFS='=' read -r key value; do
     case "$key" in
         FEATURE_ID) FEATURE_ID=$value ;;
@@ -1847,11 +1863,17 @@ while IFS='=' read -r key value; do
         PAYLOAD_SIZE) PAYLOAD_SIZE=$value ;;
         PAYLOAD_FILE) PAYLOAD_FILE=$value ;;
         MANIFEST_FILE) MANIFEST_FILE=$value ;;
+        MANIFEST_SHA256) MANIFEST_SHA256=$value ;;
+        MANIFEST_SIZE) MANIFEST_SIZE=$value ;;
     esac
 done < "$CONFIG"
-case "$FEATURE_ID" in ''|*[!a-z0-9._-]*) echo FEATURE_STAGE_ID_INVALID; exit 1 ;; esac
+case "$FEATURE_ID" in ''|.|..|*[!a-z0-9._-]*) echo FEATURE_STAGE_ID_INVALID; exit 1 ;; esac
 [ -f "$PAYLOAD_FILE" ] || { echo FEATURE_STAGE_PAYLOAD_MISSING; exit 1; }
-[ -f "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+[ -f "$MANIFEST_FILE" ] && [ ! -L "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+case "$MANIFEST_SHA256" in ''|*[!0-9a-f]*) echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1 ;; esac
+[ "${#MANIFEST_SHA256}" -eq 64 ] || { echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1; }
+case "$MANIFEST_SIZE" in ''|*[!0-9]*) echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1 ;; esac
+[ "$MANIFEST_SIZE" -gt 0 ] || { echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1; }
 if ! $BB grep -q ' /data ' /proc/mounts 2>/dev/null; then
     [ -b /dev/mmcblk0p16 ] || { echo FEATURE_STAGE_USERDATA_MISSING; exit 1; }
     $BB mkdir -p /data
@@ -1864,17 +1886,25 @@ actual=$($BB sha256sum "$PAYLOAD_FILE" | $BB awk '{print $1}')
 [ "$actual" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_PAYLOAD_HASH_MISMATCH; exit 1; }
 actual_size=$($BB stat -c %s "$PAYLOAD_FILE" 2>/dev/null)
 [ "$actual_size" = "$PAYLOAD_SIZE" ] || { echo FEATURE_STAGE_PAYLOAD_SIZE_MISMATCH; exit 1; }
+actual=$($BB sha256sum "$MANIFEST_FILE" | $BB awk '{print $1}')
+[ "$actual" = "$MANIFEST_SHA256" ] || { echo FEATURE_STAGE_MANIFEST_HASH_MISMATCH; exit 1; }
+actual_size=$($BB stat -c %s "$MANIFEST_FILE" 2>/dev/null)
+[ "$actual_size" = "$MANIFEST_SIZE" ] || { echo FEATURE_STAGE_MANIFEST_SIZE_MISMATCH; exit 1; }
 DEST=/data/libreecho/features/$FEATURE_ID
 $BB mkdir -p "$DEST/staging"
 $BB cp "$PAYLOAD_FILE" "$DEST/staging/payload.squashfs.new"
 staged=$($BB sha256sum "$DEST/staging/payload.squashfs.new" | $BB awk '{print $1}')
 [ "$staged" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_COPY_HASH_MISMATCH; exit 1; }
+# Prepare and verify BOTH files while the staging marker prevents activation.
+$BB cp "$MANIFEST_FILE" "$DEST/staging/manifest.json.new"
+staged=$($BB sha256sum "$DEST/staging/manifest.json.new" | $BB awk '{print $1}')
+[ "$staged" = "$MANIFEST_SHA256" ] || { echo FEATURE_STAGE_MANIFEST_COPY_HASH_MISMATCH; exit 1; }
 $BB rm -f "$DEST/payload.squashfs.previous"
 if [ -f "$DEST/payload.squashfs" ]; then
     $BB mv "$DEST/payload.squashfs" "$DEST/payload.squashfs.previous"
 fi
 $BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"
-$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"
+$BB mv "$DEST/staging/manifest.json.new" "$DEST/manifest.json"
 $BB sync || { echo FEATURE_STAGE_COMMIT_SYNC_FAILED; exit 1; }
 $BB rmdir "$DEST/staging" || { echo FEATURE_STAGE_STAGING_CLEANUP_FAILED; exit 1; }
 $BB sync || { echo FEATURE_STAGE_MARKER_SYNC_FAILED; exit 1; }
