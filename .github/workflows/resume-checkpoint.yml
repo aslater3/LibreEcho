@@ -1,0 +1,43 @@
+name: Materialize reviewed resume checkpoint
+on:
+  push:
+    branches: ['fix/014-readiness-materialize']
+    paths: ['.github/workflows/resume-checkpoint.yml']
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 0a1c502b62f277f23a407750d6e53ebb701246e6
+          persist-credentials: false
+      - name: Materialize exact reviewed blob without advancing a source branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, pathlib, subprocess
+          p = pathlib.Path('build/build.sh')
+          def oid(b): return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+          assert oid(p.read_bytes()) == 'cfacda2c399f88c510f34ca0b96e0116d188a32c'
+          s = p.read_text()
+          s = s.replace('contract=reduced-static-archives-v5-abseil-closure', 'contract=reduced-static-archives-v6-nsync-closure')
+          s = s.replace('# archives (onnx, protobuf-lite, flatbuffers, and Abseil). They must be', '# archives (onnx, nsync, protobuf-lite, flatbuffers, and Abseil). They must be')
+          old = '          _deps/onnx-build/libonnx_proto.a \\\n          _deps/protobuf-build/libprotobuf-lite.a'
+          new = '          _deps/onnx-build/libonnx_proto.a \\\n          _deps/nsync-build/libnsync_cpp.a \\\n          _deps/protobuf-build/libprotobuf-lite.a'
+          assert s.count(old) == 1
+          b = s.replace(old, new).encode()
+          assert oid(b) == 'b252a958aa9e354a5f303cc496b6066dc96f4c89'
+          p.write_bytes(b)
+          subprocess.run(['bash', '-n', str(p)], check=True, timeout=10)
+          request = json.dumps({'content':base64.b64encode(b).decode(), 'encoding':'base64'})
+          reply = subprocess.check_output(['gh','api','--method','POST','repos/aslater3/LibreEcho/git/blobs','--input','-'], input=request, text=True, timeout=30)
+          result = json.loads(reply)
+          assert result['sha'] == oid(b)
+          print('CHECKPOINT_BLOB build/build.sh ' + result['sha'])
+          PY
