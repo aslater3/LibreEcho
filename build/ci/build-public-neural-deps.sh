@@ -119,13 +119,6 @@ for archive in \
 done
 copy_named_archive libonnx.a "$ORT_STAGE/_deps/onnx-build"
 copy_named_archive libonnx_proto.a "$ORT_STAGE/_deps/onnx-build"
-# The full ORT archive group used by both Sherpa speech adapters also needs
-# nsync. Keep it in the exported dependency tree, not only the reduced wake
-# cache; the build directory itself is discarded after this job.
-copy_named_archive libnsync_cpp.a "$ORT_STAGE/_deps/nsync-build"
-nsync_members="$("${CROSS}ar" t "$ORT_STAGE/_deps/nsync-build/libnsync_cpp.a")" || \
-  fail "ONNX Runtime nsync static archive is invalid"
-[[ -n "$nsync_members" ]] || fail "ONNX Runtime nsync static archive is empty"
 copy_named_archive libprotobuf-lite.a "$ORT_STAGE/_deps/protobuf-build"
 copy_named_archive libflatbuffers.a "$ORT_STAGE/_deps/flatbuffers-build"
 absl_count=0
@@ -279,7 +272,6 @@ for required in \
     "$OUT/onnxruntime-prefix/include/onnxruntime_cxx_api.h" \
     "$OUT/onnxruntime-build/libonnxruntime_session.a" \
     "$OUT/onnxruntime-build/_deps/onnx-build/libonnx.a" \
-    "$OUT/onnxruntime-build/_deps/nsync-build/libnsync_cpp.a" \
     "$OUT/onnxruntime-prefix/lib/libonnxruntime.a" \
     "$OUT/onnxruntime-prefix/lib/libre2.a" \
     "$OUT/sherpa-onnx-prefix/lib/libsherpa-onnx-core.a" \
