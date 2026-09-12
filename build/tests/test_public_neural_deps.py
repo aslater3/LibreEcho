@@ -2,6 +2,10 @@
 """Contract checks for the public ARM32 neural dependency boundary."""
 from pathlib import Path
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).parents[2]
@@ -78,6 +82,112 @@ class PublicNeuralDependencyTests(unittest.TestCase):
                 self.assertIn("sample_rate", properties)
                 self.assertIn("n_speakers", properties)
                 self.assertNotIn("vits_sample_rate", properties)
+
+
+class PublicNeuralNsyncStagingTests(unittest.TestCase):
+    """Exercise the shipped staging block, not a duplicate list of its copies.
+
+    These native archives model an ORT -> nsync link dependency. They check the
+    staging boundary, not target inference or the upstream nsync implementation.
+    """
+
+    def setUp(self):
+        for tool in ("bash", "g++", "ar"):
+            if not shutil.which(tool):
+                self.fail(f"required native link-test tool is unavailable: {tool}")
+        self.tmp = tempfile.TemporaryDirectory(prefix="le-neural-nsync-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.build = self.root / "build"
+        self.out = self.root / "stage"
+        self.build.mkdir()
+        # Execute the real function and its real calls, up to the next build
+        # phase. New/removed dependency copies therefore affect this test.
+        start = SCRIPT.index("\ncopy_named_archive() {")
+        end = SCRIPT.index("\n# ORT v1.27", start)
+        self.stage_script = (
+            'set -euo pipefail\n'
+            'fail() { echo "ERROR: $*" >&2; exit 1; }\n'
+            + SCRIPT[start:end]
+        )
+        archives = (
+            "libonnxruntime_session.a", "libonnxruntime_optimizer.a",
+            "libonnxruntime_providers.a", "libonnxruntime_graph.a",
+            "libonnxruntime_framework.a", "libonnxruntime_common.a",
+            "libonnxruntime_mlas.a", "libonnxruntime_util.a",
+            "libonnxruntime_flatbuffers.a", "libonnxruntime_lora.a",
+            "libonnx.a", "libonnx_proto.a", "libprotobuf-lite.a",
+            "libflatbuffers.a", "libabsl_fixture.a",
+        )
+        for name in archives:
+            self.run_ok(["ar", "rcs", str(self.build / name)])
+        self.compile("session", """
+            namespace nsync { int nsync_mu_lock(int); }
+            int ort_fixture() { return nsync::nsync_mu_lock(7); }
+        """)
+        self.run_ok(["ar", "rcs", str(self.build / "libonnxruntime_session.a"),
+                     str(self.root / "session.o")])
+        self.compile("sync", """
+            namespace nsync { int nsync_mu_lock(int value) { return value; } }
+        """)
+        self.compile("main", """
+            int ort_fixture();
+            int main() { return ort_fixture() == 7 ? 0 : 1; }
+        """)
+
+    def run_ok(self, command):
+        return subprocess.run(command, check=True, capture_output=True,
+                              text=True, timeout=15)
+
+    def compile(self, name, content):
+        source = self.root / f"{name}.cpp"
+        source.write_text(content)
+        self.run_ok(["g++", "-c", str(source), "-o", str(self.root / f"{name}.o")])
+
+    def stage(self):
+        return subprocess.run(
+            ["bash", "-c", self.stage_script],
+            env={**os.environ, "ORT_BUILD": str(self.build),
+                 "OUT": str(self.out), "CROSS": ""},
+            text=True, capture_output=True, timeout=15,
+        )
+
+    def test_flat_and_nested_nsync_archive_survives_staging_and_links(self):
+        for relative in ("libnsync_cpp.a", "_deps/nsync-build/libnsync_cpp.a"):
+            with self.subTest(layout=relative):
+                for old in self.build.rglob("libnsync_cpp.a"):
+                    old.unlink()
+                shutil.rmtree(self.out, ignore_errors=True)
+                archive = self.build / relative
+                archive.parent.mkdir(parents=True, exist_ok=True)
+                self.run_ok(["ar", "rcs", str(archive), str(self.root / "sync.o")])
+                result = self.stage()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                installed = self.out / "onnxruntime-build/_deps/nsync-build/libnsync_cpp.a"
+                self.assertTrue(installed.is_file(), "nsync was lost from staged ORT")
+                self.assertEqual(installed.read_bytes(), archive.read_bytes())
+                binary = self.root / "staged-link"
+                staged = sorted((self.out / "onnxruntime-build").rglob("*.a"))
+                self.run_ok(["g++", str(self.root / "main.o"), "-Wl,--start-group",
+                             *map(str, staged), "-Wl,--end-group", "-o", str(binary)])
+                self.run_ok([str(binary)])
+
+    def test_missing_nsync_fails_at_staging(self):
+        result = self.stage()
+        self.assertNotEqual(result.returncode, 0, "missing nsync was accepted")
+        self.assertIn("libnsync_cpp.a", result.stderr)
+
+    def test_malformed_nsync_fails_at_staging(self):
+        (self.build / "libnsync_cpp.a").write_text("not a static archive\n")
+        result = self.stage()
+        self.assertNotEqual(result.returncode, 0, "malformed nsync was accepted")
+        self.assertIn("nsync", result.stderr)
+
+    def test_empty_nsync_archive_fails_at_staging(self):
+        self.run_ok(["ar", "rcs", str(self.build / "libnsync_cpp.a")])
+        result = self.stage()
+        self.assertNotEqual(result.returncode, 0, "empty nsync was accepted")
+        self.assertIn("nsync", result.stderr)
 
 
 if __name__ == "__main__":
