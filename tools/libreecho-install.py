@@ -1773,7 +1773,21 @@ def continue_one_shot(
             raise InstallerError("completed staging lacks userdata-format evidence; refusing destructive repair")
         needs_repair = phase in {"BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted
         require_host_commands(adb_bin)
-        if phase in {"AMONET_HANDOFF", "FASTBOOT_READY"} or (needs_repair and repair_userdata):
+        # `BOOT_WRITTEN` is saved immediately before `fastboot reboot`. If the
+        # installer exited before that reboot completed, the device is still in
+        # fastboot and an ADB-only resume can never recover it. Probe for a
+        # still-present fastboot device so the pending reboot is issued before
+        # falling through to the ADB path; when fastboot is unavailable, keep the
+        # existing ADB-only behaviour.
+        fastboot_waiting = False
+        if (phase == "BOOT_WRITTEN" and userdata_formatted
+                and (shutil.which(fastboot_bin) is not None or Path(fastboot_bin).is_file())):
+            try:
+                fastboot_waiting = bool(fastboot_devices(fastboot_bin))
+            except InstallerError:
+                fastboot_waiting = False
+        if (phase in {"AMONET_HANDOFF", "FASTBOOT_READY"}
+                or (needs_repair and repair_userdata) or fastboot_waiting):
             require_host_commands("bash", fastboot_bin)
             fastboot_bin = prepare_fastboot_tools(
                 fastboot_bin, cache_root, install_host_deps=install_host_deps
@@ -1845,9 +1859,30 @@ def continue_one_shot(
             _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
             print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
         else:
+            if fastboot_waiting:
+                print(
+                    "FASTBOOT STAGE: device is still in fastboot after BOOT_WRITTEN; "
+                    "issuing the pending reboot.",
+                    flush=True,
+                )
+                pending_serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
+                try:
+                    subprocess.run(
+                        [fastboot_bin, "-s", pending_serial, "reboot"],
+                        text=True, capture_output=True, timeout=20,
+                    )
+                except subprocess.TimeoutExpired:
+                    print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+                print("FASTBOOT STAGE: waiting for ADB after the pending reboot.", flush=True)
+                wait_for_transport(
+                    [adb_bin, "-s", pending_serial, "get-state"], "device", adb_timeout, "ADB"
+                )
             serial = select_adb_serial(adb_bin, fastboot_serial)
             _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
-            print(f"Resuming from {phase}; no flash or reboot will be attempted ({serial}).", flush=True)
+            print(
+                f"Resuming from {phase}; no further flash or reboot will be attempted ({serial}).",
+                flush=True,
+            )
             # State from an earlier process is not current readback evidence.
             for slot in selected:
                 verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)

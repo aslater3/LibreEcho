@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALLER = ROOT / "tools" / "libreecho-install.py"
+INSTALLER = Path(os.environ.get("LIBREECHO_INSTALLER_UNDER_TEST", ROOT / "tools" / "libreecho-install.py"))
 CHECKSUM = ROOT / "tools" / "libreecho-install.py.sha256"
 
 
@@ -504,6 +504,123 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertNotIn("/home/andy", source)
         self.assertNotIn("/media/andy", source)
         self.assertNotIn("PRIVATE", source)
+
+
+    def test_continuation_from_boot_written_reissues_pending_fastboot_reboot(self) -> None:
+        """A BOOT_WRITTEN resume must recover a device still stuck in fastboot.
+
+        `BOOT_WRITTEN` is saved directly before `fastboot reboot`; if the
+        installer exits first, the device stays in fastboot and an ADB-only
+        resume can never recover it. Exercise the real `continue_one_shot` with
+        a stub fastboot/ADB transport and assert the pending reboot is issued
+        when a fastboot device is still present, and skipped once it has gone.
+        """
+        import contextlib
+        import io
+        import types
+
+        spec = importlib.util.spec_from_file_location("installer_resume", INSTALLER)
+        assert spec is not None and spec.loader is not None
+        release = "radar-puffin-v0.14.0"
+
+        def exercise(*, fastboot_present: bool) -> dict:
+            installer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(installer)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                cache_root = root / "cache"
+                state_root = root / "state"
+                release_sources = cache_root / "downloads" / release
+                release_sources.mkdir(parents=True)
+                bundle = release_sources / f"libreecho-{release}.ota.tar"
+                bundle.write_bytes(b"bundle")
+                boot = cache_root / release / "bundle" / "boot.img"
+                boot.parent.mkdir(parents=True)
+                boot.write_bytes(b"boot")
+                state_dir = state_root / "resume-test"
+                state_dir.mkdir(parents=True)
+                (state_dir / "state.json").write_text(
+                    json.dumps(
+                        {
+                            "phase": "BOOT_WRITTEN",
+                            "release": release,
+                            "bundle_sha256": hashlib.sha256(b"bundle").hexdigest(),
+                            "userdata_formatted": True,
+                            "device_serial": "SERIAL123",
+                            "slots": "a",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                manifest = {
+                    "release": release,
+                    "boot": {"name": "boot.img", "sha256": hashlib.sha256(b"boot").hexdigest()},
+                    "features": [{"name": "tts"}],
+                }
+                # A real file makes `shutil.which`/`Path.is_file` resolve; the
+                # absent case uses a path that exists on neither.
+                fastboot_bin = root / ("fastboot" if fastboot_present else "missing-fastboot")
+                if fastboot_present:
+                    fastboot_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                    fastboot_bin.chmod(0o755)
+
+                events: list[str] = []
+                installer._prepare = lambda *a, **k: (manifest, bundle)
+                installer.validate_public_boot_image = lambda *a, **k: None
+                installer.require_host_commands = lambda *a, **k: None
+                installer.prepare_fastboot_tools = lambda binary, *a, **k: binary
+                installer.fastboot_devices = lambda binary: ["SERIAL123"] if fastboot_present else []
+                installer.select_fastboot_serial = lambda binary, requested: "SERIAL123"
+                installer.select_adb_serial = lambda binary, requested: "SERIAL123"
+                installer.wait_for_transport = lambda probe, expected, timeout, label: events.append(
+                    "wait:" + label
+                )
+                installer.collect_adb_diagnostics = lambda *a, **k: None
+                installer.verify_adb_payload_readback = lambda *a, **k: None
+                installer.stage_device_features = lambda *a, **k: events.append("stage")
+                installer.adb_forward_command = lambda *a, **k: ["adb", "forward"]
+                installer._run_command = lambda command, timeout, check=True: subprocess.CompletedProcess(
+                    command, 0, "", ""
+                )
+
+                def fake_run(command, *args, **kwargs):
+                    events.append(
+                        "fastboot-reboot" if str(command[0]).endswith("fastboot") else "subprocess"
+                    )
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                installer.subprocess = types.SimpleNamespace(
+                    run=fake_run, TimeoutExpired=subprocess.TimeoutExpired
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = installer.continue_one_shot(
+                        cache_root=cache_root,
+                        state_root=state_root,
+                        install_id="resume-test",
+                        release_tag=release,
+                        fastboot_bin=str(fastboot_bin),
+                        adb_bin="adb",
+                        fastboot_serial="SERIAL123",
+                        slots="a",
+                        fastboot_timeout=5.0,
+                        adb_timeout=5.0,
+                        local_port=8080,
+                        open_browser=False,
+                        execute_hardware=True,
+                    )
+                return {"events": events, "result": result}
+
+        waiting = exercise(fastboot_present=True)
+        self.assertIn("fastboot-reboot", waiting["events"])
+        self.assertIn("wait:ADB", waiting["events"])
+        self.assertEqual("stage", waiting["events"][-1])
+        self.assertEqual("WEBUI_FORWARDED", waiting["result"]["phase"])
+
+        rebooted = exercise(fastboot_present=False)
+        self.assertNotIn("fastboot-reboot", rebooted["events"])
+        self.assertNotIn("wait:ADB", rebooted["events"])
+        self.assertEqual("stage", rebooted["events"][-1])
+        self.assertEqual("WEBUI_FORWARDED", rebooted["result"]["phase"])
 
 
 if __name__ == "__main__":
