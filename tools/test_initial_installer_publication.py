@@ -623,5 +623,135 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertEqual("WEBUI_FORWARDED", rebooted["result"]["phase"])
 
 
+    def test_continuation_ignores_unrelated_fastboot_device(self) -> None:
+        """A BOOT_WRITTEN resume must not divert to an unrelated fastboot device.
+
+        If the saved target has already rebooted into ADB but some other device
+        is sitting in fastboot, the recovery probe must not treat that device as
+        the pending reboot: `select_fastboot_serial` would then fail for the
+        saved serial even though the saved device is available over ADB. The
+        probe must match the requested serial (or the single-device rule for
+        `auto`) before issuing the pending reboot.
+        """
+        import contextlib
+        import io
+        import types
+
+        spec = importlib.util.spec_from_file_location(
+            "installer_resume_unrelated", INSTALLER
+        )
+        assert spec is not None and spec.loader is not None
+        release = "radar-puffin-v0.14.0"
+
+        def exercise(*, fastboot_devices_present: list[str], requested: str) -> dict:
+            installer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(installer)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                cache_root = root / "cache"
+                state_root = root / "state"
+                release_sources = cache_root / "downloads" / release
+                release_sources.mkdir(parents=True)
+                bundle = release_sources / f"libreecho-{release}.ota.tar"
+                bundle.write_bytes(b"bundle")
+                boot = cache_root / release / "bundle" / "boot.img"
+                boot.parent.mkdir(parents=True)
+                boot.write_bytes(b"boot")
+                state_dir = state_root / "resume-test"
+                state_dir.mkdir(parents=True)
+                (state_dir / "state.json").write_text(
+                    json.dumps(
+                        {
+                            "phase": "BOOT_WRITTEN",
+                            "release": release,
+                            "bundle_sha256": hashlib.sha256(b"bundle").hexdigest(),
+                            "userdata_formatted": True,
+                            "device_serial": "SERIAL123",
+                            "slots": "a",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                manifest = {
+                    "release": release,
+                    "boot": {"name": "boot.img", "sha256": hashlib.sha256(b"boot").hexdigest()},
+                    "features": [{"name": "tts"}],
+                }
+                fastboot_bin = root / "fastboot"
+                fastboot_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                fastboot_bin.chmod(0o755)
+
+                events: list[str] = []
+                installer._prepare = lambda *a, **k: (manifest, bundle)
+                installer.validate_public_boot_image = lambda *a, **k: None
+                installer.require_host_commands = lambda *a, **k: None
+                installer.prepare_fastboot_tools = lambda binary, *a, **k: binary
+                installer.fastboot_devices = lambda binary: list(fastboot_devices_present)
+
+                def forbidden_select_fastboot(binary, requested_serial):
+                    events.append("select-fastboot")
+                    raise AssertionError(
+                        "select_fastboot_serial must not run for an unrelated device"
+                    )
+
+                installer.select_fastboot_serial = forbidden_select_fastboot
+                installer.select_adb_serial = lambda binary, req: "SERIAL123"
+                installer.wait_for_transport = lambda probe, expected, timeout, label: events.append(
+                    "wait:" + label
+                )
+                installer.collect_adb_diagnostics = lambda *a, **k: None
+                installer.verify_adb_payload_readback = lambda *a, **k: None
+                installer.stage_device_features = lambda *a, **k: events.append("stage")
+                installer.adb_forward_command = lambda *a, **k: ["adb", "forward"]
+                installer._run_command = lambda command, timeout, check=True: subprocess.CompletedProcess(
+                    command, 0, "", ""
+                )
+
+                def fake_run(command, *args, **kwargs):
+                    events.append(
+                        "fastboot-reboot"
+                        if str(command[0]).endswith("fastboot")
+                        else "subprocess"
+                    )
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                installer.subprocess = types.SimpleNamespace(
+                    run=fake_run, TimeoutExpired=subprocess.TimeoutExpired
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = installer.continue_one_shot(
+                        cache_root=cache_root,
+                        state_root=state_root,
+                        install_id="resume-test",
+                        release_tag=release,
+                        fastboot_bin=str(fastboot_bin),
+                        adb_bin="adb",
+                        fastboot_serial=requested,
+                        slots="a",
+                        fastboot_timeout=5.0,
+                        adb_timeout=5.0,
+                        local_port=8080,
+                        open_browser=False,
+                        execute_hardware=True,
+                    )
+                return {"events": events, "result": result}
+
+        # Saved device is in ADB; an unrelated device is in fastboot.
+        unrelated = exercise(fastboot_devices_present=["OTHERSERIAL"], requested="SERIAL123")
+        self.assertNotIn("fastboot-reboot", unrelated["events"])
+        self.assertNotIn("select-fastboot", unrelated["events"])
+        self.assertNotIn("wait:ADB", unrelated["events"])
+        self.assertEqual("stage", unrelated["events"][-1])
+        self.assertEqual("WEBUI_FORWARDED", unrelated["result"]["phase"])
+
+        # `auto` with more than one fastboot device cannot be the saved target.
+        ambiguous = exercise(
+            fastboot_devices_present=["OTHERSERIAL", "THIRDSERIAL"], requested="auto"
+        )
+        self.assertNotIn("fastboot-reboot", ambiguous["events"])
+        self.assertNotIn("select-fastboot", ambiguous["events"])
+        self.assertEqual("stage", ambiguous["events"][-1])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

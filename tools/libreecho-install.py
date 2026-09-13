@@ -1783,9 +1783,17 @@ def continue_one_shot(
         if (phase == "BOOT_WRITTEN" and userdata_formatted
                 and (shutil.which(fastboot_bin) is not None or Path(fastboot_bin).is_file())):
             try:
-                fastboot_waiting = bool(fastboot_devices(fastboot_bin))
+                fastboot_serials_present = fastboot_devices(fastboot_bin)
             except InstallerError:
-                fastboot_waiting = False
+                fastboot_serials_present = []
+            # Only the requested target counts as the pending reboot. An
+            # unrelated device sitting in fastboot must not divert this resume
+            # into `select_fastboot_serial`, which would then fail for the saved
+            # serial even though the saved device is already reachable in ADB.
+            if fastboot_serial == "auto":
+                fastboot_waiting = len(fastboot_serials_present) == 1
+            else:
+                fastboot_waiting = fastboot_serial in fastboot_serials_present
         if (phase in {"AMONET_HANDOFF", "FASTBOOT_READY"}
                 or (needs_repair and repair_userdata) or fastboot_waiting):
             require_host_commands("bash", fastboot_bin)
