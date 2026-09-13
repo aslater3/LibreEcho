@@ -1417,6 +1417,12 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
     authoritative list of those extra names, so validate it here and allow only
     what it names rather than accepting arbitrary checksum-covered files.
     Releases without the inventory contribute nothing.
+
+    Stable tags name the numeric version, so the inventory must repeat it.
+    Development and nightly tags name a product commit instead, so the
+    inventory's own version is bound to the published plan and to the
+    ``libreecho-radar-puffin-<version>-`` namespace every replacement asset
+    must use.
     """
     inventory_path = release_dir / f"{prefix}-feature-assets.json"
     if not inventory_path.exists():
@@ -1426,6 +1432,7 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
     _safe_regular(plan_path)
     try:
         inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise InstallerError("published feature asset inventory is unreadable") from error
     if (not isinstance(inventory, dict)
@@ -1433,19 +1440,30 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
             or inventory.get("transaction_type") != "system"
             or inventory.get("activation") != "reboot"):
         raise InstallerError("published feature asset inventory is invalid")
-    if not release_tag.startswith("radar-puffin-v"):
-        raise InstallerError("published feature asset inventory needs a stable release")
-    version = release_tag.removeprefix("radar-puffin-v")
-    if not VERSION.fullmatch(version) or inventory.get("release") != version:
+    version = inventory.get("release")
+    if not isinstance(version, str) or not VERSION.fullmatch(version):
         raise InstallerError("published feature asset inventory is invalid")
+    if (not isinstance(plan, dict)
+            or plan.get("schema") != "libreecho-product-feature-plan-v1"
+            or plan.get("transaction_type") != "system"
+            or plan.get("activation") != "reboot"
+            or plan.get("release") != version):
+        raise InstallerError("published feature plan does not match the inventory")
+    if release_tag.startswith("radar-puffin-v"):
+        if release_tag.removeprefix("radar-puffin-v") != version:
+            raise InstallerError("published feature asset inventory is invalid")
+    elif not release_tag.startswith(("radar-puffin-build-", "radar-puffin-nightly-")):
+        raise InstallerError("published feature asset inventory needs a stable or dev release")
     assets = inventory.get("assets")
     if not isinstance(assets, list):
         raise InstallerError("published feature asset inventory is malformed")
+    namespace = f"libreecho-radar-puffin-{version}-"
     names = {plan_path.name, inventory_path.name}
     for item in assets:
         name = item.get("name") if isinstance(item, dict) else None
         if (not isinstance(name, str) or not name
-                or Path(name).name != name or not PUBLIC_NAME.fullmatch(name)):
+                or Path(name).name != name or not PUBLIC_NAME.fullmatch(name)
+                or not name.startswith(namespace)):
             raise InstallerError("published feature asset inventory is malformed")
         names.add(name)
     return names

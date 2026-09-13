@@ -146,6 +146,15 @@ def prepare_complete_initial_install(
             files.append((str(item["name"]), source))
             shutil.copyfile(source, output / str(item["name"]))
         validate_v2_publisher_asset_set(output, candidate["ota_release"], checked_assets)
+        # The one-shot installer only accepts the checksum-covered plan and
+        # inventory as the authoritative names for the v2 replacement assets,
+        # so publish them under the release prefix alongside those assets.
+        for basename in ("feature-plan.json", "feature-assets.json"):
+            source = run / basename
+            regular(source)
+            target = f"{prefix}-{basename}"
+            files.append((target, source))
+            shutil.copyfile(source, output / target)
 
     records = {
         name: {"name": name, "size": (output / name).stat().st_size, "sha256": sha256(output / name)}

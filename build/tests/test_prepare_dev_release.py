@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -497,6 +498,53 @@ class Tests(unittest.TestCase):
             ], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("does not match triggering workflow", result.stderr)
+
+    def test_packaged_dev_v2_release_passes_the_installer_prepare(self) -> None:
+        """The signed dev/nightly packager and the one-shot installer agree.
+
+        A v2 candidate with a replacement action publishes the plan and
+        inventory that name its replacement assets, and the installer's
+        ``_prepare`` accepts the exact produced directory end to end.
+        """
+        installer_path = ROOT / "tools" / "libreecho-install.py"
+        spec = importlib.util.spec_from_file_location("installer_e2e", installer_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+
+        for action in ("runtime", "replace"):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                run, commits = fixture(root)
+                names = add_v2_contract(run, commits, action=action)
+                ota = run / "development.ota.tar"
+                make_signed_ota(run, ota, "0.14.0", "v2", run / "feature-plan.json")
+                candidate = run / "CURRENT.candidate"
+                text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
+                text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
+                text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
+                candidate.write_text(text)
+                output = root / "release"
+                result = subprocess.run([
+                    sys.executable, str(SCRIPT), "--artifact-root", str(root),
+                    "--output-dir", str(output), "--product-commit", commits["product"],
+                ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(run / "ota-public-key.hex")},
+                    text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                bundle = next(output.glob("*-initial-install.tar")).name
+                prefix = bundle.removesuffix("-initial-install.tar")
+                release_tag = prefix.removeprefix("libreecho-")
+                sums = next(output.glob("*-SHA256SUMS")).read_text()
+                # The published plan/inventory and replacement assets are all
+                # checksum-covered, and the installer accepts the exact set.
+                for basename in ("feature-plan.json", "feature-assets.json"):
+                    self.assertTrue((output / f"{prefix}-{basename}").is_file())
+                    self.assertIn(f"{prefix}-{basename}", sums)
+                for name in names.values():
+                    self.assertIn(name, sums)
+                prepared, _ = installer._prepare(output, root / "cache", release_tag)
+                self.assertEqual(prepared["release"], release_tag)
 
 
 if __name__ == "__main__":

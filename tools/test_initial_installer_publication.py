@@ -394,8 +394,14 @@ class InstallerPublicationTests(unittest.TestCase):
             }
             files[f"{prefix}-feature-assets.json"] = (
                 json.dumps(inventory, sort_keys=True) + "\n").encode()
-            files[f"{prefix}-feature-plan.json"] = (
-                b'{"schema": "libreecho-product-feature-plan-v1"}\n')
+            files[f"{prefix}-feature-plan.json"] = (json.dumps({
+                "schema": "libreecho-product-feature-plan-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release_name,
+                "source_commit": "4" * 40,
+                "features": [],
+            }, sort_keys=True) + "\n").encode()
             files.update(asset_names)
             files.update(extra_files)
             return files
@@ -465,6 +471,151 @@ class InstallerPublicationTests(unittest.TestCase):
             materialize(release, files)
             with self.assertRaises(module.InstallerError):
                 module._prepare(release, root / "cache", tag)
+
+    def test_prepare_accepts_dev_and_nightly_v2_feature_inventory(self) -> None:
+        spec = importlib.util.spec_from_file_location("installer_dev_v2", INSTALLER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        release_name = "0.14.0"
+        replacement = f"libreecho-radar-puffin-{release_name}-assistant.runtime.squashfs"
+        asset_bytes = b"assistant runtime capsule"
+        unset = object()
+
+        def dev_tag(kind: str) -> str:
+            return f"radar-puffin-{kind}-abcdef0-{'1' * 16}-{'2' * 16}"
+
+        def plan(release: str = release_name) -> dict:
+            return {
+                "schema": "libreecho-product-feature-plan-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release,
+                "source_commit": "4" * 40,
+                "features": [],
+            }
+
+        def inventory(release: str = release_name, asset: str = replacement) -> dict:
+            return {
+                "schema": "libreecho-product-feature-assets-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release,
+                "source_commit": "4" * 40,
+                "assets": [
+                    {
+                        "feature_id": "assistant", "action": "runtime", "kind": "payload",
+                        "name": asset, "size": len(asset_bytes),
+                        "sha256": hashlib.sha256(asset_bytes).hexdigest(),
+                    },
+                ],
+            }
+
+        def materialize(release: Path, tag: str, *, inv: dict | None, plan_doc: dict | None,
+                        extra: dict | None = None) -> None:
+            prefix = f"libreecho-{tag}"
+            bundle_name = f"{prefix}-initial-install.tar"
+            files = {
+                f"{prefix}-boot.img": b"boot",
+                f"{prefix}-ota-public-key.hex": b"a" * 64 + b"\n",
+                f"{prefix}-release-notes.md": b"notes\n",
+                f"{prefix}-installer.py": b"#!/usr/bin/env python3\n",
+                f"{prefix}.ota.tar": b"signed ota",
+                f"{prefix}-build.json": b'{"ota_format": "v2"}\n',
+                f"{prefix}-verification.txt": b"status=PREPARED_NOT_FLASHED\n",
+                f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\n",
+                replacement: asset_bytes,
+            }
+            if inv is not None:
+                files[f"{prefix}-feature-assets.json"] = (json.dumps(inv, sort_keys=True) + "\n").encode()
+            if plan_doc is not None:
+                files[f"{prefix}-feature-plan.json"] = (json.dumps(plan_doc, sort_keys=True) + "\n").encode()
+            files.update(extra or {})
+            manifest = {
+                "schema": "libreecho-initial-install-v1",
+                "release": tag,
+                "board": "radar_puffin",
+                "soc": "mt8163",
+                "image_profile": "ota",
+                "service_profile": "production",
+                "boot": {"name": f"{prefix}-boot.img", "size": 4, "sha256": hashlib.sha256(b"boot").hexdigest()},
+                "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65,
+                                   "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
+                "features": [],
+                "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+            }
+            bundle = release / bundle_name
+            with tarfile.open(bundle, "w") as archive:
+                info = tarfile.TarInfo("manifest.json")
+                data = json.dumps(manifest).encode()
+                info.size = len(data)
+                archive.addfile(info, __import__("io").BytesIO(data))
+                for name in (f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(files[name])
+                    archive.addfile(info, __import__("io").BytesIO(files[name]))
+            files[bundle_name] = bundle.read_bytes()
+            for name, data in files.items():
+                if name != bundle_name:
+                    (release / name).write_bytes(data)
+            sums = release / f"{prefix}-SHA256SUMS"
+            sums.write_text("".join(
+                f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n"
+                for name in sorted(files)), encoding="ascii")
+
+        def prepare(tag: str, *, inv=unset, plan_doc=unset, extra: dict | None = None) -> dict:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                release = root / "release"
+                release.mkdir()
+                materialize(
+                    release, tag,
+                    inv=inventory() if inv is unset else inv,
+                    plan_doc=plan() if plan_doc is unset else plan_doc,
+                    extra=extra,
+                )
+                prepared, _ = module._prepare(release, root / "cache", tag)
+                return prepared
+
+        # A dev/nightly one-shot release publishes the plan and inventory that
+        # name its replacement assets, so both dev identities are accepted.
+        for kind in ("build", "nightly"):
+            with self.subTest(kind=kind):
+                tag = dev_tag(kind)
+                self.assertEqual(prepare(tag)["release"], tag)
+
+        # Without the published inventory the replacement asset is unexpected,
+        # and a checksum-covered file the inventory does not name is rejected.
+        for label, kwargs in (
+            ("inventory-absent", {"inv": None, "plan_doc": plan()}),
+            ("unnamed-checksum", {"extra": {f"libreecho-{dev_tag('build')}-sneaky.bin": b"x"}}),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaises(module.InstallerError):
+                    prepare(dev_tag("build"), **kwargs)
+
+        # A malformed inventory, a mismatched release, a missing plan, and an
+        # asset outside the release namespace are all rejected.
+        tag = dev_tag("nightly")
+        for label, kwargs in (
+            ("bad-schema", {"inv": {"schema": "wrong"}}),
+            ("bad-release", {"inv": inventory(release="not-a-version")}),
+            ("plan-mismatch", {"plan_doc": plan(release="0.15.0")}),
+            ("plan-missing", {"plan_doc": None}),
+            ("foreign-namespace", {"inv": inventory(asset="libreecho-radar-puffin-0.15.0-assistant.runtime.squashfs")}),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                release = root / "release"
+                release.mkdir()
+                materialize(
+                    release, tag,
+                    inv=kwargs.get("inv", inventory()),
+                    plan_doc=kwargs.get("plan_doc", plan()),
+                )
+                with self.assertRaises(module.InstallerError):
+                    module._prepare(release, root / "cache", tag)
 
     def test_stable_release_publishes_checksum_covered_wrapper(self) -> None:
         source = (ROOT / "build/ci/prepare-stable-release.py").read_text(encoding="utf-8")
