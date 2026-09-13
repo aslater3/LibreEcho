@@ -132,6 +132,28 @@ class CompleteControlGateTests(unittest.TestCase):
                 expected_key_sha256=sha256((root / "public.hex").read_bytes()),
             )
 
+    def test_canonical_parser_reads_platform_source_variable(self) -> None:
+        import ota_v2_product
+
+        with tempfile.TemporaryDirectory(prefix="canonical-parser-") as directory:
+            root = Path(directory)
+            parser = root / "tools/mt8163-arm32/ota/feature_manifest.py"
+            parser.parent.mkdir(parents=True)
+            parser.write_text("def parse_manifest(raw):\n    return {}\n", encoding="utf-8")
+            prior = os.environ.get("LIBREECHO_PLATFORM_SOURCE")
+            os.environ["LIBREECHO_PLATFORM_SOURCE"] = str(root)
+            try:
+                resolved = ota_v2_product._canonical_parser()
+            finally:
+                if prior is None:
+                    os.environ.pop("LIBREECHO_PLATFORM_SOURCE", None)
+                else:
+                    os.environ["LIBREECHO_PLATFORM_SOURCE"] = prior
+        # The workflow exports this exact variable for the candidate Platform
+        # checkout, so the pinned canonical parser runs before publication.
+        self.assertIsNotNone(resolved)
+        self.assertTrue(callable(resolved.parse_manifest))
+
     def test_signed_all_five_ids_without_records_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ota-v2-malformed-ids-") as directory:
             root = Path(directory)

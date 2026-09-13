@@ -373,6 +373,10 @@ class Tests(unittest.TestCase):
   self.assertIn('ui_ref="${candidate_stem}-ui"', W)
   self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', W)
   self.assertIn('LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source', W)
+  # The candidate checkout must also reach the canonical Platform parser,
+  # which reads LIBREECHO_PLATFORM_SOURCE; exporting only the test-suite name
+  # would silently fall back to the Product adapter.
+  self.assertIn('LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source', W)
 
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;

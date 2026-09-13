@@ -274,6 +274,7 @@ jobs:
       - name: Run maintained Product pipeline suites
         env:
           LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source
+          LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
