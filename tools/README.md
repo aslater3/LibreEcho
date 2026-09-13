@@ -125,6 +125,29 @@ incorrect transport condition.
 
 ## Resuming
 
+With the updated wrapper, resume with the **same immutable release tag** (never
+`latest`), original device serial, slot choice, cache/state roots and install ID:
+
+```bash
+./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
+  --slots both --local-port 18081 --execute-hardware
+```
+
+`--continue` must immediately follow the tag. `FEATURES_STAGED` and
+`WEBUI_FORWARDED` continuation revalidates the cached release, both selected boot
+slots and every installed payload/manifest pair, then restores the setup forward.
+It does not stage files again, reboot, reformat or reflash. Choose another local
+port when the original is occupied. A changed device, slot selection, bundle,
+installed hash or outstanding staging marker fails closed. New state binds the
+device serial and slots; legacy state requires an explicit original serial rather
+than `auto`. The local cache retains the complete checksum-covered inventory, so
+continuation does not depend on a temporary `--release-dir` remaining available.
+
+`BOOT_WRITTEN` can continue once that device is online in ADB, without reflashing.
+`FASTBOOT_READY` can complete the boot writes without formatting userdata again
+when the original successful format is recorded. Do not guess a phase or edit
+state to force it. Concurrent one-shot/continuation runs share the same cache lock.
+
 The installer stores private cached downloads and resumable state under the
 user's home directory. If a legacy run stopped after ADB/readback before the userdata-format fix,
 `continue-one-shot` refuses to guess. Pass `--repair-userdata` to explicitly
@@ -135,7 +158,7 @@ staging without repeating the BROM/Amonet conversion:
 ```bash
 python3 "libreecho-${TAG}-installer.py" continue-one-shot \
   --release-tag "$TAG" \
-  --fastboot-serial auto \
+  --fastboot-serial "$SERIAL" \
   --slots both \
   --repair-userdata \
   --execute-hardware

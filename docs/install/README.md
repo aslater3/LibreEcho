@@ -153,6 +153,27 @@ failure is understood.
 The `--slots both` option is intentional: it writes and verifies both boot
 slots. Do not substitute a raw boot image, OTA archive, or manually selected
 partition.
+### Recovering from a forwarding failure
+
+Do not restart the fresh `one-shot` flow after Amonet or flashing has completed.
+With the updated wrapper, set `TAG` to the exact resolved tag in the original log
+(not `latest`), and `SERIAL` to that device's original serial. Retain the original
+cache/state roots, install ID and slot selection. For example, after all payloads
+were staged but local port 18080 was unavailable:
+
+```sh
+./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
+  --slots both --local-port 18081 --execute-hardware
+```
+
+Continuation from `FEATURES_STAGED` or `WEBUI_FORWARDED` verifies cached inputs,
+boot-slot readback and all installed payloads **and manifests** before forwarding.
+It performs no format, flash, reboot or payload replacement in those states.
+Open the URL printed by the successful continuation. A missing device, changed
+hash or incomplete staging marker stops the operation rather than guessing.
+Older state without a saved serial needs the explicitly selected original device.
+Keep the failure log; never edit phase or format markers to bypass a refusal.
+
 ## 6. First boot and setup
 
 1. The installer has already rebooted the Echo and waited for ADB. Do not touch

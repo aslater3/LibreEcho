@@ -10,23 +10,54 @@ permissions:
   contents: write
 
 jobs:
-  publish-hosted-dev:
+  route-publication:
     if: >-
-      github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      (
-        github.event.workflow_run.event == 'push' ||
-        github.event.workflow_run.event == 'schedule' ||
-        (
-          github.event.workflow_run.event == 'workflow_dispatch' &&
-          github.event.workflow_run.head_branch == 'main'
-        )
-      )
+      (github.event.workflow_run.event == 'push' ||
+       github.event.workflow_run.event == 'schedule' ||
+       github.event.workflow_run.event == 'workflow_dispatch') &&
+      (github.event.workflow_run.head_branch == 'main' ||
+       startsWith(github.event.workflow_run.head_branch, 'release/'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      channel: ${{ steps.route.outputs.channel }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - id: artifact
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          printf 'name=libreecho-%s-%s\n' "${HEAD_BRANCH#release/}" "${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: request-artifact
+      - id: route
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          BUILD_EVENT: ${{ github.event.workflow_run.event }}
+        run: >-
+          python3 build/ci/release_route.py --artifact-root request-artifact
+          --branch "$HEAD_BRANCH" --event "$BUILD_EVENT" >> "$GITHUB_OUTPUT"
+
+  publish-hosted-dev:
+    needs: route-publication
+    if: needs.route-publication.outputs.channel == 'dev'
     runs-on: ubuntu-24.04
     environment: public-release
     concurrency:
-      group: hosted-dev-release-${{ github.event.workflow_run.id }}
+      group: publish-hosted-dev-channel
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -40,9 +71,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          expected="libreecho-main-${HEAD_SHA:0:7}"
+          expected="libreecho-${HEAD_BRANCH#release/}-${HEAD_SHA:0:7}"
           mapfile -t matches < <(
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --paginate \
               --jq ".artifacts[] | select(.name == \"$expected\" and .expired == false) | .name"
@@ -56,9 +88,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Install reviewed OTA verification dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          python -m pip install --disable-pip-version-check --no-index \
+            --find-links "$wheelhouse" --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
       - name: Prepare development or nightly release
         id: prepare
         env:
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
         run: |
@@ -68,9 +111,9 @@ jobs:
             --product-commit "$HEAD_SHA" \
             --release-kind "$RELEASE_KIND" \
             --output-dir release-assets | tee prepare-release.out
-          grep -E '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle)=' \
+          grep -E '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle|asset_count)=' \
             prepare-release.out >>"$GITHUB_OUTPUT"
-          test "$(grep -Ec '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle)=' prepare-release.out)" -eq 6
+          test "$(grep -Ec '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle|asset_count)=' prepare-release.out)" -eq 7
           python3 tools/check-public-metadata.py release-assets
           (cd release-assets && sha256sum -c *-SHA256SUMS)
       - name: Publish development or nightly prerelease
@@ -80,6 +123,7 @@ jobs:
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
           RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
           RELEASE_SIGNED: ${{ steps.prepare.outputs.signed }}
+          EXPECTED_ASSET_COUNT: ${{ steps.prepare.outputs.asset_count }}
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
@@ -130,13 +174,8 @@ jobs:
               done
           fi
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -printf '%p\n' | sort)
-          expected_asset_count=14
-          if [[ "$RELEASE_KIND" == nightly || "$RELEASE_KIND" == development ]]; then
-            expected_asset_count=20
-          elif [[ "$RELEASE_SIGNED" == 1 ]]; then
-            expected_asset_count=15
-          fi
-          test "${#assets[@]}" -eq "$expected_asset_count"
+          [[ "$EXPECTED_ASSET_COUNT" =~ ^[0-9]+$ ]]
+          test "${#assets[@]}" -eq "$EXPECTED_ASSET_COUNT"
           gh release upload "$tag" "${assets[@]}"
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --paginate \
             --jq '.[] | [.name, (.size|tostring), .digest] | @tsv' | sort >actual-assets.tsv
@@ -159,12 +198,19 @@ jobs:
             )
           fi
 
+      - name: Advance verified dev discovery pointer
+        if: steps.prepare.outputs.signed == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: >-
+          python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
+          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets
+
   publish-stable:
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'workflow_dispatch' &&
-      startsWith(github.event.workflow_run.head_branch, 'release/')
+    needs: route-publication
+    if: needs.route-publication.outputs.channel == 'stable'
     runs-on: ubuntu-24.04
     environment: public-release
     concurrency:
@@ -199,6 +245,16 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Install reviewed OTA verification dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          python -m pip install --disable-pip-version-check --no-index \
+            --find-links "$wheelhouse" --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
       - name: Read stable release request
         id: request
         run: |
@@ -247,6 +303,7 @@ jobs:
           PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
           LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
           UI_HEAD: ${{ steps.sources.outputs.ui_head }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -272,6 +329,7 @@ jobs:
       - name: Publish stable Product release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
           RELEASE_DIR: release-assets
           RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
