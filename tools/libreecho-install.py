@@ -29,6 +29,7 @@ PHASE = "RELEASE_READY"
 SCHEMA = "libreecho-initial-install-v1"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 RELEASE = re.compile(r"radar-puffin-(?:v[0-9]+\.[0-9]+\.[0-9]+|(?:nightly|build)-[0-9a-f-]+)")
+VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 PUBLIC_NAME = re.compile(r"[A-Za-z0-9._-]+")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -1407,6 +1408,49 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set[str]:
+    """Checksum-covered OTA v2 metadata and signed replacement asset names.
+
+    A published OTA v2 release adds the signed feature asset inventory, its
+    binding feature plan, and every feature replacement asset to the release's
+    ``SHA256SUMS`` beyond the initial-install set. The inventory is the
+    authoritative list of those extra names, so validate it here and allow only
+    what it names rather than accepting arbitrary checksum-covered files.
+    Releases without the inventory contribute nothing.
+    """
+    inventory_path = release_dir / f"{prefix}-feature-assets.json"
+    if not inventory_path.exists():
+        return set()
+    _safe_regular(inventory_path)
+    plan_path = release_dir / f"{prefix}-feature-plan.json"
+    _safe_regular(plan_path)
+    try:
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise InstallerError("published feature asset inventory is unreadable") from error
+    if (not isinstance(inventory, dict)
+            or inventory.get("schema") != "libreecho-product-feature-assets-v1"
+            or inventory.get("transaction_type") != "system"
+            or inventory.get("activation") != "reboot"):
+        raise InstallerError("published feature asset inventory is invalid")
+    if not release_tag.startswith("radar-puffin-v"):
+        raise InstallerError("published feature asset inventory needs a stable release")
+    version = release_tag.removeprefix("radar-puffin-v")
+    if not VERSION.fullmatch(version) or inventory.get("release") != version:
+        raise InstallerError("published feature asset inventory is invalid")
+    assets = inventory.get("assets")
+    if not isinstance(assets, list):
+        raise InstallerError("published feature asset inventory is malformed")
+    names = {plan_path.name, inventory_path.name}
+    for item in assets:
+        name = item.get("name") if isinstance(item, dict) else None
+        if (not isinstance(name, str) or not name
+                or Path(name).name != name or not PUBLIC_NAME.fullmatch(name)):
+            raise InstallerError("published feature asset inventory is malformed")
+        names.add(name)
+    return names
+
+
 def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dict[str, Any], Path]:
     if not RELEASE.fullmatch(release_tag):
         raise InstallerError("invalid release tag")
@@ -1451,6 +1495,7 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
         optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt", f"{prefix}-run-one-shot.sh"})
     if release_tag.startswith("radar-puffin-v"):
         optional.add("libreecho-radar-puffin-stable.ota.tar")
+    optional |= _v2_metadata_assets(release_dir, prefix, release_tag)
     unexpected = set(records) - expected - optional
     if not expected.issubset(records) or unexpected:
         raise InstallerError("checksum inventory mismatch")

@@ -354,6 +354,118 @@ class InstallerPublicationTests(unittest.TestCase):
             prepared, _ = module._prepare(release, cache, tag)
             self.assertEqual(prepared["release"], tag)
 
+    def test_prepare_accepts_stable_v2_feature_inventory(self) -> None:
+        spec = importlib.util.spec_from_file_location("installer_v2", INSTALLER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tag = "radar-puffin-v0.14.0"
+        prefix = f"libreecho-{tag}"
+        release_name = tag.removeprefix("radar-puffin-v")
+        bundle_name = f"{prefix}-initial-install.tar"
+        replacement = f"libreecho-radar-puffin-{release_name}-assistant.runtime.squashfs"
+
+        def build(extra_files, asset_names) -> dict:
+            files = {
+                f"{prefix}-boot.img": b"boot",
+                f"{prefix}-ota-public-key.hex": b"a" * 64 + b"\n",
+                f"{prefix}-release-notes.md": b"notes\n",
+                f"{prefix}-installer.py": b"#!/usr/bin/env python3\n",
+                f"{prefix}.ota.tar": b"signed ota",
+                "libreecho-radar-puffin-stable.ota.tar": b"signed ota",
+                f"{prefix}-build.json": b'{"ota_format": "v2"}\n',
+                f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\n",
+            }
+            inventory = {
+                "schema": "libreecho-product-feature-assets-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release_name,
+                "source_commit": "4" * 40,
+                "assets": [
+                    {
+                        "feature_id": "assistant", "action": "runtime", "kind": "payload",
+                        "name": name, "size": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                    }
+                    for name, data in asset_names.items()
+                ],
+            }
+            files[f"{prefix}-feature-assets.json"] = (
+                json.dumps(inventory, sort_keys=True) + "\n").encode()
+            files[f"{prefix}-feature-plan.json"] = (
+                b'{"schema": "libreecho-product-feature-plan-v1"}\n')
+            files.update(asset_names)
+            files.update(extra_files)
+            return files
+
+        manifest = {
+            "schema": "libreecho-initial-install-v1",
+            "release": tag,
+            "board": "radar_puffin",
+            "soc": "mt8163",
+            "image_profile": "ota",
+            "service_profile": "production",
+            "boot": {"name": f"{prefix}-boot.img", "size": 4, "sha256": hashlib.sha256(b"boot").hexdigest()},
+            "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65, "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
+            "features": [],
+            "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+        }
+
+        def materialize(release: Path, files: dict) -> Path:
+            bundle = release / bundle_name
+            with tarfile.open(bundle, "w") as archive:
+                info = tarfile.TarInfo("manifest.json")
+                data = json.dumps(manifest).encode()
+                info.size = len(data)
+                archive.addfile(info, __import__("io").BytesIO(data))
+                for name in (f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(files[name])
+                    archive.addfile(info, __import__("io").BytesIO(files[name]))
+            files[bundle_name] = bundle.read_bytes()
+            for name, data in files.items():
+                if name != bundle_name:
+                    (release / name).write_bytes(data)
+            sums = release / f"{prefix}-SHA256SUMS"
+            sums.write_text("".join(
+                f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n"
+                for name in sorted(files)), encoding="ascii")
+            return bundle
+
+        # The published stable v2 inventory, plan, and replacement asset must
+        # be accepted and checksum-verified rather than rejected as unexpected.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release = root / "release"
+            release.mkdir()
+            files = build({}, {replacement: b"replacement"})
+            materialize(release, files)
+            prepared, _ = module._prepare(release, root / "cache", tag)
+            self.assertEqual(prepared["release"], tag)
+
+        # A checksum-covered file the inventory does not name is still rejected.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release = root / "release"
+            release.mkdir()
+            files = build({f"{prefix}-sneaky.bin": b"x"}, {replacement: b"replacement"})
+            materialize(release, files)
+            with self.assertRaises(module.InstallerError):
+                module._prepare(release, root / "cache", tag)
+
+        # A malformed or mismatched inventory is rejected.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release = root / "release"
+            release.mkdir()
+            files = build({}, {replacement: b"replacement"})
+            files[f"{prefix}-feature-assets.json"] = b'{"schema": "wrong"}\n'
+            materialize(release, files)
+            with self.assertRaises(module.InstallerError):
+                module._prepare(release, root / "cache", tag)
+
     def test_stable_release_publishes_checksum_covered_wrapper(self) -> None:
         source = (ROOT / "build/ci/prepare-stable-release.py").read_text(encoding="utf-8")
         self.assertIn('"tools/run-one-shot.sh"', source)
