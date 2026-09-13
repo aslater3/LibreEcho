@@ -4,6 +4,12 @@ set -euo pipefail
 
 TAG="${1:-latest}"
 shift || true
+action=one-shot
+if [[ "${1:-}" == --continue ]]; then
+  [[ "$TAG" != latest ]] || { echo "ERROR: continuation requires the saved immutable release tag, not latest" >&2; exit 2; }
+  action=continue-one-shot
+  shift
+fi
 repo="${LIBREECHO_RELEASE_REPOSITORY:-aslater3/LibreEcho}"
 
 if [[ "$TAG" == latest ]]; then
@@ -42,7 +48,7 @@ expected="$(awk -v name="${prefix}-installer.py" '$2 == name { print $1; found=1
 }
 printf '%s  %s\n' "$expected" "$work/${prefix}-installer.py" | sha256sum -c -
 echo "Installer checksum verified: ${expected}"
-if python3 "$work/${prefix}-installer.py" one-shot --release-tag "$TAG" "$@"; then
+if python3 "$work/${prefix}-installer.py" "$action" --release-tag "$TAG" "$@"; then
   status=0
 else
   status=$?

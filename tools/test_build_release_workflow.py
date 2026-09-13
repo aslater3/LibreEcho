@@ -264,6 +264,39 @@ class Tests(unittest.TestCase):
   self.assertIn('--tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity"', B)
   # The vendored path must not invoke the musl toolchain rebuild anymore.
   self.assertNotIn('build_connectivity_helpers.sh', B)
+ def test_stable_publisher_installs_reviewed_verifier_closure(self):
+  import os, subprocess, tempfile, textwrap, venv
+  stable = PUBLISH.split('  publish-stable:', 1)[1]
+  self.assertEqual(stable.count('LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}'), 2)
+  marker = '      - name: Install reviewed OTA verification dependencies'
+  self.assertIn(marker, stable)
+  self.assertIn("python-version: '3.11'", stable)
+  self.assertLess(stable.index('actions/setup-python@'), stable.index(marker))
+  self.assertLess(stable.index(marker), stable.index('Prepare signed stable release assets'))
+  step = stable.split(marker, 1)[1].split('\n      - ', 1)[0]
+  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+  for guard in ('--no-index', '--require-hashes',
+                '--find-links "$wheelhouse"', '--requirement "$wheelhouse/requirements.txt"'):
+   self.assertIn(guard, script)
+  # Replay the shipped step in an isolated interpreter with no ambient PyNaCl.
+  with tempfile.TemporaryDirectory() as directory:
+   envroot = Path(directory)/'venv'
+   venv.EnvBuilder(with_pip=True).create(envroot)
+   env = dict(os.environ, PATH=str(envroot/'bin')+os.pathsep+os.environ['PATH'],
+              GITHUB_WORKSPACE=str(ROOT.resolve()), PYTHONNOUSERSITE='1')
+   env.pop('PYTHONPATH', None)
+   before = subprocess.run([str(envroot/'bin/python'), '-c', 'import nacl'],
+                           env=env, capture_output=True, timeout=10)
+   self.assertNotEqual(before.returncode, 0)
+   installed = subprocess.run(['bash', '-c', script], env=env, cwd=ROOT,
+                              capture_output=True, text=True, timeout=90)
+   self.assertEqual(installed.returncode, 0, installed.stdout+installed.stderr)
+   verified = subprocess.run([str(envroot/'bin/python'), '-c',
+       'from nacl.signing import SigningKey; k=SigningKey.generate(); '
+       'assert k.verify_key.verify(k.sign(b"test fixture")) == b"test fixture"'],
+       env=env, capture_output=True, text=True, timeout=10)
+   self.assertEqual(verified.returncode, 0, verified.stderr)
+
  def test_reviewed_signing_dependencies_are_downloaded_before_install(self):
   build_image = W.index('  build-image:')
   download = W.index('name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}', build_image)
@@ -299,13 +332,16 @@ class Tests(unittest.TestCase):
   self.assertIn('dev_release=ALREADY_PUBLISHED', PUBLISH)
   self.assertIn('radar-puffin-nightly-', PUBLISH)
   self.assertIn('nightly_retention=DELETED', PUBLISH)
-  self.assertIn('group: hosted-dev-release-${{ github.event.workflow_run.id }}', PUBLISH)
+  self.assertIn('group: publish-hosted-dev-channel', PUBLISH)
   self.assertIn('cancel-in-progress: false', PUBLISH)
   self.assertIn('-f ref="refs/tags/$tag" -f sha="$HEAD_SHA"', PUBLISH)
   self.assertIn("'.object.type == \"commit\" and .object.sha == $sha'", PUBLISH)
-  self.assertIn('expected_asset_count=14', PUBLISH)
-  self.assertIn('expected_asset_count=15', PUBLISH)
-  self.assertIn('expected_asset_count=20', PUBLISH)
+  self.assertIn('EXPECTED_ASSET_COUNT: ${{ steps.prepare.outputs.asset_count }}', PUBLISH)
+  self.assertIn('test "${#assets[@]}" -eq "$EXPECTED_ASSET_COUNT"', PUBLISH)
+  self.assertIn("needs.route-publication.outputs.channel == 'dev'", PUBLISH)
+  self.assertIn("needs.route-publication.outputs.channel == 'stable'", PUBLISH)
+  self.assertIn('python3 build/ci/release_route.py', PUBLISH)
+  self.assertIn('python3 build/ci/publish_dev_pointer.py', PUBLISH)
   self.assertIn('prepare-stable-release.py', PUBLISH)
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
@@ -326,10 +362,21 @@ class Tests(unittest.TestCase):
 
  def test_release_branch_dev_uses_release_component_refs(self):
   start = W.index('          component_ref=main')
-  end = W.index('          if [[ "$component_ref" != main ]]', start)
+  end = W.index('          python3 build/ci/resolve-source-set.py', start)
   selection = W[start:end]
   self.assertIn('elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then', selection)
   self.assertIn('component_ref="$GITHUB_REF_NAME"', selection)
+
+ def test_feature_pr_uses_immutable_sibling_component_heads(self):
+  self.assertIn('candidate_stem="${GITHUB_HEAD_REF%-product}"', W)
+  self.assertIn('platform_ref="${candidate_stem}-platform"', W)
+  self.assertIn('ui_ref="${candidate_stem}-ui"', W)
+  self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', W)
+  self.assertIn('LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source', W)
+  # The candidate checkout must also reach the canonical Platform parser,
+  # which reads LIBREECHO_PLATFORM_SOURCE; exporting only the test-suite name
+  # would silently fall back to the Product adapter.
+  self.assertIn('LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source', W)
 
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;
@@ -361,6 +408,15 @@ class Tests(unittest.TestCase):
   self.assertIn('stable release-notes title must match the requested version', W)
   self.assertIn('IFS= read -r release_notes_title <"$RELEASE_NOTES"', W)
   self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
+
+ def test_ssh_enabled_default(self):
+  # Manual selection retains the protected password and non-dispatch gates.
+  field = W.split('      ssh_enabled:', 1)[1].split('      release_version:', 1)[0]
+  self.assertIn('default: enabled', field)
+  self.assertIn('options: [disabled, enabled]', field)
+  self.assertIn("SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}", W)
+  self.assertIn("needs.resolve-and-preflight.outputs.ssh_enabled == '1'", W)
+  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
 
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()

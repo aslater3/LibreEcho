@@ -2,6 +2,10 @@
 """Contract checks for the public ARM32 neural dependency boundary."""
 from pathlib import Path
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).parents[2]
@@ -78,6 +82,98 @@ class PublicNeuralDependencyTests(unittest.TestCase):
                 self.assertIn("sample_rate", properties)
                 self.assertIn("n_speakers", properties)
                 self.assertNotIn("vits_sample_rate", properties)
+
+
+class PublicNeuralArchiveStagingTests(unittest.TestCase):
+    """Exercise the shipped ORT archive staging block."""
+
+    def setUp(self):
+        for tool in ("bash", "ar"):
+            if not shutil.which(tool):
+                self.fail(f"required archive-test tool is unavailable: {tool}")
+        self.tmp = tempfile.TemporaryDirectory(prefix="le-neural-archives-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.build = self.root / "build"
+        self.out = self.root / "stage"
+        self.build.mkdir()
+        # Execute the real function and its real calls, up to the next build
+        # phase. New/removed dependency copies therefore affect this test.
+        start = SCRIPT.index("\ncopy_named_archive() {")
+        end = SCRIPT.index("\n# ORT v1.27", start)
+        self.stage_script = (
+            'set -euo pipefail\n'
+            'fail() { echo "ERROR: $*" >&2; exit 1; }\n'
+            + SCRIPT[start:end]
+        )
+        archives = (
+            "libonnxruntime_session.a", "libonnxruntime_optimizer.a",
+            "libonnxruntime_providers.a", "libonnxruntime_graph.a",
+            "libonnxruntime_framework.a", "libonnxruntime_common.a",
+            "libonnxruntime_mlas.a", "libonnxruntime_util.a",
+            "libonnxruntime_flatbuffers.a", "libonnxruntime_lora.a",
+            "libonnx.a", "libonnx_proto.a", "libprotobuf-lite.a",
+            "libflatbuffers.a", "libabsl_fixture.a",
+        )
+        for name in archives:
+            self.run_ok(["ar", "rcs", str(self.build / name)])
+
+
+    def run_ok(self, command):
+        return subprocess.run(command, check=True, capture_output=True,
+                              text=True, timeout=15)
+
+    def compile(self, name, content):
+        source = self.root / f"{name}.cpp"
+        source.write_text(content)
+        self.run_ok(["g++", "-c", str(source), "-o", str(self.root / f"{name}.o")])
+
+    def stage(self):
+        return subprocess.run(
+            ["bash", "-c", self.stage_script],
+            env={**os.environ, "ORT_BUILD": str(self.build),
+                 "OUT": str(self.out), "CROSS": ""},
+            text=True, capture_output=True, timeout=15,
+        )
+
+    def test_pinned_ort_archives_survive_staging(self):
+        result = self.stage()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = (
+            "libonnxruntime_session.a", "libonnxruntime_optimizer.a",
+            "libonnxruntime_providers.a", "libonnxruntime_graph.a",
+            "libonnxruntime_framework.a", "libonnxruntime_common.a",
+            "libonnxruntime_mlas.a", "libonnxruntime_util.a",
+            "libonnxruntime_flatbuffers.a", "libonnxruntime_lora.a",
+            "_deps/onnx-build/libonnx.a", "_deps/onnx-build/libonnx_proto.a",
+            "_deps/protobuf-build/libprotobuf-lite.a",
+            "_deps/flatbuffers-build/libflatbuffers.a",
+            "_deps/abseil_cpp-build/libabsl_fixture.a",
+        )
+        for relative in expected:
+            with self.subTest(archive=relative):
+                self.assertTrue((self.out / "onnxruntime-build" / relative).is_file())
+        self.assertFalse((self.out / "onnxruntime-build/_deps/nsync-build").exists())
+
+    def test_missing_or_symlinked_required_archive_fails_at_staging(self):
+        required = (
+            "libonnx.a", "libonnx_proto.a", "libprotobuf-lite.a", "libflatbuffers.a",
+        )
+        for name in required:
+            for symlink in (False, True):
+                with self.subTest(name=name, symlink=symlink):
+                    archive = self.build / name
+                    archive.unlink()
+                    if symlink:
+                        substitute = self.root / "substitute.a"
+                        self.run_ok(["ar", "rcs", str(substitute)])
+                        archive.symlink_to(substitute)
+                    result = self.stage()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(name, result.stderr)
+                    if archive.is_symlink():
+                        archive.unlink()
+                    self.run_ok(["ar", "rcs", str(archive)])
 
 
 if __name__ == "__main__":
