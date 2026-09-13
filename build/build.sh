@@ -994,10 +994,12 @@ if [[ -f "$radar_machine_source" && -f "$radar_codec_header" &&
     'RADAR_PUFFIN_DAC_PROCESSING_BLOCK' 'PRB_P2 profile'
   require_source_marker "$radar_machine_source" \
     'radar_speaker_apply_profile(component)' 'speaker coefficients'
-  require_source_marker "$radar_machine_source" \
-    'RADAR_LDACVOL, 0' 'left DAC 0 dB volume'
-  require_source_marker "$radar_machine_source" \
-    'RADAR_RDACVOL, 0' 'right DAC 0 dB volume'
+  radar_volume_contract="$KERNEL_SRC/sound/soc/mediatek/mt8163/test_radar_puffin_volume_preservation.py"
+  [[ -f "$radar_volume_contract" && ! -L "$radar_volume_contract" ]] || {
+    echo "ERROR: Radar-Puffin PCM volume preservation contract missing: $radar_volume_contract" >&2
+    exit 1
+  }
+  python3 "$radar_volume_contract"
   # The accepted Linux 6.1 transport is duplicated stereo: the mono
   # programme is duplicated by userspace into L/R, and both physical HP
   # drivers must be unmuted.  The former MonoRight marker is obsolete and
