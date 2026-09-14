@@ -1,0 +1,148 @@
+{
+  "archive": "https://ports.ubuntu.com/ubuntu-ports",
+  "note": "Corresponding-source offers for every distinct source package in build/inputs/mdns-packages.lock.json. Each offer resolves through the public Ubuntu source package page; the exact version is pinned by the package lock and repeated here for binding.",
+  "offers": [
+    {
+      "source": "adduser",
+      "source_offer": "https://launchpad.net/ubuntu/+source/adduser",
+      "version": "3.137ubuntu1"
+    },
+    {
+      "source": "apparmor",
+      "source_offer": "https://launchpad.net/ubuntu/+source/apparmor",
+      "version": "4.0.1really4.0.1-0ubuntu0.24.04.7"
+    },
+    {
+      "source": "audit",
+      "source_offer": "https://launchpad.net/ubuntu/+source/audit",
+      "version": "1:3.1.2-2.1build1.1"
+    },
+    {
+      "source": "avahi",
+      "source_offer": "https://launchpad.net/ubuntu/+source/avahi",
+      "version": "0.8-13ubuntu6.2"
+    },
+    {
+      "source": "bzip2",
+      "source_offer": "https://launchpad.net/ubuntu/+source/bzip2",
+      "version": "1.0.8-5.1ubuntu0.1"
+    },
+    {
+      "source": "db5.3",
+      "source_offer": "https://launchpad.net/ubuntu/+source/db5.3",
+      "version": "5.3.28+dfsg2-7"
+    },
+    {
+      "source": "dbus",
+      "source_offer": "https://launchpad.net/ubuntu/+source/dbus",
+      "version": "1.14.10-4ubuntu4.1"
+    },
+    {
+      "source": "debconf",
+      "source_offer": "https://launchpad.net/ubuntu/+source/debconf",
+      "version": "1.5.86ubuntu1"
+    },
+    {
+      "source": "expat",
+      "source_offer": "https://launchpad.net/ubuntu/+source/expat",
+      "version": "2.6.1-2ubuntu0.4"
+    },
+    {
+      "source": "gcc-14",
+      "source_offer": "https://launchpad.net/ubuntu/+source/gcc-14",
+      "version": "14.2.0-4ubuntu2~24.04.1"
+    },
+    {
+      "source": "gdbm",
+      "source_offer": "https://launchpad.net/ubuntu/+source/gdbm",
+      "version": "1.23-5.1build1"
+    },
+    {
+      "source": "glibc",
+      "source_offer": "https://launchpad.net/ubuntu/+source/glibc",
+      "version": "2.39-0ubuntu8.9"
+    },
+    {
+      "source": "libcap-ng",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libcap-ng",
+      "version": "0.8.4-2build2"
+    },
+    {
+      "source": "libcap2",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libcap2",
+      "version": "1:2.66-5ubuntu2.4"
+    },
+    {
+      "source": "libdaemon",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libdaemon",
+      "version": "0.14-7.1ubuntu4"
+    },
+    {
+      "source": "libgcrypt20",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libgcrypt20",
+      "version": "1.10.3-2ubuntu0.2"
+    },
+    {
+      "source": "libgpg-error",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libgpg-error",
+      "version": "1.47-3build2.1"
+    },
+    {
+      "source": "libselinux",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libselinux",
+      "version": "3.5-2ubuntu2.1"
+    },
+    {
+      "source": "libsemanage",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libsemanage",
+      "version": "3.5-1build5"
+    },
+    {
+      "source": "libsepol",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libsepol",
+      "version": "3.5-2build1"
+    },
+    {
+      "source": "libxcrypt",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libxcrypt",
+      "version": "1:4.4.36-4build1"
+    },
+    {
+      "source": "libzstd",
+      "source_offer": "https://launchpad.net/ubuntu/+source/libzstd",
+      "version": "1.5.5+dfsg2-2build1.1"
+    },
+    {
+      "source": "lz4",
+      "source_offer": "https://launchpad.net/ubuntu/+source/lz4",
+      "version": "1.9.4-1build1.1"
+    },
+    {
+      "source": "pam",
+      "source_offer": "https://launchpad.net/ubuntu/+source/pam",
+      "version": "1.5.3-5ubuntu5.7"
+    },
+    {
+      "source": "pcre2",
+      "source_offer": "https://launchpad.net/ubuntu/+source/pcre2",
+      "version": "10.42-4ubuntu2.1"
+    },
+    {
+      "source": "shadow",
+      "source_offer": "https://launchpad.net/ubuntu/+source/shadow",
+      "version": "1:4.13+dfsg1-4ubuntu3.2"
+    },
+    {
+      "source": "systemd",
+      "source_offer": "https://launchpad.net/ubuntu/+source/systemd",
+      "version": "255.4-1ubuntu8.17"
+    },
+    {
+      "source": "xz-utils",
+      "source_offer": "https://launchpad.net/ubuntu/+source/xz-utils",
+      "version": "5.6.1+really5.4.5-1ubuntu0.3"
+    }
+  ],
+  "schema": "libreecho-mdns-source-offers/v1",
+  "suite": "noble"
+}

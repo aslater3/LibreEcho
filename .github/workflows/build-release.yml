@@ -292,6 +292,7 @@ jobs:
             build.tests.test_generate_release_notes \
             build.tests.test_resolve_source_set \
             build.tests.test_release_candidate_selection \
+            tools.test_shared_mdns_packages \
             tools.test_build_release_workflow \
             tools.test_brom_preflight \
             tools.test_initial_installer_publication \
@@ -453,6 +454,67 @@ jobs:
           path: ${{ runner.temp }}/public-deps/neural
           key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ steps.armhf-pkg.outputs.armhf_root_digest }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
 
+      # --- Layer 4: exact shared mDNS package archives. The lock holds the ---
+      # --- exact binary versions and archive hashes; acquisition is public, ---
+      # --- version-pinned, and never uses the ambient archive resolution.  ---
+      - name: Restore exact shared mDNS package cache
+        id: restore-mdns
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/mdns-packages
+          key: libreecho-mdns-packages-v1-${{ runner.os }}-${{ hashFiles('build/inputs/mdns-packages.lock.json', 'build/ci/mdns_runtime.py') }}
+      - name: Acquire exact shared mDNS dependency packages
+        if: steps.restore-mdns.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # Public ports.ubuntu.com acquisition, exactly like the ARMHF sysroot
+          # and toolchain layers, but with fully isolated apt lists, archive
+          # cache, and an empty dpkg status file: the runner's own package
+          # database is never read or written, and apt installs nothing.
+          apt_root="$RUNNER_TEMP/mdns-apt"
+          archives="$RUNNER_TEMP/mdns-packages"
+          rm -rf "$apt_root" "$archives"
+          mkdir -p "$apt_root/lists/partial" "$archives"
+          printf '%s\n' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted' \
+            > "$RUNNER_TEMP/mdns.sources.list"
+          empty_status="$RUNNER_TEMP/mdns-apt-status"
+          : > "$empty_status"
+          apt_opts=(
+            -o Dir::Etc::sourcelist="$RUNNER_TEMP/mdns.sources.list"
+            -o Dir::Etc::sourceparts=-
+            -o Dir::State::lists="$apt_root/lists"
+            -o Dir::Cache::archives="$archives"
+            -o Dir::State::status="$empty_status"
+            -o APT::Architecture=armhf
+            -o APT::Install-Recommends=false
+          )
+          apt-get "${apt_opts[@]}" update
+          # The lock, not the archive's live dependency resolution, selects the
+          # exact package versions: every acquisition is pinned name=version.
+          mapfile -t pins < <(python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json)
+          ((${#pins[@]} > 0)) || { echo "ERROR: shared mDNS package lock is empty" >&2; exit 1; }
+          cd "$archives"
+          apt-get download "${apt_opts[@]}" "${pins[@]}"
+          cd "$RUNNER_TEMP"
+      - name: Save exact shared mDNS package cache
+        if: success() && steps.restore-mdns.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/mdns-packages
+          key: libreecho-mdns-packages-v1-${{ runner.os }}-${{ hashFiles('build/inputs/mdns-packages.lock.json', 'build/ci/mdns_runtime.py') }}
+      - name: Record exact shared mDNS package provenance
+        run: |
+          set -euo pipefail
+          # Runs on both the cold and restored paths: a restored cache is re-hashed
+          # against the committed lock before it may be consumed downstream.
+          mkdir -p "$RUNNER_TEMP/mdns-packages-provenance"
+          python3 build/ci/mdns_runtime.py verify \
+            --lock build/inputs/mdns-packages.lock.json \
+            --archives "$RUNNER_TEMP/mdns-packages" \
+            --source-map "$RUNNER_TEMP/mdns-packages-provenance/mdns-packages-source-map.json"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
@@ -468,6 +530,16 @@ jobs:
         with:
           name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/armhf-root
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mdns-packages-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/mdns-packages
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mdns-packages-provenance-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/mdns-packages-provenance
           if-no-files-found: error
 
 
@@ -530,6 +602,10 @@ jobs:
         with:
           name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/armhf-root
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: mdns-packages-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/mdns-packages
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
@@ -767,6 +843,44 @@ jobs:
           copyright_count="$(find "$sysroot/usr/share/doc" -mindepth 2 -maxdepth 2 -type f -name copyright | wc -l)"
           [[ "$copyright_count" -gt 0 ]] || { echo "ERROR: AirPlay sysroot has no copyright records" >&2; exit 1; }
           echo "airplay sysroot staged: $copyright_count copyright records"
+
+      - name: Build and verify the shared mDNS discovery runtime
+        run: |
+          set -euo pipefail
+          # The shared discovery runtime is boot-contained and independent of
+          # AirPlay feature selection: Home Assistant discovery must not require
+          # an AirPlay installation, so this component is built and verified
+          # unconditionally, from the exact package lock, and never through the
+          # AirPlay sysroot.  The Platform builder extracts the locked packages;
+          # the independent verifier pins the runtime to its own manifest
+          # identity; the Product closure gate fails closed unless every locked
+          # package carries a distribution notice record and every distinct
+          # source package has a public corresponding-source offer.
+          builder="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/mdns/build_runtime.py"
+          verifier="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/mdns/verify_runtime.py"
+          [[ -f "$builder" && ! -L "$builder" ]] || {
+            echo "ERROR: Platform shared mDNS runtime builder is missing: $builder" >&2; exit 1;
+          }
+          [[ -f "$verifier" && ! -L "$verifier" ]] || {
+            echo "ERROR: Platform shared mDNS runtime verifier is missing: $verifier" >&2; exit 1;
+          }
+          runtime="$RUNNER_TEMP/mdns-runtime"
+          rm -rf "$runtime"
+          python3 -B "$builder" \
+            --archives "$RUNNER_TEMP/mdns-packages" \
+            --lock build/inputs/mdns-packages.lock.json \
+            --output "$runtime"
+          manifest_sha256="$(sha256sum "$runtime/manifest.json" | awk '{print $1}')"
+          python3 -B "$verifier" \
+            --runtime "$runtime" --manifest-sha256 "$manifest_sha256"
+          python3 build/ci/mdns_runtime.py closure \
+            --lock build/inputs/mdns-packages.lock.json \
+            --runtime "$runtime" \
+            --source-offers build/inputs/mdns-source-offers.json \
+            --manifest-sha256 "$manifest_sha256" \
+            --output "$RUNNER_TEMP/mdns-runtime-provenance.json"
+          printf 'mdns_runtime_manifest_sha256=%s\n' "$manifest_sha256" >> "$GITHUB_OUTPUT"
+        id: mdns-runtime
 
       - name: Stage qemu-arm-static for runtime contract checks
         run: |
@@ -1028,6 +1142,7 @@ jobs:
           # The musl builder resolves armv7-alpine-linux-musleabihf-* siblings
           # beside the compiler it is given; those copies live in usr/bin.
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
+          LIBREECHO_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
@@ -1053,6 +1168,11 @@ jobs:
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
           LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/neural/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
+          # The shared discovery runtime is a separate, verified input: it is
+          # not the AirPlay sysroot and is not gated on AirPlay selection.
+          LIBREECHO_MDNS_RUNTIME_ROOT: ${{ runner.temp }}/mdns-runtime
+          LIBREECHO_MDNS_RUNTIME_SOURCE_MAP: ${{ runner.temp }}/mdns-runtime-provenance.json
+          LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256: ${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}
           LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
           LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/alsa
           LIBREECHO_AIRPLAY_ALSA_DATA_COPYRIGHT: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/doc/libasound2-data/copyright

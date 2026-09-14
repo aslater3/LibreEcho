@@ -459,4 +459,90 @@ class Tests(unittest.TestCase):
                   'libstdc++-13-dev-armhf-cross', 'libc6-armhf-cross'):
    self.assertIn(package, W)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
+ def test_shared_mdns_runtime_is_acquired_and_verified_without_airplay(self):
+  # The shared discovery runtime is boot-contained: it is built and verified
+  # independently of AirPlay feature selection, from an exact public package
+  # lock, and its corresponding-source/notice closure is a fail-closed gate.
+  lock_path = ROOT/'build/inputs/mdns-packages.lock.json'
+  offers_path = ROOT/'build/inputs/mdns-source-offers.json'
+  self.assertTrue((ROOT/'build/ci/mdns_runtime.py').is_file())
+  self.assertTrue((ROOT/'build/ci/mdns-runtime-key.sh').is_file())
+  # Exact acquisition: pinned versions, an isolated apt state/cache, and the
+  # public ports.ubuntu.com pattern reused rather than a second archive.
+  self.assertIn('libreecho-mdns-packages-v1-', W)
+  self.assertIn('Acquire exact shared mDNS dependency packages', W)
+  self.assertIn('python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json', W)
+  self.assertIn('-o Dir::Etc::sourceparts=-', W)
+  self.assertIn('-o Dir::State::lists="$apt_root/lists"', W)
+  self.assertIn('-o Dir::Cache::archives="$archives"', W)
+  self.assertIn('-o Dir::State::status="$empty_status"', W)
+  self.assertIn('-o APT::Architecture=armhf', W)
+  self.assertIn('-o APT::Install-Recommends=false', W)
+  self.assertIn('ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted', W)
+  # Exact archive hash and package/version/source/architecture provenance is
+  # recorded on both the cold and restored cache paths.
+  self.assertIn('Record exact shared mDNS package provenance', W)
+  self.assertIn('--source-map "$RUNNER_TEMP/mdns-packages-provenance/mdns-packages-source-map.json"', W)
+  self.assertIn('name: mdns-packages-${{ needs.resolve-and-preflight.outputs.source_set_id }}', W)
+  self.assertIn('name: mdns-packages-provenance-${{ needs.resolve-and-preflight.outputs.source_set_id }}', W)
+  self.assertIn('path: ${{ runner.temp }}/mdns-packages', W)
+  self.assertIn('path: ${{ runner.temp }}/mdns-packages-provenance', W)
+  # The Platform runtime builder/verifier are invoked from the pinned Platform
+  # checkout, and the Product closure gate runs before the image build.
+  self.assertIn('Build and verify the shared mDNS discovery runtime', W)
+  self.assertIn('sources/platform/tools/mt8163-arm32/mdns/build_runtime.py', W)
+  self.assertIn('sources/platform/tools/mt8163-arm32/mdns/verify_runtime.py', W)
+  self.assertIn('build/ci/mdns_runtime.py closure', W)
+  self.assertIn('--source-offers build/inputs/mdns-source-offers.json', W)
+  self.assertIn('LIBREECHO_MDNS_RUNTIME_ROOT: ${{ runner.temp }}/mdns-runtime', W)
+  self.assertIn('LIBREECHO_MDNS_RUNTIME_SOURCE_MAP: ${{ runner.temp }}/mdns-runtime-provenance.json', W)
+  self.assertIn('LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256: ${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}', W)
+  # The runtime stage carries no feature-selection condition and no channel
+  # condition: it must run for every build that produces an image.
+  step = W.split('      - name: Build and verify the shared mDNS discovery runtime', 1)[1].split('\n      - ', 1)[0]
+  self.assertNotIn('if:', step)
+  self.assertNotIn('FEATURES_ENABLED', step)
+  # No private or host path is committed anywhere in the workflow.
+  self.assertNotIn('/home/', W)
+  # The shared runtime uses its own resolved-path identity, not the AirPlay
+  # sysroot identity, and existing AirPlay wiring is untouched.
+  self.assertIn('"$PIPELINE/ci/mdns-runtime-key.sh" "$MDNS_RUNTIME_ROOT" "$TOOLS_DIR/mdns"', B)
+  self.assertIn('record_component_identity mdns-runtime "$MDNS_RUNTIME_KEY"', B)
+  self.assertIn('airplay-sysroot-key.sh', B)
+  self.assertIn('LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot', W)
+  # The image contract re-verifies and records the runtime outside the
+  # feature-enabled conditions, and exports the runtime plus its manifest and
+  # provenance identity to the recovery-image builder and independent verifier.
+  marker = '=== verifying the shared mDNS discovery runtime contract ==='
+  self.assertIn(marker, B)
+  contract = B[B.index(marker):B.index('BUILDER="$TOOLS_DIR/build_recovery_image.py"', B.index(marker))]
+  self.assertNotIn('FEATURES_ENABLED', contract)
+  self.assertIn('mdns-runtime-verify.log', contract)
+  self.assertIn('mdns-runtime-provenance.json', contract)
+  self.assertIn('export LIBREECHO_MDNS_RUNTIME_ROOT="$MDNS_RUNTIME_ROOT"', contract)
+  self.assertIn('export LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256="$MDNS_RUNTIME_MANIFEST_SHA256"', contract)
+  for variable in ('LIBREECHO_MDNS_RUNTIME_ROOT', 'LIBREECHO_MDNS_RUNTIME_SOURCE_MAP',
+                   'LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256'):
+   self.assertIn(variable, PUBLIC_WRAPPER)
+  self.assertIn('--manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256"', B)
+  # The lock and the corresponding-source offer index are committed inputs and
+  # cover exactly one source set; the closure gate is the only writer of
+  # source_offer_verified.
+  import importlib.util
+  spec = importlib.util.spec_from_file_location('mdns_runtime', ROOT/'build/ci/mdns_runtime.py')
+  assert spec and spec.loader
+  module = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(module)
+  records = module.load_lock(lock_path)
+  offers = module.load_source_offers(offers_path, records)
+  self.assertEqual({offer['source'] for offer in offers}, {record['source'] for record in records})
+  self.assertIn("'source_offer_verified': True", (ROOT/'build/ci/mdns_runtime.py').read_text())
+  self.assertIn("'source_offer_verified': False", (ROOT/'build/ci/mdns_runtime.py').read_text())
+  # The user-facing release note records that HA discovery no longer needs an
+  # AirPlay installation, without claiming hardware acceptance.
+  note = (ROOT/'release/radar-puffin-v0.14.0.md').read_text()
+  self.assertIn('Home Assistant discovery no longer requires an AirPlay installation', note)
+  self.assertIn('no longer require an AirPlay payload', note)
+  self.assertIn('not a second responder', note)
+
 if __name__=='__main__': unittest.main()

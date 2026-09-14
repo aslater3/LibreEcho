@@ -95,6 +95,16 @@ AIRPLAY_HOST_LIB="$INPUTS/host-tools/lib"
 AIRPLAY_PLISTUTIL="$AIRPLAY_HOST_BIN/plistutil"
 AIRPLAY_ALSA_DATA="${LIBREECHO_AIRPLAY_ALSA_DATA:-/usr/share/alsa}"
 AIRPLAY_TINYALSA_ARCHIVE="$INPUTS/tinyalsa-e43025bbf702eb7dd8edd48c1eb50530c60f1de8.tar.gz"
+# The shared mDNS discovery runtime is a boot-contained dependency, not a
+# feature payload: Home Assistant discovery must work without an AirPlay
+# installation.  The hosted pipeline builds it from the exact package lock and
+# independently verifies it; these inputs are the verified runtime root, its
+# manifest identity, and the corresponding-source/notice provenance record.
+MDNS_RUNTIME_ROOT="${LIBREECHO_MDNS_RUNTIME_ROOT:?ERROR: set the verified shared mDNS runtime root}"
+MDNS_RUNTIME_SOURCE_MAP="${LIBREECHO_MDNS_RUNTIME_SOURCE_MAP:?ERROR: set the verified shared mDNS runtime provenance record}"
+MDNS_RUNTIME_MANIFEST_SHA256="${LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256:?ERROR: set the verified shared mDNS runtime manifest identity}"
+MDNS_RUNTIME_LOCK="$PIPELINE/inputs/mdns-packages.lock.json"
+MDNS_RUNTIME_SOURCE_OFFERS="$PIPELINE/inputs/mdns-source-offers.json"
 UI_SOURCE="${LIBREECHO_UI_SRC:?ERROR: set LIBREECHO_UI_SRC explicitly}"
 UI_CROSS="${LIBREECHO_UI_CROSS:-/usr/bin/arm-linux-gnueabihf-}"
 CORE_RUNTIME_SYSROOT="${LIBREECHO_CORE_RUNTIME_SYSROOT:?ERROR: set exact ARMHF glibc sysroot}"
@@ -994,10 +1004,12 @@ if [[ -f "$radar_machine_source" && -f "$radar_codec_header" &&
     'RADAR_PUFFIN_DAC_PROCESSING_BLOCK' 'PRB_P2 profile'
   require_source_marker "$radar_machine_source" \
     'radar_speaker_apply_profile(component)' 'speaker coefficients'
-  require_source_marker "$radar_machine_source" \
-    'RADAR_LDACVOL, 0' 'left DAC 0 dB volume'
-  require_source_marker "$radar_machine_source" \
-    'RADAR_RDACVOL, 0' 'right DAC 0 dB volume'
+  radar_volume_contract="$KERNEL_SRC/sound/soc/mediatek/mt8163/test_radar_puffin_volume_preservation.py"
+  [[ -f "$radar_volume_contract" && ! -L "$radar_volume_contract" ]] || {
+    echo "ERROR: Radar-Puffin PCM volume preservation contract missing: $radar_volume_contract" >&2
+    exit 1
+  }
+  python3 "$radar_volume_contract"
   # The accepted Linux 6.1 transport is duplicated stereo: the mono
   # programme is duplicated by userspace into L/R, and both physical HP
   # drivers must be unmuted.  The former MonoRight marker is obsolete and
@@ -1996,6 +2008,61 @@ echo "=== checking kernel marker contract ==="
 "$PIPELINE/check_marker_contract.sh" "$RUN/System.map" "$IMAGE_PROFILE" \
   "$KERNEL_SRC" "$TOOLING_SRC"
 
+echo "=== verifying the shared mDNS discovery runtime contract ==="
+# The shared discovery runtime is boot-contained and is not a feature payload:
+# Home Assistant discovery must not acquire an AirPlay installation dependency.
+# The hosted pipeline builds it from the exact package lock, verifies it with
+# the Platform verifier, and records the corresponding-source/notice closure.
+# Re-check the identity and the closure here, so a missing, swapped, or
+# unverified runtime can never reach the recovery-image contract.
+[[ -d "$MDNS_RUNTIME_ROOT" && ! -L "$MDNS_RUNTIME_ROOT" ]] || {
+  echo "ERROR: shared mDNS runtime root is missing or unsafe: $MDNS_RUNTIME_ROOT" >&2
+  exit 1
+}
+[[ -f "$MDNS_RUNTIME_ROOT/manifest.json" && ! -L "$MDNS_RUNTIME_ROOT/manifest.json" ]] || {
+  echo "ERROR: shared mDNS runtime manifest is missing: $MDNS_RUNTIME_ROOT/manifest.json" >&2
+  exit 1
+}
+mdns_runtime_manifest_sha="$(sha256sum "$MDNS_RUNTIME_ROOT/manifest.json" | awk '{print $1}')"
+[[ "$mdns_runtime_manifest_sha" == "$MDNS_RUNTIME_MANIFEST_SHA256" ]] || {
+  echo "ERROR: shared mDNS runtime manifest identity changed: $mdns_runtime_manifest_sha" >&2
+  exit 1
+}
+MDNS_RUNTIME_VERIFIER="$TOOLS_DIR/mdns/verify_runtime.py"
+[[ -f "$MDNS_RUNTIME_VERIFIER" && ! -L "$MDNS_RUNTIME_VERIFIER" ]] || {
+  echo "ERROR: Platform shared mDNS runtime verifier is missing: $MDNS_RUNTIME_VERIFIER" >&2
+  exit 1
+}
+python3 -B "$MDNS_RUNTIME_VERIFIER" \
+  --runtime "$MDNS_RUNTIME_ROOT" \
+  --manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" | tee "$RUN/mdns-runtime-verify.log"
+[[ -f "$MDNS_RUNTIME_SOURCE_MAP" && ! -L "$MDNS_RUNTIME_SOURCE_MAP" ]] || {
+  echo "ERROR: shared mDNS runtime provenance record is missing: $MDNS_RUNTIME_SOURCE_MAP" >&2
+  exit 1
+}
+python3 -B "$PIPELINE/ci/mdns_runtime.py" closure \
+  --lock "$MDNS_RUNTIME_LOCK" \
+  --runtime "$MDNS_RUNTIME_ROOT" \
+  --source-offers "$MDNS_RUNTIME_SOURCE_OFFERS" \
+  --manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" \
+  --output "$RUN/mdns-runtime-provenance.json" | tee "$RUN/mdns-runtime-contract.log"
+mdns_runtime_source_map_sha="$(sha256sum "$MDNS_RUNTIME_SOURCE_MAP" | awk '{print $1}')"
+mdns_runtime_provenance_sha="$(sha256sum "$RUN/mdns-runtime-provenance.json" | awk '{print $1}')"
+[[ "$mdns_runtime_source_map_sha" == "$mdns_runtime_provenance_sha" ]] || {
+  echo "ERROR: supplied shared mDNS runtime provenance disagrees with the rebuilt record" >&2
+  exit 1
+}
+MDNS_RUNTIME_KEY="$("$PIPELINE/ci/mdns-runtime-key.sh" "$MDNS_RUNTIME_ROOT" "$TOOLS_DIR/mdns")"
+record_component_identity mdns-runtime "$MDNS_RUNTIME_KEY"
+# Pass the runtime output and its verified manifest/provenance identity into the
+# recovery-image builder and the independent image verifier contract.
+export LIBREECHO_MDNS_RUNTIME_ROOT="$MDNS_RUNTIME_ROOT"
+export LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256="$MDNS_RUNTIME_MANIFEST_SHA256"
+export LIBREECHO_MDNS_RUNTIME_SOURCE_MAP="$RUN/mdns-runtime-provenance.json"
+echo "mdns_runtime_key=$MDNS_RUNTIME_KEY"
+echo "mdns_runtime_manifest_sha256=$MDNS_RUNTIME_MANIFEST_SHA256"
+echo "mdns_runtime_provenance_sha256=$mdns_runtime_provenance_sha"
+
 BUILDER="$TOOLS_DIR/build_recovery_image.py"
 VERIFIER="$TOOLS_DIR/verify_recovery_image.py"
 IMAGE_DTB="$RUN/libreecho-radar-puffin.dtb"
@@ -2018,7 +2085,7 @@ python3 -B "$BUILDER" \
   --tinyplay "$RUN/tinyplay" --tinycap "$RUN/tinycap" --tinymix "$RUN/tinymix" \
   --iwconfig "$RUN/iwconfig" \
   --iwconfig-source-metadata "$RUN/wireless-tools-source.json" \
-  --ui-bundle "$UI_BUNDLE" --ui-source "$UI_SOURCE" \
+  --ui-bundle "$UI_BUNDLE" --mdns-runtime "$MDNS_RUNTIME_ROOT" --ui-source "$UI_SOURCE" \
   --expected-ui-commit "$ui_commit" --expected-ui-diff-sha256 "$ui_diff_sha" \
   "${feature_builder_args[@]}" \
   --wmt-config-helper "$CONNECTIVITY_HELPERS/wmt_configure" \
@@ -2056,6 +2123,7 @@ python3 -B "$VERIFIER" \
   "${feature_verifier_args[@]}" \
   --expected-iwconfig-sha256 "$iwconfig_sha" \
   --expected-wpa-supplicant-sha256 "$wpa_supplicant_sha" \
+  --expected-mdns-runtime-manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" \
   --expected-image-profile "$IMAGE_PROFILE" \
   --expected-service-profile "$SERVICE_PROFILE" \
   --expected-feature-policy "$FEATURE_POLICY" \
