@@ -61,6 +61,28 @@ device-capable OTG mode, while still rejecting host-only mode and retaining
 clock, audio, pin, key, USB-controller and interrupt checks. Image verification
 also retains the boot-time device-role policy required for recovery ADB.
 
+### Home Assistant discovery no longer requires an AirPlay installation
+
+Home Assistant and Wyoming discovery no longer require an AirPlay payload to be
+installed. The 0.14 candidate builds one boot-contained Avahi/D-Bus discovery
+runtime independently of AirPlay feature selection: Product acquires the exact
+ARMHF package versions named by the checked-in package lock from the public
+Ubuntu ports archive, records each archive SHA-256 with its package, version,
+source and architecture, builds the runtime outside the feature-enabled
+conditions, and passes the verified runtime, its manifest identity and its
+provenance record into the recovery-image contract. The corresponding-source and
+distribution-notice closure is a fail-closed gate, so an unproven source offer
+can never be recorded as verified. Avahi/D-Bus bytes retained inside
+compatibility-preserving AirPlay payloads stay inert on a shared-runtime image;
+they are deliberately retained for rollback and are not a second responder.
+
+Discovery ownership, boot ordering and health for the shared runtime also depend
+on the coordinated LibreEcho-UI and LibreEcho-Platform changes, and the shared
+runtime has not yet been included in an integrated image build. Treat this as a
+source and hosted-build correction: HA discovery on a no-AirPlay device, consumer
+coexistence, and rollback compatibility still require the integrated image and
+physical-device acceptance listed below.
+
 ### First installation and continuation
 
 Initial setup enables AirPlay before checking feature activation. Asynchronous
