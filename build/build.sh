@@ -2085,7 +2085,7 @@ python3 -B "$BUILDER" \
   --tinyplay "$RUN/tinyplay" --tinycap "$RUN/tinycap" --tinymix "$RUN/tinymix" \
   --iwconfig "$RUN/iwconfig" \
   --iwconfig-source-metadata "$RUN/wireless-tools-source.json" \
-  --ui-bundle "$UI_BUNDLE" --ui-source "$UI_SOURCE" \
+  --ui-bundle "$UI_BUNDLE" --mdns-runtime "$MDNS_RUNTIME_ROOT" --ui-source "$UI_SOURCE" \
   --expected-ui-commit "$ui_commit" --expected-ui-diff-sha256 "$ui_diff_sha" \
   "${feature_builder_args[@]}" \
   --wmt-config-helper "$CONNECTIVITY_HELPERS/wmt_configure" \
@@ -2123,6 +2123,7 @@ python3 -B "$VERIFIER" \
   "${feature_verifier_args[@]}" \
   --expected-iwconfig-sha256 "$iwconfig_sha" \
   --expected-wpa-supplicant-sha256 "$wpa_supplicant_sha" \
+  --expected-mdns-runtime-manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" \
   --expected-image-profile "$IMAGE_PROFILE" \
   --expected-service-profile "$SERVICE_PROFILE" \
   --expected-feature-policy "$FEATURE_POLICY" \
