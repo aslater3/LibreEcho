@@ -52,7 +52,7 @@ if [[ -n "$platform_mdns" ]]; then
   }
   index=0
   while IFS= read -r -d '' source; do
-    key_args+=(--file "platform-mdns-$index=$(basename -- "$source")=$source")
+    key_args+=(--file "platform-mdns-$index=$source")
     index=$((index + 1))
   done < <(find "$platform_mdns" -maxdepth 1 -type f \
     \( -name '*.py' -o -name '*.conf' \) -print0 | LC_ALL=C sort -z)
