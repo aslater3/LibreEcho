@@ -138,9 +138,13 @@ def _safe_regular(path: Path) -> None:
 
 
 BOOT_BYTES = 16 * 1024 * 1024
-# The reviewed post-Amonet GPT gives userdata 0x209c00 sectors of 512 bytes.
-# This is used only to validate the exact target before formatting userdata.
+# Biscuit has two reviewed stock GPT end-LBA variants. Amonet derives the
+# post-wrapper userdata end from the existing GPT, producing either 0x209c00
+# or 0x20dc00 sectors of 512 bytes. Keep this allowlist exact so an unknown
+# partition layout still fails closed before userdata is written.
 USERDATA_BYTES = 0x209C00 * 512
+USERDATA_VARIANT_BYTES = 0x20DC00 * 512
+USERDATA_SUPPORTED_BYTES = frozenset((USERDATA_BYTES, USERDATA_VARIANT_BYTES))
 # Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
 # control-command timeout to this bounded eMMC operation.
 USERDATA_FLASH_TIMEOUT = 900
@@ -679,15 +683,21 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
     return programmed_bytes
 
 
+def _validate_userdata_partition_size(size: int) -> None:
+    if size in USERDATA_SUPPORTED_BYTES:
+        return
+    expected = ", ".join(f"{value:#x}" for value in sorted(USERDATA_SUPPORTED_BYTES))
+    raise InstallerError(
+        f"userdata partition size mismatch: expected one of {expected}, got {size:#x}"
+    )
+
+
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
     """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
     verify_fastboot_product(fastboot_bin, serial)
     size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
-    if size != USERDATA_BYTES:
-        raise InstallerError(
-            f"userdata partition size mismatch: expected {USERDATA_BYTES:#x}, got {size:#x}"
-        )
+    _validate_userdata_partition_size(size)
     print(
         f"FASTBOOT STAGE: formatting only userdata as ext4 ({size} bytes); "
         "boot, system, persist, and expdb are not being formatted.",

@@ -130,6 +130,15 @@ class OneShotFastbootTests(unittest.TestCase):
                 INSTALLER.USERDATA_BYTES,
             )
 
+    def test_userdata_geometry_accepts_both_reviewed_biscuit_variants(self) -> None:
+        self.assertEqual(
+            INSTALLER.USERDATA_SUPPORTED_BYTES,
+            frozenset({0x41380000, 0x41B80000}),
+        )
+        for size in INSTALLER.USERDATA_SUPPORTED_BYTES:
+            with self.subTest(size=f"{size:#x}"):
+                INSTALLER._validate_userdata_partition_size(size)
+
     def test_userdata_format_rejects_unexpected_partition_size(self) -> None:
         with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
              mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES + 512), \
