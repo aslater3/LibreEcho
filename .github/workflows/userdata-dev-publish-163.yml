@@ -1,0 +1,147 @@
+name: Publish verified userdata 0.14 candidate
+on:
+  push:
+    branches: [fix/0.14-userdata-dev-dispatch-163]
+    paths: ['.github/workflows/userdata-dev-publish-163.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'aslater3/LibreEcho' && github.ref == 'refs/heads/fix/0.14-userdata-dev-dispatch-163'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: public-release
+    concurrency:
+      group: publish-hosted-dev-channel
+      cancel-in-progress: false
+    env:
+      RUN_ID: '35144061887'
+      HEAD_SHA: c11c68b6e0eb2843dd50bd955dc5a28d784c8185
+      HEAD_BRANCH: release/0.14.0
+      RELEASE_KIND: development
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c11c68b6e0eb2843dd50bd955dc5a28d784c8185
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9e8dd675551e0ec84f3456b64bb500c44a7b422c
+          path: publisher-policy
+          persist-credentials: false
+      - name: Verify exact successful build and extract unchanged publisher steps
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/aslater3/LibreEcho/actions/runs/{os.environ['RUN_ID']}",
+              headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              run = json.load(response)
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['head_sha'] == os.environ['HEAD_SHA'] and run['head_branch'] == os.environ['HEAD_BRANCH']
+          assert run['event'] == 'workflow_dispatch' and run['path'] == '.github/workflows/build-release.yml'
+          assert run['run_attempt'] == 1
+          policy = pathlib.Path('publisher-policy/.github/workflows/publish-release.yml')
+          digest = subprocess.check_output(['git', '-C', 'publisher-policy', 'hash-object', '.github/workflows/publish-release.yml'], text=True, timeout=10).strip()
+          assert digest == '372ef6823e1b44e71cd620268d094c3d6859e721', 'publisher policy differs from reviewed source'
+          source = policy.read_text().split('  publish-hosted-dev:\n', 1)[1].split('\n  publish-stable:', 1)[0]
+          for filename, name in (
+              ('userdata-resolve.sh', 'Resolve exact verified Product artifact'),
+              ('userdata-prepare.sh', 'Prepare development or nightly release'),
+              ('userdata-publish.sh', 'Publish development or nightly prerelease'),
+          ):
+              marker = '      - name: ' + name + '\n'
+              assert source.count(marker) == 1, name
+              section = source.split(marker, 1)[1].split('\n      - ', 1)[0]
+              lines = section.splitlines()
+              start = lines.index('        run: |') + 1
+              body = []
+              for line in lines[start:]:
+                  if line.strip() and not line.startswith('          '):
+                      break
+                  body.append(line[10:] if line else '')
+              script = '\n'.join(body).rstrip() + '\n'
+              assert script.startswith('set -euo pipefail\n') and '${{' not in script
+              target = pathlib.Path(os.environ['RUNNER_TEMP']) / filename
+              target.write_text(script)
+              subprocess.run(['bash', '-n', str(target)], check=True, timeout=10)
+          print('verified_build_run=35144061887 event=workflow_dispatch product=' + os.environ['HEAD_SHA'])
+          print('publisher_steps=UNCHANGED policy_blob=' + digest)
+          PY
+      - name: Resolve exact verified Product artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "$RUNNER_TEMP/userdata-resolve.sh"
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          repository: aslater3/LibreEcho
+          run-id: 35144061887
+          github-token: ${{ github.token }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: verified-build
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Enforce the existing development publication route
+        run: |
+          set -euo pipefail
+          python3 build/ci/release_route.py --artifact-root verified-build --branch "$HEAD_BRANCH" --event workflow_dispatch > route.out
+          cat route.out
+          grep -qx 'channel=dev' route.out
+      - name: Install reviewed OTA verification dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          python -m pip install --disable-pip-version-check --no-index --find-links "$wheelhouse" --require-hashes --requirement "$wheelhouse/requirements.txt"
+      - name: Prepare development or nightly release
+        id: prepare
+        env:
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
+        run: bash "$RUNNER_TEMP/userdata-prepare.sh"
+      - name: Bind publication to the reviewed v2 fix pair
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          manifests = list(pathlib.Path('release-assets').glob('*-build.json'))
+          assert len(manifests) == 1
+          data = json.loads(manifests[0].read_text())
+          assert data['ota_format'] == 'v2' and data['ota_release'] == '0.14.0'
+          assert data['channel'] == 'dev' and data['kind'] == 'development'
+          assert data['signed'] is True and data['hardware_accepted'] is False
+          assert data['status'] == 'PREPARED_NOT_FLASHED'
+          assert data['sources']['product'] == 'c11c68b6e0eb2843dd50bd955dc5a28d784c8185'
+          assert data['sources']['platform'] == '1fcb0bf8668ab471f851f06609ba1f0ccae1f702'
+          installers = list(pathlib.Path('release-assets').glob('*-installer.py'))
+          assert len(installers) == 1
+          digest = hashlib.sha256(installers[0].read_bytes()).hexdigest()
+          assert digest == '991bae4682f86d8d7d00b36fb373956a73c79a8d431cf938dd47f26448b45820'
+          print('userdata_fix_pair=PASS ota_format=v2 ota_release=0.14.0 installer_sha256=' + digest)
+          print('verified_sources=' + json.dumps(data['sources'], sort_keys=True))
+          PY
+      - name: Publish development or nightly prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          RELEASE_SIGNED: ${{ steps.prepare.outputs.signed }}
+          EXPECTED_ASSET_COUNT: ${{ steps.prepare.outputs.asset_count }}
+        run: bash "$RUNNER_TEMP/userdata-publish.sh"
+      - name: Advance verified dev discovery pointer
+        if: steps.prepare.outputs.signed == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+        run: >-
+          python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
+          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets
+      - name: Record publication receipt
+        env:
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+        run: |
+          printf 'Published `%s` from verified build run 35144061887 using unchanged publisher steps.\n\nStatus: PREPARED_NOT_FLASHED; hardware retest pending.\n' "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
