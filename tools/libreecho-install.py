@@ -138,9 +138,13 @@ def _safe_regular(path: Path) -> None:
 
 
 BOOT_BYTES = 16 * 1024 * 1024
-# The reviewed post-Amonet GPT gives userdata 0x209c00 sectors of 512 bytes.
-# This is used only to validate the exact target before formatting userdata.
+# Biscuit has two reviewed stock GPT end-LBA variants. Amonet derives the
+# post-wrapper userdata end from the existing GPT, producing either 0x209c00
+# or 0x20dc00 sectors of 512 bytes. Keep this allowlist exact so an unknown
+# partition layout still fails closed before userdata is written.
 USERDATA_BYTES = 0x209C00 * 512
+USERDATA_VARIANT_BYTES = 0x20DC00 * 512
+USERDATA_SUPPORTED_BYTES = frozenset((USERDATA_BYTES, USERDATA_VARIANT_BYTES))
 # Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
 # control-command timeout to this bounded eMMC operation.
 USERDATA_FLASH_TIMEOUT = 900
@@ -223,13 +227,12 @@ def _find_mke2fs(fastboot_source: Path) -> Path | None:
     return None
 
 
-def _find_img2simg() -> Path | None:
-    candidate = shutil.which("img2simg")
-    if candidate is None:
-        return None
-    resolved = Path(candidate).resolve()
-    if resolved.is_file() and os.access(resolved, os.X_OK):
-        return resolved
+def _find_dumpe2fs() -> Path | None:
+    candidate = shutil.which("dumpe2fs")
+    for path in (Path(candidate) if candidate else None,
+                 Path("/usr/sbin/dumpe2fs"), Path("/sbin/dumpe2fs")):
+        if path is not None and path.is_file() and os.access(path, os.X_OK):
+            return path.resolve()
     return None
 
 
@@ -238,25 +241,18 @@ def _install_host_format_tools() -> None:
     if apt_get is None:
         raise InstallerError(
             "userdata image tools are missing and apt-get is unavailable; install "
-            "e2fsprogs and android-sdk-libsparse-utils manually before starting a hardware run"
+            "e2fsprogs manually before starting a hardware run"
         )
     prefix = [] if os.geteuid() == 0 else ([shutil.which("sudo")] if shutil.which("sudo") else None)
     if prefix is None:
         raise InstallerError(
-            "userdata image tools are missing and sudo is unavailable; install e2fsprogs "
-            "and android-sdk-libsparse-utils manually before starting a hardware run"
+            "userdata image tools are missing and sudo is unavailable; install "
+            "e2fsprogs manually before starting a hardware run"
         )
     command_prefix = [item for item in prefix if item]
-    print(
-        "HOST PREFLIGHT: installing missing userdata image tools before device access.",
-        flush=True,
-    )
+    print("HOST PREFLIGHT: installing missing userdata image tools before device access.", flush=True)
     _run_command(command_prefix + [apt_get, "update"], 300)
-    _run_command(
-        command_prefix
-        + [apt_get, "install", "-y", "e2fsprogs", "android-sdk-libsparse-utils"],
-        300,
-    )
+    _run_command(command_prefix + [apt_get, "install", "-y", "e2fsprogs"], 300)
 
 
 def prepare_fastboot_tools(
@@ -265,42 +261,38 @@ def prepare_fastboot_tools(
     *,
     install_host_deps: bool = False,
 ) -> str:
-    """Stage the complete host toolset before any device access."""
+    """Stage and probe the actual formatter dependencies before device access."""
     fastboot_source = _executable_path(fastboot_bin)
-    helper = _find_mke2fs(fastboot_source)
-    img2simg = _find_img2simg()
-    if (helper is None or img2simg is None) and install_host_deps:
+    mke2fs = _find_mke2fs(fastboot_source)
+    dumpe2fs = _find_dumpe2fs()
+    if (mke2fs is None or dumpe2fs is None) and install_host_deps:
         _install_host_format_tools()
-        helper = _find_mke2fs(fastboot_source)
-        img2simg = _find_img2simg()
-    if helper is None or img2simg is None:
+        mke2fs = _find_mke2fs(fastboot_source)
+        dumpe2fs = _find_dumpe2fs()
+    if mke2fs is None or dumpe2fs is None:
         missing = ", ".join(
-            name for name, path in (("mke2fs", helper), ("img2simg", img2simg)) if path is None
+            name for name, path in (("mke2fs", mke2fs), ("dumpe2fs", dumpe2fs)) if path is None
         )
         raise InstallerError(
             f"HOST PREFLIGHT: {missing} required for userdata image generation but not found. "
-            "Re-run with --install-host-deps or install e2fsprogs and "
-            "android-sdk-libsparse-utils manually."
+            "Re-run with --install-host-deps or install e2fsprogs manually."
         )
     tool_root = cache_root / "host-tools"
     staged_fastboot = tool_root / "fastboot"
-    staged_mke2fs = tool_root / "mke2fs"
-    staged_img2simg = tool_root / "img2simg"
     _copy_executable(fastboot_source, staged_fastboot)
-    _copy_executable(helper, staged_mke2fs)
-    _copy_executable(img2simg, staged_img2simg)
-    version = _run_command([str(staged_fastboot), "--version"], 20, check=False)
-    if version.returncode != 0:
-        raise InstallerError("HOST PREFLIGHT: staged fastboot did not run successfully")
-    mke2fs_version = _run_command([str(staged_mke2fs), "-V"], 20, check=False)
-    if mke2fs_version.returncode not in (0, 1):
-        raise InstallerError("HOST PREFLIGHT: staged mke2fs did not run successfully")
-    img2simg_probe = _run_command([str(staged_img2simg)], 20, check=False)
-    if img2simg_probe.returncode not in (0, 1, 2):
-        raise InstallerError("HOST PREFLIGHT: staged img2simg did not run successfully")
+    for name, source in (("mke2fs", mke2fs), ("dumpe2fs", dumpe2fs)):
+        _copy_executable(source, tool_root / name)
+    for name, args, accepted in (
+        ("fastboot", ["--version"], (0,)),
+        ("mke2fs", ["-V"], (0, 1)),
+        ("dumpe2fs", ["-V"], (0,)),
+    ):
+        probe = _run_command([str(tool_root / name), *args], 20, check=False)
+        if probe.returncode not in accepted:
+            raise InstallerError(f"HOST PREFLIGHT: staged {name} did not run successfully")
     print(
-        f"HOST PREFLIGHT: fastboot={staged_fastboot}, mke2fs={staged_mke2fs}, "
-        f"img2simg={staged_img2simg}; userdata image tools ready before device access.",
+        f"HOST PREFLIGHT: fastboot={staged_fastboot}, mke2fs={tool_root / 'mke2fs'}, "
+        f"dumpe2fs={tool_root / 'dumpe2fs'}; userdata image tools ready before device access.",
         flush=True,
     )
     return str(staged_fastboot)
@@ -679,15 +671,150 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
     return programmed_bytes
 
 
+def _validate_userdata_partition_size(size: int) -> None:
+    if size in USERDATA_SUPPORTED_BYTES:
+        return
+    expected = ", ".join(f"{value:#x}" for value in sorted(USERDATA_SUPPORTED_BYTES))
+    raise InstallerError(
+        f"userdata partition size mismatch: expected one of {expected}, got {size:#x}"
+    )
+
+
+def _userdata_free_block_map(metadata: str, expected_bytes: int) -> bytearray:
+    """Parse C-locale dumpe2fs output, accepting only complete group free lists.
+
+    The unindented filesystem-wide 'Free blocks:' field is a COUNT, not a
+    block number. Per-group free counts, ranges and total coverage must agree.
+    Host SEEK_HOLE/SEEK_DATA information is never a filesystem allocation map.
+    """
+    blocks, remainder = divmod(expected_bytes, 4096)
+    if remainder or blocks < 1:
+        raise InstallerError("invalid userdata block geometry")
+
+    def header(name: str) -> int:
+        matches = re.findall(r"^" + re.escape(name) + r":[ \t]+([0-9]+)[ \t]*$", metadata, re.M)
+        if len(matches) != 1:
+            raise InstallerError(f"dumpe2fs missing or duplicate {name!r} header")
+        return int(matches[0])
+
+    if header("Block size") != 4096 or header("Block count") != blocks or header("First block") != 0:
+        raise InstallerError("dumpe2fs geometry does not match userdata")
+    expected_free = header("Free blocks")
+    if not 0 < expected_free < blocks:
+        raise InstallerError("dumpe2fs reported an invalid free-block count")
+    free = bytearray(blocks)
+    group = None
+    next_group = 0
+    next_block = 0
+    group_free = None
+    list_seen = False
+
+    def finish_group() -> None:
+        if group is not None:
+            if group_free is None or not list_seen:
+                raise InstallerError("dumpe2fs omitted a userdata block-group free list")
+            start, end = group
+            if sum(free[start:end + 1]) != group_free:
+                raise InstallerError("dumpe2fs block-group free count mismatch")
+
+    for line in metadata.splitlines():
+        match = re.match(r"^Group ([0-9]+): \(Blocks ([0-9]+)-([0-9]+)\)", line)
+        if line.startswith("Group "):
+            if match is None:
+                raise InstallerError("dumpe2fs reported an invalid block-group header")
+            finish_group()
+            number, start, end = map(int, match.groups())
+            if number != next_group or start != next_block or not start <= end < blocks:
+                raise InstallerError("dumpe2fs block-group coverage is inconsistent")
+            group = (start, end)
+            next_group += 1
+            next_block = end + 1
+            group_free = None
+            list_seen = False
+            continue
+        if group is None:
+            continue
+        count = re.match(r"^\s+([0-9]+) free blocks,", line)
+        if count:
+            if group_free is not None:
+                raise InstallerError("dumpe2fs repeated a block-group free count")
+            group_free = int(count[1])
+        # Only the INDENTED per-group field is an allocation range list.
+        ranges = re.fullmatch(r"[ \t]+Free blocks:[ \t]*(.*)", line)
+        if ranges is None:
+            continue
+        if list_seen:
+            raise InstallerError("dumpe2fs repeated a block-group free list")
+        list_seen = True
+        previous = group[0] - 1
+        if not ranges[1].strip():
+            continue
+        for item in ranges[1].split(","):
+            bounds = re.fullmatch(r"([0-9]+)(?:-([0-9]+))?", item.strip())
+            if bounds is None:
+                raise InstallerError("dumpe2fs reported an invalid free-block range")
+            start = int(bounds[1])
+            end = int(bounds[2] or bounds[1])
+            if not group[0] <= start <= end <= group[1] or start <= previous:
+                raise InstallerError("dumpe2fs free-block range is overlapping or outside its group")
+            free[start:end + 1] = b"\1" * (end - start + 1)
+            previous = end
+    finish_group()
+    if next_block != blocks or sum(free) != expected_free or free[0]:
+        raise InstallerError("dumpe2fs free-block map is incomplete or inconsistent")
+    return free
+
+def _write_userdata_sparse(raw: Path, sparse: Path, expected_bytes: int, metadata: str) -> int:
+    """Write Android RAW/DONT_CARE chunks from ext4 allocation, not host holes.
+
+    Every allocated block is copied byte-for-byte, INCLUDING zeroed inode
+    tables, bitmaps, journal and directory padding. Only ext4-free blocks are
+    skipped, so stale bytes on the target cannot become live metadata.
+    """
+    if raw.stat().st_size != expected_bytes:
+        raise InstallerError("generated userdata filesystem has the wrong raw size")
+    free = _userdata_free_block_map(metadata, expected_bytes)
+    programmed_bytes = (len(free) - sum(free)) * 4096
+    if programmed_bytes > 64 * 1024 * 1024:
+        raise InstallerError(
+            f"userdata allocated blocks exceed LK write budget: {programmed_bytes} bytes; "
+            "limit=67108864; refusing to flash"
+        )
+    runs = []
+    start = 0
+    while start < len(free):
+        end = start + 1
+        while end < len(free) and free[end] == free[start]:
+            end += 1
+        runs.append((start, end, bool(free[start])))
+        start = end
+    # Exclusive creation prevents accidental reuse of an older output image.
+    with raw.open("rb") as source, sparse.open("xb") as output:
+        output.write(struct.pack("<IHHHHIIII", 0xED26FF3A, 1, 0, 28, 12,
+                                 4096, len(free), len(runs), 0))
+        for start, end, unused in runs:
+            length = (end - start) * 4096
+            output.write(struct.pack("<HHII", 0xCAC3 if unused else 0xCAC1, 0,
+                                     end - start, 12 if unused else 12 + length))
+            if unused:
+                continue
+            source.seek(start * 4096)
+            while length:
+                data = source.read(min(length, 1024 * 1024))
+                if not data:
+                    raise InstallerError("userdata image truncated while copying allocated blocks")
+                output.write(data)
+                length -= len(data)
+        output.flush()
+        os.fsync(output.fileno())
+    return programmed_bytes
+
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
     """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
     verify_fastboot_product(fastboot_bin, serial)
     size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
-    if size != USERDATA_BYTES:
-        raise InstallerError(
-            f"userdata partition size mismatch: expected {USERDATA_BYTES:#x}, got {size:#x}"
-        )
+    _validate_userdata_partition_size(size)
     print(
         f"FASTBOOT STAGE: formatting only userdata as ext4 ({size} bytes); "
         "boot, system, persist, and expdb are not being formatted.",
@@ -695,8 +822,8 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
     )
     tool_root = Path(fastboot_bin).resolve().parent
     mke2fs = tool_root / "mke2fs"
-    img2simg = tool_root / "img2simg"
-    if not (mke2fs.is_file() and img2simg.is_file()):
+    dumpe2fs = tool_root / "dumpe2fs"
+    if not (mke2fs.is_file() and dumpe2fs.is_file()):
         raise InstallerError("staged userdata image tools disappeared after host preflight")
     with tempfile.TemporaryDirectory(prefix="userdata-image-", dir=tool_root) as temporary:
         root = Path(temporary)
@@ -705,74 +832,23 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         with raw.open("wb") as stream:
             stream.truncate(size)
         _run_command(
-            [
-                str(mke2fs),
-                "-F",
-                "-t",
-                "ext4",
-                "-L",
-                "LIBREECHO_DATA",
-                "-m",
-                "0",
-                "-O",
-                "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
-                "-E",
-                "lazy_itable_init=0,lazy_journal_init=0",
-                str(raw),
-            ],
+            [str(mke2fs), "-F", "-t", "ext4", "-b", "4096", "-L", "LIBREECHO_DATA",
+             "-m", "0", "-O", "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
+             "-E", "lazy_itable_init=0,lazy_journal_init=0", str(raw)],
             max(timeout, 300),
         )
-        if raw.stat().st_size != size:
-            raise InstallerError("generated userdata filesystem has the wrong raw size")
-        # img2simg -s may skip only blocks ext4 itself marks free. Materialize
-        # every allocated block (including zeroed inode tables) so stale device
-        # contents cannot become live filesystem metadata.
+        # env affects only this child process, not the caller's global locale.
         metadata = _run_command(
-            ["dumpe2fs", str(raw)], max(timeout, 300)
+            ["env", "LC_ALL=C", str(dumpe2fs), str(raw)], max(timeout, 300)
         ).stdout
-        free_blocks = bytearray(size // 4096)
-        for line in metadata.splitlines():
-            stripped = line.strip()
-            if not stripped.startswith("Free blocks:"):
-                continue
-            for item in stripped.split(":", 1)[1].split(","):
-                item = item.strip()
-                if not item:
-                    continue
-                try:
-                    start, end = (
-                        (int(value) for value in item.split("-", 1))
-                        if "-" in item
-                        else (int(item), int(item))
-                    )
-                except ValueError as error:
-                    raise InstallerError("dumpe2fs reported an invalid free-block range") from error
-                if start < 0 or end < start or end >= len(free_blocks):
-                    raise InstallerError("dumpe2fs free-block range exceeds userdata geometry")
-                free_blocks[start : end + 1] = b"\1" * (end - start + 1)
-        if not any(free_blocks):
-            raise InstallerError("dumpe2fs did not report any free userdata blocks")
-        descriptor = os.open(raw, os.O_RDWR)
-        try:
-            block = 0
-            while block < len(free_blocks):
-                if free_blocks[block]:
-                    block += 1
-                    continue
-                end = block + 1
-                while end < len(free_blocks) and not free_blocks[end]:
-                    end += 1
-                offset = block * 4096
-                length = (end - block) * 4096
-                os.pwrite(descriptor, os.pread(descriptor, length, offset), offset)
-                block = end
-        finally:
-            os.close(descriptor)
-        _run_command([str(img2simg), "-s", str(raw), str(sparse)], max(timeout, 300))
+        expected_programmed = _write_userdata_sparse(raw, sparse, size, metadata)
         programmed_bytes = _validate_android_sparse_image(sparse, size)
+        if programmed_bytes != expected_programmed:
+            raise InstallerError("userdata sparse write accounting mismatch")
         print(
             f"FASTBOOT STAGE: generated validated sparse ext4 image ({sparse.stat().st_size} bytes); "
-            f"LK will program only {programmed_bytes} bytes. Flashing only userdata.",
+            f"LK will program only {programmed_bytes} bytes and skip {size - programmed_bytes} "
+            "ext4-free bytes. Flashing only userdata.",
             flush=True,
         )
         _run_command_with_heartbeat(
@@ -1362,34 +1438,40 @@ def _state_path(state_root: Path, install_id: str) -> Path:
     return state_root / install_id / "state.json"
 
 
-def _read_state(path: Path) -> dict[str, str]:
+def _read_state(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise InstallerError("malformed installer state") from error
     if (not isinstance(value, dict) or not {"phase", "release", "bundle_sha256"}.issubset(value)
-            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted"}
+            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted", "device_serial", "slots"}
+            or not isinstance(value["phase"], str)
             or value["phase"] not in ONE_SHOT_PHASES or not isinstance(value["release"], str)
             or not RELEASE.fullmatch(value["release"])
             or not isinstance(value["bundle_sha256"], str) or not SHA256.fullmatch(value["bundle_sha256"])
-            or ("userdata_formatted" in value and not isinstance(value["userdata_formatted"], bool))):
+            or ("userdata_formatted" in value and not isinstance(value["userdata_formatted"], bool))
+            or ("device_serial" in value and (not isinstance(value["device_serial"], str)
+                or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value["device_serial"])))
+            or ("slots" in value and (not isinstance(value["slots"], str)
+                or value["slots"] not in {"a", "b", "both"}))):
         raise InstallerError("malformed installer state")
     return value
 
 
 def _write_state(path: Path, state: dict[str, Any]) -> None:
-    # Preserve the durable userdata-format marker through later phase updates,
-    # but never carry it into a newly-started release state unless the caller
-    # explicitly sets it.
-    if "userdata_formatted" not in state and path.exists():
+    # Keep device/slot binding and format evidence only within this exact bundle.
+    # Starting a fresh installation explicitly resets the prior transaction.
+    state = dict(state)
+    if state.get("phase") != "RELEASE_READY" and path.exists():
         try:
-            previous = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            previous = _read_state(path)
+        except InstallerError:
             previous = {}
         if (previous.get("release") == state.get("release")
-                and previous.get("userdata_formatted") is True):
-            state = dict(state)
-            state["userdata_formatted"] = True
+                and previous.get("bundle_sha256") == state.get("bundle_sha256")):
+            for key in ("userdata_formatted", "device_serial", "slots"):
+                if key not in state and key in previous:
+                    state[key] = previous[key]
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     os.chmod(path.parent, 0o700)
     temporary = path.with_name(path.name + ".part")
@@ -1411,6 +1493,12 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
     authoritative list of those extra names, so validate it here and allow only
     what it names rather than accepting arbitrary checksum-covered files.
     Releases without the inventory contribute nothing.
+
+    Stable tags name the numeric version, so the inventory must repeat it.
+    Development and nightly tags name a product commit instead, so the
+    inventory's own version is bound to the published plan and to the
+    ``libreecho-radar-puffin-<version>-`` namespace every replacement asset
+    must use.
     """
     inventory_path = release_dir / f"{prefix}-feature-assets.json"
     if not inventory_path.exists():
@@ -1420,6 +1508,7 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
     _safe_regular(plan_path)
     try:
         inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise InstallerError("published feature asset inventory is unreadable") from error
     if (not isinstance(inventory, dict)
@@ -1427,19 +1516,30 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
             or inventory.get("transaction_type") != "system"
             or inventory.get("activation") != "reboot"):
         raise InstallerError("published feature asset inventory is invalid")
-    if not release_tag.startswith("radar-puffin-v"):
-        raise InstallerError("published feature asset inventory needs a stable release")
-    version = release_tag.removeprefix("radar-puffin-v")
-    if not VERSION.fullmatch(version) or inventory.get("release") != version:
+    version = inventory.get("release")
+    if not isinstance(version, str) or not VERSION.fullmatch(version):
         raise InstallerError("published feature asset inventory is invalid")
+    if (not isinstance(plan, dict)
+            or plan.get("schema") != "libreecho-product-feature-plan-v1"
+            or plan.get("transaction_type") != "system"
+            or plan.get("activation") != "reboot"
+            or plan.get("release") != version):
+        raise InstallerError("published feature plan does not match the inventory")
+    if release_tag.startswith("radar-puffin-v"):
+        if release_tag.removeprefix("radar-puffin-v") != version:
+            raise InstallerError("published feature asset inventory is invalid")
+    elif not release_tag.startswith(("radar-puffin-build-", "radar-puffin-nightly-")):
+        raise InstallerError("published feature asset inventory needs a stable or dev release")
     assets = inventory.get("assets")
     if not isinstance(assets, list):
         raise InstallerError("published feature asset inventory is malformed")
+    namespace = f"libreecho-radar-puffin-{version}-"
     names = {plan_path.name, inventory_path.name}
     for item in assets:
         name = item.get("name") if isinstance(item, dict) else None
         if (not isinstance(name, str) or not name
-                or Path(name).name != name or not PUBLIC_NAME.fullmatch(name)):
+                or Path(name).name != name or not PUBLIC_NAME.fullmatch(name)
+                or not name.startswith(namespace)):
             raise InstallerError("published feature asset inventory is malformed")
         names.add(name)
     return names
@@ -1500,8 +1600,12 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
             raise InstallerError(f"checksum mismatch: {name}")
     cache = cache_root / release_tag
     downloads = cache / "downloads"
-    for name in expected:
-        _copy_atomic(release_dir / name, downloads / name)
+    # Continuation must revalidate the same complete release inventory, including
+    # optional checksum-covered metadata, even after a local source disappears.
+    if release_dir.resolve() != downloads.resolve():
+        for name in records:
+            _copy_atomic(release_dir / name, downloads / name)
+        _copy_atomic(checksums, downloads / checksums.name)
     _verify_bundle(downloads / bundle.name, manifest, cache / "bundle")
     return manifest, downloads / bundle.name
 
@@ -1559,6 +1663,9 @@ def one_shot(
     """Run Amonet, install logical boot payloads, and open first-boot setup."""
     if not execute_hardware:
         raise InstallerError("one-shot requires --execute-hardware")
+    if slots not in {"a", "b", "both"}:
+        raise InstallerError("slots must be a, b, or both")
+    adb_forward_command(adb_bin, fastboot_serial, local_port)
     cache_root = Path(cache_root)
     state_root = Path(state_root)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -1630,6 +1737,9 @@ def one_shot(
         print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
         serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
         print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
+        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag,
+                                  "bundle_sha256": bundle_sha, "userdata_formatted": False,
+                                  "device_serial": serial, "slots": slots})
         format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
         _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": True})
         print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
@@ -1707,117 +1817,200 @@ def continue_one_shot(
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
-    require_host_commands("bash", fastboot_bin, adb_bin)
     cache_root = Path(cache_root)
     cache_root.mkdir(parents=True, exist_ok=True)
-    fastboot_bin = prepare_fastboot_tools(
-        fastboot_bin, cache_root, install_host_deps=install_host_deps
-    )
-    state_path = _state_path(Path(state_root), install_id)
-    state = _read_state(state_path)
-    if not RELEASE.fullmatch(release_tag):
-        raise InstallerError("invalid continuation release tag")
-    if state["release"] != release_tag:
-        raise InstallerError(
-            f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
-        )
-    if state["phase"] not in {"AMONET_HANDOFF", "ADB_READY", "READBACK_VERIFIED"}:
-        raise InstallerError(f"continuation requires AMONET_HANDOFF, ADB_READY, or READBACK_VERIFIED state, got {state['phase']}")
-    release = state["release"]
-    cache_root = Path(cache_root)
-    release_sources = cache_root / "downloads" / release
-    if not release_sources.is_dir():
-        release_sources = cache_root / release / "downloads"
-    manifest, bundle = _prepare(release_sources, cache_root, release)
-    if _sha256(bundle) != state["bundle_sha256"]:
-        raise InstallerError("cached bundle hash changed since Amonet handoff")
-    boot = cache_root / release / "bundle" / manifest["boot"]["name"]
-    validate_public_boot_image(boot, manifest["boot"]["sha256"])
-    if slots not in {"a", "b", "both"}:
-        raise InstallerError("slots must be a, b, or both")
-    selected = ("a", "b") if slots == "both" else (slots,)
-    phase = state["phase"]
-    userdata_formatted = state.get("userdata_formatted", False)
-    if phase in {"ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted:
-        if not repair_userdata:
+    with (cache_root / ".lock").open("w") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise InstallerError("another installer is already running") from error
+        state_path = _state_path(Path(state_root), install_id)
+        state = _read_state(state_path)
+        if not isinstance(release_tag, str) or not RELEASE.fullmatch(release_tag):
+            raise InstallerError("invalid continuation release tag")
+        if state["release"] != release_tag:
             raise InstallerError(
-                "saved run reached ADB before userdata was formatted; "
-                "rerun continue-one-shot with --repair-userdata to perform "
-                "the explicit fastboot userdata format before feature staging"
+                f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
             )
-        serial = select_adb_serial(adb_bin, fastboot_serial)
-        print(
-            f"RECOVERY STAGE: exact ADB device {serial} selected; "
-            "rebooting to fastboot to repair userdata.",
-            flush=True,
-        )
-        _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20)
-        print("FASTBOOT STAGE: waiting for the repaired device.", flush=True)
-        fastboot = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
-        print(f"FASTBOOT STAGE: detected device {fastboot}; formatting userdata.", flush=True)
-        format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
-        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-        print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
-        try:
-            subprocess.run([fastboot_bin, "-s", fastboot, "reboot"], text=True, capture_output=True, timeout=20)
-        except subprocess.TimeoutExpired:
-            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
-        print("ADB STAGE: waiting for ADB after userdata repair.", flush=True)
-        wait_for_transport([adb_bin, "-s", fastboot, "get-state"], "device", adb_timeout, "ADB")
-        serial = select_adb_serial(adb_bin, fastboot)
-        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-userdata repair")
-        for slot in selected:
-            verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
-        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-    elif phase == "AMONET_HANDOFF":
-        print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
-        serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
-        print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
-        format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
-        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-        print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
-        _verify_fastboot_payload_geometry(fastboot_bin, serial)
-        _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        for slot in selected:
-            print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
-            _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
-        print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
-        _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
-        _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
-        try:
-            subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
-        except subprocess.TimeoutExpired:
-            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
-        print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
-        wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
-        print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
-        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
-        _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        print("PAYLOAD STAGE: verifying boot_a_x and boot_b_x readback.", flush=True)
-        for slot in selected:
-            verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
-        _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
-    else:
-        serial = select_adb_serial(adb_bin, fastboot_serial)
-        print(f"Resuming from {phase}; no flash or reboot will be attempted ({serial}).", flush=True)
-        if phase == "ADB_READY":
+        if state["phase"] not in {"AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "ADB_READY",
+                                  "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED"}:
+            raise InstallerError(f"cannot continue before Amonet handoff: {state['phase']}")
+        bound_serial = state.get("device_serial")
+        if bound_serial:
+            if fastboot_serial not in {"auto", bound_serial}:
+                raise InstallerError("requested device does not match the saved installation")
+            fastboot_serial = bound_serial
+        elif fastboot_serial == "auto":
+            raise InstallerError("legacy state has no device binding; specify the original --fastboot-serial")
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", fastboot_serial):
+            raise InstallerError("invalid continuation device serial")
+        if "slots" in state and state["slots"] != slots:
+            raise InstallerError("requested slots do not match the saved installation")
+        adb_forward_command(adb_bin, fastboot_serial, local_port)
+        release = state["release"]
+        cache_root = Path(cache_root)
+        release_sources = cache_root / "downloads" / release
+        if not release_sources.is_dir():
+            release_sources = cache_root / release / "downloads"
+        manifest, bundle = _prepare(release_sources, cache_root, release)
+        if _sha256(bundle) != state["bundle_sha256"]:
+            raise InstallerError("cached bundle hash changed since Amonet handoff")
+        boot = cache_root / release / "bundle" / manifest["boot"]["name"]
+        validate_public_boot_image(boot, manifest["boot"]["sha256"])
+        if slots not in {"a", "b", "both"}:
+            raise InstallerError("slots must be a, b, or both")
+        selected = ("a", "b") if slots == "both" else (slots,)
+        phase = state["phase"]
+        userdata_formatted = state.get("userdata_formatted", False)
+        staged = phase in {"FEATURES_STAGED", "WEBUI_FORWARDED"}
+        if staged and not userdata_formatted:
+            raise InstallerError("completed staging lacks userdata-format evidence; refusing destructive repair")
+        needs_repair = phase in {"BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted
+        require_host_commands(adb_bin)
+        # `BOOT_WRITTEN` is saved immediately before `fastboot reboot`. If the
+        # installer exited before that reboot completed, the device is still in
+        # fastboot and an ADB-only resume can never recover it. Probe for a
+        # still-present fastboot device so the pending reboot is issued before
+        # falling through to the ADB path; when fastboot is unavailable, keep the
+        # existing ADB-only behaviour.
+        fastboot_waiting = False
+        if (phase == "BOOT_WRITTEN" and userdata_formatted
+                and (shutil.which(fastboot_bin) is not None or Path(fastboot_bin).is_file())):
+            try:
+                fastboot_serials_present = fastboot_devices(fastboot_bin)
+            except InstallerError:
+                fastboot_serials_present = []
+            # Only the requested target counts as the pending reboot. An
+            # unrelated device sitting in fastboot must not divert this resume
+            # into `select_fastboot_serial`, which would then fail for the saved
+            # serial even though the saved device is already reachable in ADB.
+            if fastboot_serial == "auto":
+                fastboot_waiting = len(fastboot_serials_present) == 1
+            else:
+                fastboot_waiting = fastboot_serial in fastboot_serials_present
+        if (phase in {"AMONET_HANDOFF", "FASTBOOT_READY"}
+                or (needs_repair and repair_userdata) or fastboot_waiting):
+            require_host_commands("bash", fastboot_bin)
+            fastboot_bin = prepare_fastboot_tools(
+                fastboot_bin, cache_root, install_host_deps=install_host_deps
+            )
+        if needs_repair:
+            if not repair_userdata:
+                raise InstallerError(
+                    "saved run reached ADB before userdata was formatted; "
+                    "rerun continue-one-shot with --repair-userdata to perform "
+                    "the explicit fastboot userdata format before feature staging"
+                )
+            serial = select_adb_serial(adb_bin, fastboot_serial)
+            _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            print(
+                f"RECOVERY STAGE: exact ADB device {serial} selected; "
+                "rebooting to fastboot to repair userdata.",
+                flush=True,
+            )
+            _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20)
+            print("FASTBOOT STAGE: waiting for the repaired device.", flush=True)
+            fastboot = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
+            print(f"FASTBOOT STAGE: detected device {fastboot}; formatting userdata.", flush=True)
+            format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
+            _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+            print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
+            try:
+                subprocess.run([fastboot_bin, "-s", fastboot, "reboot"], text=True, capture_output=True, timeout=20)
+            except subprocess.TimeoutExpired:
+                print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+            print("ADB STAGE: waiting for ADB after userdata repair.", flush=True)
+            wait_for_transport([adb_bin, "-s", fastboot, "get-state"], "device", adb_timeout, "ADB")
+            serial = select_adb_serial(adb_bin, fastboot)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-userdata repair")
+            for slot in selected:
+                verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+            _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+        elif phase in {"AMONET_HANDOFF", "FASTBOOT_READY"}:
+            print("FASTBOOT STAGE: waiting for the unlocked fastboot device.", flush=True)
+            serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
+            print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
+            _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            if not userdata_formatted:
+                if phase == "FASTBOOT_READY" and not repair_userdata:
+                    raise InstallerError("FASTBOOT_READY lacks userdata-format evidence; explicit --repair-userdata is required")
+                format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
+            _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
+            print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
+            _verify_fastboot_payload_geometry(fastboot_bin, serial)
+            _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+            for slot in selected:
+                print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
+                _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+            print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
+            _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
+            _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
+            print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
+            try:
+                subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
+            except subprocess.TimeoutExpired:
+                print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+            print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
+            wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+            print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
+            _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
+            print("PAYLOAD STAGE: verifying boot_a_x and boot_b_x readback.", flush=True)
             for slot in selected:
                 verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
             _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-    try:
-        stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
-    except InstallerError:
-        print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
-        collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
-        raise
-    _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
-    url = f"http://127.0.0.1:{local_port}/setup.html"
-    _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-    if open_browser:
-        webbrowser.open(url)
-    return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+            print("PAYLOAD STAGE: beginning verified feature payload staging.", flush=True)
+        else:
+            if fastboot_waiting:
+                print(
+                    "FASTBOOT STAGE: device is still in fastboot after BOOT_WRITTEN; "
+                    "issuing the pending reboot.",
+                    flush=True,
+                )
+                pending_serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
+                try:
+                    subprocess.run(
+                        [fastboot_bin, "-s", pending_serial, "reboot"],
+                        text=True, capture_output=True, timeout=20,
+                    )
+                except subprocess.TimeoutExpired:
+                    print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+                print("FASTBOOT STAGE: waiting for ADB after the pending reboot.", flush=True)
+                wait_for_transport(
+                    [adb_bin, "-s", pending_serial, "get-state"], "device", adb_timeout, "ADB"
+                )
+            serial = select_adb_serial(adb_bin, fastboot_serial)
+            _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            print(
+                f"Resuming from {phase}; no further flash or reboot will be attempted ({serial}).",
+                flush=True,
+            )
+            # State from an earlier process is not current readback evidence.
+            for slot in selected:
+                verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
+            _write_state(state_path, {**state, "phase": phase if staged else "READBACK_VERIFIED",
+                                      "device_serial": serial, "slots": slots})
+        try:
+            if staged:
+                # Never overwrite an already configured/running feature just to reopen a forward.
+                for feature in manifest["features"]:
+                    _run_command([adb_bin, "-s", serial, "shell", "test", "!", "-e",
+                                  f"/data/libreecho/features/{feature['name']}/staging"], adb_timeout)
+                verify_device_features(adb_bin, serial, manifest, adb_timeout)
+            else:
+                stage_device_features(adb_bin, serial, cache_root, manifest, adb_timeout)
+        except InstallerError:
+            print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
+            raise
+        _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release,
+                                  "bundle_sha256": state["bundle_sha256"]})
+        _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
+        url = f"http://127.0.0.1:{local_port}/setup.html"
+        _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
+        if open_browser:
+            webbrowser.open(url)
+        return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
 
 
 def stage_device_features(
@@ -1844,6 +2037,9 @@ def stage_device_features(
         feature_manifest = payload_root / feature["manifest"]["name"]
         _safe_regular(payload)
         _safe_regular(feature_manifest)
+        for path, record in ((payload, feature["payload"]), (feature_manifest, feature["manifest"])):
+            if path.stat().st_size != record["size"] or _sha256(path) != record["sha256"]:
+                raise InstallerError(f"feature {name} cached {path.name} changed before staging")
         remote_payload = f"/tmp/libreecho-{name}.squashfs"
         remote_manifest = f"/tmp/libreecho-{name}.manifest.json"
         print(f"Staging feature {name} ({feature['payload']['size']} bytes)...", flush=True)
@@ -1855,7 +2051,9 @@ def stage_device_features(
             f"PAYLOAD_SHA256={feature['payload']['sha256']}\n"
             f"PAYLOAD_SIZE={feature['payload']['size']}\n"
             f"PAYLOAD_FILE={remote_payload}\n"
-            f"MANIFEST_FILE={remote_manifest}\n",
+            f"MANIFEST_FILE={remote_manifest}\n"
+            f"MANIFEST_SHA256={feature['manifest']['sha256']}\n"
+            f"MANIFEST_SIZE={feature['manifest']['size']}\n",
             encoding="ascii",
         )
         config.chmod(0o600)
@@ -1864,15 +2062,24 @@ def stage_device_features(
         if result.returncode != 0 or f"FEATURE_STAGE_OK:{name}" not in result.stdout:
             detail = (result.stderr or result.stdout).strip()[-500:]
             raise InstallerError(f"feature staging failed for {name}: {detail}")
-        installed = _run_command(
-            [adb_bin, "-s", serial, "shell", "sha256sum", f"/data/libreecho/features/{name}/payload.squashfs"],
-            timeout,
-        ).stdout
-        digest = re.search(r"\b([0-9a-f]{64})\b", installed, re.IGNORECASE)
-        if digest is None or digest.group(1).lower() != feature["payload"]["sha256"].lower():
-            raise InstallerError(f"feature {name} installed hash mismatch")
+        verify_device_features(adb_bin, serial, {"features": [feature]}, timeout)
         print(f"Feature {name} staged and verified.", flush=True)
         config.unlink(missing_ok=True)
+
+
+def verify_device_features(
+    adb_bin: str, serial: str, manifest: dict[str, Any], timeout: float = 180,
+) -> None:
+    """Read back each installed payload and manifest; an upload acknowledgement is not proof."""
+    for feature in manifest["features"]:
+        for kind, filename in (("payload", "payload.squashfs"), ("manifest", "manifest.json")):
+            path = f"/data/libreecho/features/{feature['name']}/{filename}"
+            output = _run_command(
+                [adb_bin, "-s", serial, "shell", "sha256sum", path], timeout,
+            ).stdout.strip()
+            digest = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?" + re.escape(path), output)
+            if digest is None or digest.group(1).lower() != feature[kind]["sha256"].lower():
+                raise InstallerError(f"feature {feature['name']} installed {kind} hash mismatch")
 
 
 ROOT_FEATURE_STAGER = r"""#!/bin/busybox sh
@@ -1885,6 +2092,8 @@ PAYLOAD_SHA256=
 PAYLOAD_SIZE=
 PAYLOAD_FILE=
 MANIFEST_FILE=
+MANIFEST_SHA256=
+MANIFEST_SIZE=
 while IFS='=' read -r key value; do
     case "$key" in
         FEATURE_ID) FEATURE_ID=$value ;;
@@ -1892,11 +2101,17 @@ while IFS='=' read -r key value; do
         PAYLOAD_SIZE) PAYLOAD_SIZE=$value ;;
         PAYLOAD_FILE) PAYLOAD_FILE=$value ;;
         MANIFEST_FILE) MANIFEST_FILE=$value ;;
+        MANIFEST_SHA256) MANIFEST_SHA256=$value ;;
+        MANIFEST_SIZE) MANIFEST_SIZE=$value ;;
     esac
 done < "$CONFIG"
-case "$FEATURE_ID" in ''|*[!a-z0-9._-]*) echo FEATURE_STAGE_ID_INVALID; exit 1 ;; esac
+case "$FEATURE_ID" in ''|.|..|*[!a-z0-9._-]*) echo FEATURE_STAGE_ID_INVALID; exit 1 ;; esac
 [ -f "$PAYLOAD_FILE" ] || { echo FEATURE_STAGE_PAYLOAD_MISSING; exit 1; }
-[ -f "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+[ -f "$MANIFEST_FILE" ] && [ ! -L "$MANIFEST_FILE" ] || { echo FEATURE_STAGE_MANIFEST_MISSING; exit 1; }
+case "$MANIFEST_SHA256" in ''|*[!0-9a-f]*) echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1 ;; esac
+[ "${#MANIFEST_SHA256}" -eq 64 ] || { echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1; }
+case "$MANIFEST_SIZE" in ''|*[!0-9]*) echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1 ;; esac
+[ "$MANIFEST_SIZE" -gt 0 ] || { echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1; }
 if ! $BB grep -q ' /data ' /proc/mounts 2>/dev/null; then
     [ -b /dev/mmcblk0p16 ] || { echo FEATURE_STAGE_USERDATA_MISSING; exit 1; }
     $BB mkdir -p /data
@@ -1909,17 +2124,25 @@ actual=$($BB sha256sum "$PAYLOAD_FILE" | $BB awk '{print $1}')
 [ "$actual" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_PAYLOAD_HASH_MISMATCH; exit 1; }
 actual_size=$($BB stat -c %s "$PAYLOAD_FILE" 2>/dev/null)
 [ "$actual_size" = "$PAYLOAD_SIZE" ] || { echo FEATURE_STAGE_PAYLOAD_SIZE_MISMATCH; exit 1; }
+actual=$($BB sha256sum "$MANIFEST_FILE" | $BB awk '{print $1}')
+[ "$actual" = "$MANIFEST_SHA256" ] || { echo FEATURE_STAGE_MANIFEST_HASH_MISMATCH; exit 1; }
+actual_size=$($BB stat -c %s "$MANIFEST_FILE" 2>/dev/null)
+[ "$actual_size" = "$MANIFEST_SIZE" ] || { echo FEATURE_STAGE_MANIFEST_SIZE_MISMATCH; exit 1; }
 DEST=/data/libreecho/features/$FEATURE_ID
 $BB mkdir -p "$DEST/staging"
 $BB cp "$PAYLOAD_FILE" "$DEST/staging/payload.squashfs.new"
 staged=$($BB sha256sum "$DEST/staging/payload.squashfs.new" | $BB awk '{print $1}')
 [ "$staged" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_COPY_HASH_MISMATCH; exit 1; }
+# Prepare and verify BOTH files while the staging marker prevents activation.
+$BB cp "$MANIFEST_FILE" "$DEST/staging/manifest.json.new"
+staged=$($BB sha256sum "$DEST/staging/manifest.json.new" | $BB awk '{print $1}')
+[ "$staged" = "$MANIFEST_SHA256" ] || { echo FEATURE_STAGE_MANIFEST_COPY_HASH_MISMATCH; exit 1; }
 $BB rm -f "$DEST/payload.squashfs.previous"
 if [ -f "$DEST/payload.squashfs" ]; then
     $BB mv "$DEST/payload.squashfs" "$DEST/payload.squashfs.previous"
 fi
 $BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"
-$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"
+$BB mv "$DEST/staging/manifest.json.new" "$DEST/manifest.json"
 $BB sync || { echo FEATURE_STAGE_COMMIT_SYNC_FAILED; exit 1; }
 $BB rmdir "$DEST/staging" || { echo FEATURE_STAGE_STAGING_CLEANUP_FAILED; exit 1; }
 $BB sync || { echo FEATURE_STAGE_MARKER_SYNC_FAILED; exit 1; }
@@ -1969,7 +2192,7 @@ def main() -> None:
     parser.add_argument(
         "--install-host-deps", action="store_true",
         help=(
-            "install missing e2fsprogs and android-sdk-libsparse-utils before any "
+            "install missing e2fsprogs (mke2fs/dumpe2fs) before any "
             "device operation (uses apt-get/sudo)"
         ),
     )

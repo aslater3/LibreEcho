@@ -172,10 +172,10 @@ class InstallerPublicationTests(unittest.TestCase):
             "stage and verify all five feature payloads",
             "adb",
             "fastboot",
-            "android-sdk-libsparse-utils",
+            "e2fsprogs",
             "--install-host-deps` can install only",
             "does **not** install `adb` or `fastboot`",
-            "command -v adb fastboot mke2fs img2simg",
+            "command -v adb fastboot mke2fs dumpe2fs",
         ):
             self.assertIn(marker, readme)
 
