@@ -34,6 +34,12 @@ class PointerTests(unittest.TestCase):
         for tag in ('latest','radar-puffin-v0.13.11','../main',self.tag+'\n'):
             with self.assertRaises(ValueError): pointer_bytes(self.root,tag,self.release)
 
+    def test_rejects_nightly_as_mutable_dev_pointer_source(self):
+        nightly = self.tag.replace('radar-puffin-build-', 'radar-puffin-nightly-')
+        release = self.release | {'tag_name': nightly}
+        with self.assertRaisesRegex(ValueError, 'invalid immutable dev identity'):
+            pointer_bytes(self.root, nightly, release)
+
     def test_rejects_symlink(self):
         (self.root/'extra').symlink_to('missing')
         with self.assertRaises(ValueError): pointer_bytes(self.root,self.tag,self.release)

@@ -199,7 +199,9 @@ jobs:
           fi
 
       - name: Advance verified dev discovery pointer
-        if: steps.prepare.outputs.signed == '1'
+        if: >-
+          steps.prepare.outputs.signed == '1' &&
+          github.event.workflow_run.event != 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
