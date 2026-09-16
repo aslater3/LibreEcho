@@ -2,14 +2,16 @@
 
 The publisher classifies the exact successful build artifact's release request
 before choosing a channel. Main dev push/schedule/manual builds publish dev
-prereleases; release-branch dev builds publish only on manual dispatch. Stable
-requests retain manual matching-release-branch and stable metadata gates.
+prereleases; release-branch dev builds publish only on manual dispatch. Scheduled
+nightlies remain immutable test artifacts but never advance device discovery.
+Stable requests retain manual matching-release-branch and stable metadata gates.
 
-After the complete immutable dev release is published and its asset names,
-sizes, and SHA-256 digests match the verified preparation, the publisher advances
+After a complete signed development build (never a scheduled nightly) is
+published and its asset names, sizes, and SHA-256 digests match the verified
+preparation, the publisher advances
 `radar-puffin-dev-channel/release-pointer.txt`. This prerelease is a mutable
 transport pointer, not a source tag or a signing authority. It contains exactly
-an immutable `radar-puffin-build-*` or `radar-puffin-nightly-*` tag and the SHA-256
+an immutable `radar-puffin-build-*` tag and the SHA-256
 of that release's canonical OTA, one per newline-terminated line. Only this
 pointer asset is replaced. Source tags, signed OTAs and external assets remain
 immutable; stable/latest is never used or changed for dev discovery.
