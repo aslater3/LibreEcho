@@ -61,12 +61,12 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             fake_executable(root, "mke2fs")
-            img2simg = fake_executable(root, "img2simg")
-            with mock.patch.object(INSTALLER, "_find_img2simg", return_value=img2simg):
+            dumpe2fs = fake_executable(root, "dumpe2fs")
+            with mock.patch.object(INSTALLER, "_find_dumpe2fs", return_value=dumpe2fs):
                 staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
             staged_path = Path(staged)
             self.assertEqual(staged_path.parent, root / "cache" / "host-tools")
-            for name in ("fastboot", "mke2fs", "img2simg"):
+            for name in ("fastboot", "mke2fs", "dumpe2fs"):
                 self.assertTrue((staged_path.parent / name).is_file())
             result = subprocess.run([staged, "--version"], text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 0)
@@ -76,7 +76,7 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
-                 mock.patch.object(INSTALLER, "_find_img2simg", return_value=None), \
+                 mock.patch.object(INSTALLER, "_find_dumpe2fs", return_value=None), \
                  mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
                 with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
                     INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
@@ -87,9 +87,9 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             mke2fs = fake_executable(root, "mke2fs")
-            img2simg = fake_executable(root, "img2simg")
+            dumpe2fs = fake_executable(root, "dumpe2fs")
             with mock.patch.object(INSTALLER, "_find_mke2fs", side_effect=[None, mke2fs]), \
-                 mock.patch.object(INSTALLER, "_find_img2simg", side_effect=[None, img2simg]), \
+                 mock.patch.object(INSTALLER, "_find_dumpe2fs", side_effect=[None, dumpe2fs]), \
                  mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
                 staged = INSTALLER.prepare_fastboot_tools(
                     str(fastboot), root / "cache", install_host_deps=True
@@ -1059,6 +1059,21 @@ class OneShotContinuationTests(unittest.TestCase):
         with self.assertRaisesRegex(INSTALLER.InstallerError, "execute-hardware"):
             self.continuation(execute_hardware=False)
         self.assertEqual(self.calls, [])
+
+
+
+
+class UserdataRegressionIntegrationTests(unittest.TestCase):
+    def test_userdata_regression_suite(self):
+        import subprocess
+        import sys
+        from pathlib import Path
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / 'test_userdata_sparse.py'),
+             '--require-filesystem-tools', "-v"],
+            text=True, capture_output=True, timeout=900,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

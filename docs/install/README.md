@@ -20,19 +20,18 @@
 - Data-capable USB cable
 - `adb` and `fastboot` (Debian/Ubuntu packages: `adb` and `fastboot`)
 - `bash`, `curl`, and Python 3
-- `mke2fs` (from `e2fsprogs`) and `img2simg` (from
-  `android-sdk-libsparse-utils`)
+- `mke2fs` and `dumpe2fs` (both from `e2fsprogs`)
 
 On Debian/Ubuntu, install the host tools before starting the installer:
 
 ```sh
 sudo apt-get update
-sudo apt-get install adb fastboot e2fsprogs android-sdk-libsparse-utils
+sudo apt-get install adb fastboot e2fsprogs
 ```
 
 The installer can offer to install only the filesystem-image helpers with
 `--install-host-deps`; it does **not** install `adb` or `fastboot`. Confirm they
-are available with `command -v adb fastboot mke2fs img2simg`.
+are available with `command -v adb fastboot mke2fs dumpe2fs`.
 
 - Fine-tip temperature-controlled soldering iron
 - Fine solder, flux, 30–34 AWG wire, and Kapton tape
