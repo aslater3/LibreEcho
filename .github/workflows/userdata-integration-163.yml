@@ -1,0 +1,79 @@
+name: Userdata 163 integration
+on:
+  push:
+    branches: [fix/0.14-userdata-install-163]
+    paths: ['.github/workflows/userdata-integration-163.yml', 'build/ci/userdata-fix-163.payload']
+permissions:
+  contents: write
+jobs:
+  integrate:
+    if: github.repository == 'aslater3/LibreEcho'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          path: product
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: 79e59f1e7d3252745ca78c164609ec29418ffa00
+          path: platform
+          persist-credentials: false
+      - name: Install real filesystem test dependencies
+        run: |
+          set -euo pipefail
+          timeout 300 sudo apt-get update
+          timeout 300 sudo apt-get install --no-install-recommends -y e2fsprogs build-essential busybox
+      - name: Apply hash-checked source changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, zlib
+          data = base64.b64decode(pathlib.Path('product/build/ci/userdata-fix-163.payload').read_text(), validate=False)
+          assert hashlib.sha256(data).hexdigest() == '9ffa7f5958c0972474ee5fdf03e098c79e1b64aad298b4f80840b513e5f370ca', 'bundle digest mismatch'
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'userdata-fix'
+          for name, content in json.loads(zlib.decompress(data)).items():
+              relative = pathlib.PurePosixPath(name)
+              assert not relative.is_absolute() and '..' not in relative.parts
+              path = root / relative
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content)
+          PY
+          python3 "$RUNNER_TEMP/userdata-fix/apply_fix.py" --product product --platform platform --apply
+          cd product
+          git rm .github/workflows/userdata-integration-163.yml build/ci/userdata-fix-163.payload
+          git add tools/libreecho-install.py tools/libreecho-install.py.sha256 tools/test_release_tools.py tools/test_oneshot_host_preflight.py tools/test_initial_installer_publication.py tools/test_userdata_sparse.py tools/README.md docs/install/README.md
+          git diff --cached --check
+      - name: Run real filesystem and existing installer suites
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/userdata-evidence"
+          cd product
+          {
+            python3 tools/test_userdata_sparse.py --require-filesystem-tools -v
+            python3 -m unittest tools.test_release_tools tools.test_oneshot_host_preflight tools.test_initial_installer_publication -v
+            python3 -m py_compile tools/libreecho-install.py tools/test_userdata_sparse.py
+            (cd tools && sha256sum -c libreecho-install.py.sha256)
+            git diff --cached --check
+          } 2>&1 | tee "$RUNNER_TEMP/userdata-evidence/tests.txt"
+      - name: Commit validated source on the fix branch only
+        run: |
+          set -euo pipefail
+          cd product
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(installer): generate userdata sparse images from ext4 allocation'
+          timeout 120 git push origin HEAD:refs/heads/fix/0.14-userdata-install-163
+          git rev-parse HEAD | tee "$RUNNER_TEMP/userdata-evidence/tested-head.txt"
+          git diff 477369aae3296388860ecef459088519cb1569e6 HEAD > "$RUNNER_TEMP/userdata-evidence/product.patch"
+      - name: Save bounded host evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: userdata-product-integration-${{ github.run_id }}
+          path: ${{ runner.temp }}/userdata-evidence
+          if-no-files-found: ignore
+          retention-days: 7
