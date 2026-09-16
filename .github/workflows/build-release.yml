@@ -903,6 +903,19 @@ jobs:
             "$RUNNER_TEMP/host-bin/qemu-arm-static"
           echo "$RUNNER_TEMP/host-bin" >> "$GITHUB_PATH"
 
+      - name: Run production shared mDNS startup under QEMU
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mdns_qemu_image="busybox@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f"
+          docker pull "$mdns_qemu_image"
+          python3 "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/mdns/test_packaged_runtime.py" \
+            --runtime "$RUNNER_TEMP/mdns-runtime" \
+            --manifest-sha256 "${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}" \
+            --init-wrapper "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/initramfs/libreecho-mdnsd" \
+            --qemu "$RUNNER_TEMP/host-bin/qemu-arm-static" \
+            --image "$mdns_qemu_image"
+
       - name: Stage device-tree tools for the DTB contract
         run: |
           set -euo pipefail
