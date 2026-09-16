@@ -227,13 +227,12 @@ def _find_mke2fs(fastboot_source: Path) -> Path | None:
     return None
 
 
-def _find_img2simg() -> Path | None:
-    candidate = shutil.which("img2simg")
-    if candidate is None:
-        return None
-    resolved = Path(candidate).resolve()
-    if resolved.is_file() and os.access(resolved, os.X_OK):
-        return resolved
+def _find_dumpe2fs() -> Path | None:
+    candidate = shutil.which("dumpe2fs")
+    for path in (Path(candidate) if candidate else None,
+                 Path("/usr/sbin/dumpe2fs"), Path("/sbin/dumpe2fs")):
+        if path is not None and path.is_file() and os.access(path, os.X_OK):
+            return path.resolve()
     return None
 
 
@@ -242,25 +241,18 @@ def _install_host_format_tools() -> None:
     if apt_get is None:
         raise InstallerError(
             "userdata image tools are missing and apt-get is unavailable; install "
-            "e2fsprogs and android-sdk-libsparse-utils manually before starting a hardware run"
+            "e2fsprogs manually before starting a hardware run"
         )
     prefix = [] if os.geteuid() == 0 else ([shutil.which("sudo")] if shutil.which("sudo") else None)
     if prefix is None:
         raise InstallerError(
-            "userdata image tools are missing and sudo is unavailable; install e2fsprogs "
-            "and android-sdk-libsparse-utils manually before starting a hardware run"
+            "userdata image tools are missing and sudo is unavailable; install "
+            "e2fsprogs manually before starting a hardware run"
         )
     command_prefix = [item for item in prefix if item]
-    print(
-        "HOST PREFLIGHT: installing missing userdata image tools before device access.",
-        flush=True,
-    )
+    print("HOST PREFLIGHT: installing missing userdata image tools before device access.", flush=True)
     _run_command(command_prefix + [apt_get, "update"], 300)
-    _run_command(
-        command_prefix
-        + [apt_get, "install", "-y", "e2fsprogs", "android-sdk-libsparse-utils"],
-        300,
-    )
+    _run_command(command_prefix + [apt_get, "install", "-y", "e2fsprogs"], 300)
 
 
 def prepare_fastboot_tools(
@@ -269,42 +261,38 @@ def prepare_fastboot_tools(
     *,
     install_host_deps: bool = False,
 ) -> str:
-    """Stage the complete host toolset before any device access."""
+    """Stage and probe the actual formatter dependencies before device access."""
     fastboot_source = _executable_path(fastboot_bin)
-    helper = _find_mke2fs(fastboot_source)
-    img2simg = _find_img2simg()
-    if (helper is None or img2simg is None) and install_host_deps:
+    mke2fs = _find_mke2fs(fastboot_source)
+    dumpe2fs = _find_dumpe2fs()
+    if (mke2fs is None or dumpe2fs is None) and install_host_deps:
         _install_host_format_tools()
-        helper = _find_mke2fs(fastboot_source)
-        img2simg = _find_img2simg()
-    if helper is None or img2simg is None:
+        mke2fs = _find_mke2fs(fastboot_source)
+        dumpe2fs = _find_dumpe2fs()
+    if mke2fs is None or dumpe2fs is None:
         missing = ", ".join(
-            name for name, path in (("mke2fs", helper), ("img2simg", img2simg)) if path is None
+            name for name, path in (("mke2fs", mke2fs), ("dumpe2fs", dumpe2fs)) if path is None
         )
         raise InstallerError(
             f"HOST PREFLIGHT: {missing} required for userdata image generation but not found. "
-            "Re-run with --install-host-deps or install e2fsprogs and "
-            "android-sdk-libsparse-utils manually."
+            "Re-run with --install-host-deps or install e2fsprogs manually."
         )
     tool_root = cache_root / "host-tools"
     staged_fastboot = tool_root / "fastboot"
-    staged_mke2fs = tool_root / "mke2fs"
-    staged_img2simg = tool_root / "img2simg"
     _copy_executable(fastboot_source, staged_fastboot)
-    _copy_executable(helper, staged_mke2fs)
-    _copy_executable(img2simg, staged_img2simg)
-    version = _run_command([str(staged_fastboot), "--version"], 20, check=False)
-    if version.returncode != 0:
-        raise InstallerError("HOST PREFLIGHT: staged fastboot did not run successfully")
-    mke2fs_version = _run_command([str(staged_mke2fs), "-V"], 20, check=False)
-    if mke2fs_version.returncode not in (0, 1):
-        raise InstallerError("HOST PREFLIGHT: staged mke2fs did not run successfully")
-    img2simg_probe = _run_command([str(staged_img2simg)], 20, check=False)
-    if img2simg_probe.returncode not in (0, 1, 2):
-        raise InstallerError("HOST PREFLIGHT: staged img2simg did not run successfully")
+    for name, source in (("mke2fs", mke2fs), ("dumpe2fs", dumpe2fs)):
+        _copy_executable(source, tool_root / name)
+    for name, args, accepted in (
+        ("fastboot", ["--version"], (0,)),
+        ("mke2fs", ["-V"], (0, 1)),
+        ("dumpe2fs", ["-V"], (0,)),
+    ):
+        probe = _run_command([str(tool_root / name), *args], 20, check=False)
+        if probe.returncode not in accepted:
+            raise InstallerError(f"HOST PREFLIGHT: staged {name} did not run successfully")
     print(
-        f"HOST PREFLIGHT: fastboot={staged_fastboot}, mke2fs={staged_mke2fs}, "
-        f"img2simg={staged_img2simg}; userdata image tools ready before device access.",
+        f"HOST PREFLIGHT: fastboot={staged_fastboot}, mke2fs={tool_root / 'mke2fs'}, "
+        f"dumpe2fs={tool_root / 'dumpe2fs'}; userdata image tools ready before device access.",
         flush=True,
     )
     return str(staged_fastboot)
@@ -692,6 +680,135 @@ def _validate_userdata_partition_size(size: int) -> None:
     )
 
 
+def _userdata_free_block_map(metadata: str, expected_bytes: int) -> bytearray:
+    """Parse C-locale dumpe2fs output, accepting only complete group free lists.
+
+    The unindented filesystem-wide 'Free blocks:' field is a COUNT, not a
+    block number. Per-group free counts, ranges and total coverage must agree.
+    Host SEEK_HOLE/SEEK_DATA information is never a filesystem allocation map.
+    """
+    blocks, remainder = divmod(expected_bytes, 4096)
+    if remainder or blocks < 1:
+        raise InstallerError("invalid userdata block geometry")
+
+    def header(name: str) -> int:
+        matches = re.findall(r"^" + re.escape(name) + r":[ \t]+([0-9]+)[ \t]*$", metadata, re.M)
+        if len(matches) != 1:
+            raise InstallerError(f"dumpe2fs missing or duplicate {name!r} header")
+        return int(matches[0])
+
+    if header("Block size") != 4096 or header("Block count") != blocks or header("First block") != 0:
+        raise InstallerError("dumpe2fs geometry does not match userdata")
+    expected_free = header("Free blocks")
+    if not 0 < expected_free < blocks:
+        raise InstallerError("dumpe2fs reported an invalid free-block count")
+    free = bytearray(blocks)
+    group = None
+    next_group = 0
+    next_block = 0
+    group_free = None
+    list_seen = False
+
+    def finish_group() -> None:
+        if group is not None:
+            if group_free is None or not list_seen:
+                raise InstallerError("dumpe2fs omitted a userdata block-group free list")
+            start, end = group
+            if sum(free[start:end + 1]) != group_free:
+                raise InstallerError("dumpe2fs block-group free count mismatch")
+
+    for line in metadata.splitlines():
+        match = re.match(r"^Group ([0-9]+): \(Blocks ([0-9]+)-([0-9]+)\)", line)
+        if line.startswith("Group "):
+            if match is None:
+                raise InstallerError("dumpe2fs reported an invalid block-group header")
+            finish_group()
+            number, start, end = map(int, match.groups())
+            if number != next_group or start != next_block or not start <= end < blocks:
+                raise InstallerError("dumpe2fs block-group coverage is inconsistent")
+            group = (start, end)
+            next_group += 1
+            next_block = end + 1
+            group_free = None
+            list_seen = False
+            continue
+        if group is None:
+            continue
+        count = re.match(r"^\s+([0-9]+) free blocks,", line)
+        if count:
+            if group_free is not None:
+                raise InstallerError("dumpe2fs repeated a block-group free count")
+            group_free = int(count[1])
+        # Only the INDENTED per-group field is an allocation range list.
+        ranges = re.fullmatch(r"[ \t]+Free blocks:[ \t]*(.*)", line)
+        if ranges is None:
+            continue
+        if list_seen:
+            raise InstallerError("dumpe2fs repeated a block-group free list")
+        list_seen = True
+        previous = group[0] - 1
+        if not ranges[1].strip():
+            continue
+        for item in ranges[1].split(","):
+            bounds = re.fullmatch(r"([0-9]+)(?:-([0-9]+))?", item.strip())
+            if bounds is None:
+                raise InstallerError("dumpe2fs reported an invalid free-block range")
+            start = int(bounds[1])
+            end = int(bounds[2] or bounds[1])
+            if not group[0] <= start <= end <= group[1] or start <= previous:
+                raise InstallerError("dumpe2fs free-block range is overlapping or outside its group")
+            free[start:end + 1] = b"\1" * (end - start + 1)
+            previous = end
+    finish_group()
+    if next_block != blocks or sum(free) != expected_free or free[0]:
+        raise InstallerError("dumpe2fs free-block map is incomplete or inconsistent")
+    return free
+
+def _write_userdata_sparse(raw: Path, sparse: Path, expected_bytes: int, metadata: str) -> int:
+    """Write Android RAW/DONT_CARE chunks from ext4 allocation, not host holes.
+
+    Every allocated block is copied byte-for-byte, INCLUDING zeroed inode
+    tables, bitmaps, journal and directory padding. Only ext4-free blocks are
+    skipped, so stale bytes on the target cannot become live metadata.
+    """
+    if raw.stat().st_size != expected_bytes:
+        raise InstallerError("generated userdata filesystem has the wrong raw size")
+    free = _userdata_free_block_map(metadata, expected_bytes)
+    programmed_bytes = (len(free) - sum(free)) * 4096
+    if programmed_bytes > 64 * 1024 * 1024:
+        raise InstallerError(
+            f"userdata allocated blocks exceed LK write budget: {programmed_bytes} bytes; "
+            "limit=67108864; refusing to flash"
+        )
+    runs = []
+    start = 0
+    while start < len(free):
+        end = start + 1
+        while end < len(free) and free[end] == free[start]:
+            end += 1
+        runs.append((start, end, bool(free[start])))
+        start = end
+    # Exclusive creation prevents accidental reuse of an older output image.
+    with raw.open("rb") as source, sparse.open("xb") as output:
+        output.write(struct.pack("<IHHHHIIII", 0xED26FF3A, 1, 0, 28, 12,
+                                 4096, len(free), len(runs), 0))
+        for start, end, unused in runs:
+            length = (end - start) * 4096
+            output.write(struct.pack("<HHII", 0xCAC3 if unused else 0xCAC1, 0,
+                                     end - start, 12 if unused else 12 + length))
+            if unused:
+                continue
+            source.seek(start * 4096)
+            while length:
+                data = source.read(min(length, 1024 * 1024))
+                if not data:
+                    raise InstallerError("userdata image truncated while copying allocated blocks")
+                output.write(data)
+                length -= len(data)
+        output.flush()
+        os.fsync(output.fileno())
+    return programmed_bytes
+
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
     """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
@@ -705,8 +822,8 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
     )
     tool_root = Path(fastboot_bin).resolve().parent
     mke2fs = tool_root / "mke2fs"
-    img2simg = tool_root / "img2simg"
-    if not (mke2fs.is_file() and img2simg.is_file()):
+    dumpe2fs = tool_root / "dumpe2fs"
+    if not (mke2fs.is_file() and dumpe2fs.is_file()):
         raise InstallerError("staged userdata image tools disappeared after host preflight")
     with tempfile.TemporaryDirectory(prefix="userdata-image-", dir=tool_root) as temporary:
         root = Path(temporary)
@@ -715,74 +832,23 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         with raw.open("wb") as stream:
             stream.truncate(size)
         _run_command(
-            [
-                str(mke2fs),
-                "-F",
-                "-t",
-                "ext4",
-                "-L",
-                "LIBREECHO_DATA",
-                "-m",
-                "0",
-                "-O",
-                "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
-                "-E",
-                "lazy_itable_init=0,lazy_journal_init=0",
-                str(raw),
-            ],
+            [str(mke2fs), "-F", "-t", "ext4", "-b", "4096", "-L", "LIBREECHO_DATA",
+             "-m", "0", "-O", "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
+             "-E", "lazy_itable_init=0,lazy_journal_init=0", str(raw)],
             max(timeout, 300),
         )
-        if raw.stat().st_size != size:
-            raise InstallerError("generated userdata filesystem has the wrong raw size")
-        # img2simg -s may skip only blocks ext4 itself marks free. Materialize
-        # every allocated block (including zeroed inode tables) so stale device
-        # contents cannot become live filesystem metadata.
+        # env affects only this child process, not the caller's global locale.
         metadata = _run_command(
-            ["dumpe2fs", str(raw)], max(timeout, 300)
+            ["env", "LC_ALL=C", str(dumpe2fs), str(raw)], max(timeout, 300)
         ).stdout
-        free_blocks = bytearray(size // 4096)
-        for line in metadata.splitlines():
-            stripped = line.strip()
-            if not stripped.startswith("Free blocks:"):
-                continue
-            for item in stripped.split(":", 1)[1].split(","):
-                item = item.strip()
-                if not item:
-                    continue
-                try:
-                    start, end = (
-                        (int(value) for value in item.split("-", 1))
-                        if "-" in item
-                        else (int(item), int(item))
-                    )
-                except ValueError as error:
-                    raise InstallerError("dumpe2fs reported an invalid free-block range") from error
-                if start < 0 or end < start or end >= len(free_blocks):
-                    raise InstallerError("dumpe2fs free-block range exceeds userdata geometry")
-                free_blocks[start : end + 1] = b"\1" * (end - start + 1)
-        if not any(free_blocks):
-            raise InstallerError("dumpe2fs did not report any free userdata blocks")
-        descriptor = os.open(raw, os.O_RDWR)
-        try:
-            block = 0
-            while block < len(free_blocks):
-                if free_blocks[block]:
-                    block += 1
-                    continue
-                end = block + 1
-                while end < len(free_blocks) and not free_blocks[end]:
-                    end += 1
-                offset = block * 4096
-                length = (end - block) * 4096
-                os.pwrite(descriptor, os.pread(descriptor, length, offset), offset)
-                block = end
-        finally:
-            os.close(descriptor)
-        _run_command([str(img2simg), "-s", str(raw), str(sparse)], max(timeout, 300))
+        expected_programmed = _write_userdata_sparse(raw, sparse, size, metadata)
         programmed_bytes = _validate_android_sparse_image(sparse, size)
+        if programmed_bytes != expected_programmed:
+            raise InstallerError("userdata sparse write accounting mismatch")
         print(
             f"FASTBOOT STAGE: generated validated sparse ext4 image ({sparse.stat().st_size} bytes); "
-            f"LK will program only {programmed_bytes} bytes. Flashing only userdata.",
+            f"LK will program only {programmed_bytes} bytes and skip {size - programmed_bytes} "
+            "ext4-free bytes. Flashing only userdata.",
             flush=True,
         )
         _run_command_with_heartbeat(
@@ -2126,7 +2192,7 @@ def main() -> None:
     parser.add_argument(
         "--install-host-deps", action="store_true",
         help=(
-            "install missing e2fsprogs and android-sdk-libsparse-utils before any "
+            "install missing e2fsprogs (mke2fs/dumpe2fs) before any "
             "device operation (uses apt-get/sudo)"
         ),
     )

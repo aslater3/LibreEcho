@@ -36,34 +36,33 @@ verify/download Product release
 ```
 
 The installer also performs a host preflight before BROM. It stages private
-copies of `fastboot`, `mke2fs`, and `img2simg` under the cache directory. To
+copies of `fastboot`, `mke2fs`, and `dumpe2fs` under the cache directory. To
 avoid distro fastboot's incompatible internal ext4 generator, the installer
 builds userdata with the reviewed ext4 feature set, converts it to Android
 sparse format, validates the sparse header and exact expanded geometry, and
 flashes only `userdata`. If either image helper is absent, the installer stops
 before device access with the exact repair command. To let it install
-`e2fsprogs` and `android-sdk-libsparse-utils` using `apt-get`/`sudo`, add
+`e2fsprogs` using `apt-get`/`sudo`, add
 `--install-host-deps`.
 
 Host requirements are validated before the BROM handoff:
 
 ```text
-bash, adb, fastboot, executable mke2fs, executable img2simg, staged tool probes
+bash, adb, fastboot, executable mke2fs, executable dumpe2fs, staged tool probes
 ```
 
 On Debian/Ubuntu, install the required host tools before using `one-shot`:
 
 ```sh
 sudo apt-get update
-sudo apt-get install adb fastboot e2fsprogs android-sdk-libsparse-utils
+sudo apt-get install adb fastboot e2fsprogs
 ```
 
-`--install-host-deps` can install only `e2fsprogs` and
-`android-sdk-libsparse-utils`; it does **not** install `adb` or `fastboot`.
+`--install-host-deps` can install only `e2fsprogs`; it does **not** install `adb` or `fastboot`.
 Check the complete tool closure with:
 
 ```sh
-command -v adb fastboot mke2fs img2simg
+command -v adb fastboot mke2fs dumpe2fs
 ```
 
 It does not flash Amonet wrapper partitions directly or invent credentials. The
@@ -200,3 +199,21 @@ The model is based on measured hardware dimensions: 3.0 mm pin pitch, approximat
 v5 is specifically designed for a 0.4 mm FDM nozzle. Instead of relying on marginal 0.68–0.75 mm printed holes, it uses flared through-channels and provides 0.80, 0.90, 1.00, 1.10 and 1.20 mm bore variants plus a calibration coupon. Print the coupon first; 1.00 mm is the recommended starting carrier for the measured 0.66 mm pins. If adhesive is required, use only a small amount at the wiring-side pocket and keep it clear of the moving plunger.
 
 This is a hardware-development aid, not a required part of the LibreEcho software installation path.
+
+## Userdata allocation contract (0.14)
+
+The formatter fixes the ext4 block size at 4096 bytes and runs the staged
+`dumpe2fs` in the C locale. It checks complete per-group free-block lists against
+the filesystem and group free counts before emitting Android sparse data.
+Filesystem-wide `Free blocks:` is a count, never a block address.
+
+Android `DONT_CARE` chunks cover only blocks ext4 marks free. Every allocated
+block, including zeroed inode tables, bitmaps and journal blocks, is emitted as
+`RAW`. No host filesystem hole support is required. The 64 MiB programmed-data
+limit, product identity checks, and exact two-layout allowlist are retained.
+This initialisation is not a secure erase of unallocated old data.
+
+The corresponding Platform image must accept 2,137,088 and 2,153,472 sectors for
+userdata during init, feature staging, updater validation and boot control.
+Publish a fresh immutable installer and rebuilt Platform/boot image together;
+changing only the installer cannot fix an older image's runtime guards.

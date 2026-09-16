@@ -90,13 +90,13 @@ class HostFastbootPreflightTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             fake_executable(root, "mke2fs")
-            img2simg = fake_executable(root, "img2simg")
-            with mock.patch.object(INSTALLER, "_find_img2simg", return_value=img2simg):
+            dumpe2fs = fake_executable(root, "dumpe2fs")
+            with mock.patch.object(INSTALLER, "_find_dumpe2fs", return_value=dumpe2fs):
                 staged = Path(
                     INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
                 )
             self.assertEqual(staged, root / "cache" / "host-tools" / "fastboot")
-            for name in ("fastboot", "mke2fs", "img2simg"):
+            for name in ("fastboot", "mke2fs", "dumpe2fs"):
                 helper = staged.with_name(name)
                 self.assertTrue(helper.is_file())
                 self.assertTrue(helper.stat().st_mode & 0o111)
@@ -110,38 +110,43 @@ class HostFastbootPreflightTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             fake_executable(root, "mke2fs")
-            fake_executable(root, "img2simg")
-            commands: list[list[str]] = []
-            timeouts: list[float] = []
+            fake_executable(root, "dumpe2fs")
+            commands = []
+            timeouts = []
+            blocks = INSTALLER.USERDATA_BYTES // 4096
+            # A synthetic filesystem with only block zero allocated; unlike
+            # the old stub this exercises the real sparse writer and validator.
+            metadata = (
+                f"Block count: {blocks}\nBlock size: 4096\nFirst block: 0\n"
+                f"Free blocks: {blocks - 1}\nGroup 0: (Blocks 0-{blocks - 1})\n"
+                f"  {blocks - 1} free blocks, 1 free inodes, 0 directories\n"
+                f"  Free blocks: 1-{blocks - 1}\n"
+            )
 
             def fake_run(argv, timeout, *args, check=True):
                 command = list(argv)
                 commands.append(command)
                 timeouts.append(timeout)
-                if Path(command[0]).name == "dumpe2fs":
-                    return subprocess.CompletedProcess(
-                        command, 0, "Free blocks: 1-267135\n", ""
+                output = metadata if command[:2] == ["env", "LC_ALL=C"] else ""
+                if command[3:5] == ["flash", "userdata"]:
+                    self.assertEqual(
+                        INSTALLER._validate_android_sparse_image(Path(command[5]), INSTALLER.USERDATA_BYTES),
+                        4096,
                     )
-                if Path(command[0]).name == "img2simg":
-                    Path(command[-1]).write_bytes(sparse_header(INSTALLER.USERDATA_BYTES))
-                return subprocess.CompletedProcess(command, 0, "", "")
+                return subprocess.CompletedProcess(command, 0, output, "")
 
             with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
-                 mock.patch.object(
-                     INSTALLER,
-                     "_fastboot_partition_size",
-                     return_value=INSTALLER.USERDATA_BYTES,
-                 ), \
+                 mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES), \
                  mock.patch.object(INSTALLER, "_run_command", side_effect=fake_run), \
-                 mock.patch.object(
-                     INSTALLER, "_run_command_with_heartbeat", side_effect=fake_run
-                 ):
+                 mock.patch.object(INSTALLER, "_run_command_with_heartbeat", side_effect=fake_run):
                 INSTALLER.format_userdata_in_fastboot(str(fastboot), "SERIAL", 120)
 
-            mke2fs = next(command for command in commands if Path(command[0]).name == "mke2fs")
+            mke2fs = commands[0]
+            self.assertEqual(Path(mke2fs[0]).name, "mke2fs")
             self.assertIn("^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file", mke2fs)
-            img2simg = next(command for command in commands if Path(command[0]).name == "img2simg")
-            self.assertEqual(img2simg[1], "-s")
+            self.assertEqual(mke2fs[mke2fs.index("-b") + 1], "4096")
+            self.assertEqual(commands[1][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
+            self.assertEqual(len(commands), 3)
             self.assertFalse(any("format:ext4" in command for command in commands))
             flash = commands[-1]
             self.assertEqual(flash[:5], [str(fastboot), "-s", "SERIAL", "flash", "userdata"])
@@ -183,7 +188,7 @@ class HostFastbootPreflightTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
-                 mock.patch.object(INSTALLER, "_find_img2simg", return_value=None), \
+                 mock.patch.object(INSTALLER, "_find_dumpe2fs", return_value=None), \
                  mock.patch.object(INSTALLER, "_install_host_format_tools") as install:
                 with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
                     INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
@@ -192,7 +197,7 @@ class HostFastbootPreflightTests(unittest.TestCase):
     def test_missing_dependency_install_is_opt_in(self) -> None:
         source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
         self.assertIn("--install-host-deps", source)
-        self.assertIn("android-sdk-libsparse-utils", source)
+        self.assertIn("e2fsprogs", source)
         result = subprocess.run(
             ["python3", str(ROOT / "tools/libreecho-install.py"), "--help"],
             capture_output=True,
