@@ -342,6 +342,8 @@ class Tests(unittest.TestCase):
   self.assertIn("needs.route-publication.outputs.channel == 'stable'", PUBLISH)
   self.assertIn('python3 build/ci/release_route.py', PUBLISH)
   self.assertIn('python3 build/ci/publish_dev_pointer.py', PUBLISH)
+  pointer_step = PUBLISH.split('      - name: Advance verified dev discovery pointer', 1)[1].split('\n      - ', 1)[0]
+  self.assertIn("github.event.workflow_run.event != 'schedule'", pointer_step)
   self.assertIn('prepare-stable-release.py', PUBLISH)
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)

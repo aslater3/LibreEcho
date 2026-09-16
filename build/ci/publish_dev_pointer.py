@@ -14,7 +14,10 @@ import subprocess
 import tempfile
 
 CHANNEL = 'radar-puffin-dev-channel'
-TAG = re.compile(r'radar-puffin-(?:build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}')
+# The mutable dev pointer is advanced only by deliberate development builds.
+# Scheduled nightlies remain immutable test artifacts and must never supersede
+# an active release-branch candidate merely because they were published later.
+TAG = re.compile(r'radar-puffin-build-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}')
 
 
 def sha(path):
