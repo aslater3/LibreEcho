@@ -497,6 +497,14 @@ class Tests(unittest.TestCase):
   self.assertIn('LIBREECHO_MDNS_RUNTIME_ROOT: ${{ runner.temp }}/mdns-runtime', W)
   self.assertIn('LIBREECHO_MDNS_RUNTIME_SOURCE_MAP: ${{ runner.temp }}/mdns-runtime-provenance.json', W)
   self.assertIn('LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256: ${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}', W)
+  # Run the production init wrapper with the real packaged ARM daemons. The
+  # image is digest-pinned and the wrapper must create its own machine ID,
+  # sockets, pidfile, and lifecycle state inside the disposable namespace.
+  self.assertIn('Run production shared mDNS startup under QEMU', W)
+  self.assertIn('tools/mt8163-arm32/mdns/test_packaged_runtime.py', W)
+  self.assertIn('--init-wrapper "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/initramfs/libreecho-mdnsd"', W)
+  self.assertIn('busybox@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f', W)
+  self.assertIn('--qemu "$RUNNER_TEMP/host-bin/qemu-arm-static"', W)
   # The runtime stage carries no feature-selection condition and no channel
   # condition: it must run for every build that produces an image.
   step = W.split('      - name: Build and verify the shared mDNS discovery runtime', 1)[1].split('\n      - ', 1)[0]
