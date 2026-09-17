@@ -287,6 +287,7 @@ jobs:
             build.tests.test_ota_v2_signing \
             build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
+            build.tests.test_ui_mbedtls_pipeline \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
             build.tests.test_generate_release_notes \
@@ -626,6 +627,48 @@ jobs:
             --find-links "$wheelhouse" \
             --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
+      - name: Install the pinned mbedTLS build interpreter
+        run: |
+          set -euo pipefail
+          # The Platform mbedTLS builder regenerates the PSA driver wrappers
+          # from the bundled Jinja templates, so it needs the exact jinja2 and
+          # jsonschema versions recorded in its SOURCE.lock.  The closure is
+          # installed from the reviewed wheel set only: --no-index plus
+          # --require-hashes refuses any package that is not the reviewed file,
+          # and the closure pins cp311 wheels, so the interpreter is checked
+          # before anything is installed.
+          wheelhouse="$RUNNER_TEMP/public-deps/python-wheels"
+          venv="$RUNNER_TEMP/mbedtls-build-venv"
+          test -f "$wheelhouse/mbedtls-build-requirements.txt"
+          test -f "$wheelhouse/jinja2-3.1.6-py3-none-any.whl"
+          test -f "$wheelhouse/jsonschema-4.25.1-py3-none-any.whl"
+          python - <<'PY'
+          import sys
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit(
+                  "ERROR: the reviewed mbedTLS build wheel closure targets "
+                  "CPython 3.11, found " + ".".join(map(str, sys.version_info[:3]))
+              )
+          PY
+          rm -rf "$venv"
+          python -m venv "$venv"
+          "$venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --find-links "$wheelhouse" \
+            --require-hashes \
+            --requirement "$wheelhouse/mbedtls-build-requirements.txt"
+          "$venv/bin/python" - <<'PY'
+          import importlib.metadata as metadata
+          for module, expected in (("jinja2", "3.1.6"), ("jsonschema", "4.25.1")):
+              actual = metadata.version(module)
+              if actual != expected:
+                  raise SystemExit(
+                      "ERROR: pinned mbedTLS build requirement mismatch: "
+                      f"{module}: expected {expected}, found {actual}"
+                  )
+          print("mbedTLS build interpreter ready")
+          PY
       - name: Verify stable UI version marker
         if: needs.resolve-and-preflight.outputs.channel == 'stable'
         env:
@@ -1166,6 +1209,12 @@ jobs:
           LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
           LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
           LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
+          # The production UI bundle links the pinned ARM32 Mbed TLS prefix:
+          # the reviewed source archive and the pinned wheel-closure
+          # interpreter are build inputs exactly like the other source-locked
+          # components.
+          LIBREECHO_MBEDTLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/mbedtls-3.6.4.tar.bz2
+          LIBREECHO_MBEDTLS_BUILD_PYTHON: ${{ runner.temp }}/mbedtls-build-venv/bin/python
           LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
           LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
           LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.derived.onnx

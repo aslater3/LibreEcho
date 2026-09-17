@@ -30,6 +30,12 @@ complete notices and component inventory.
 - **libnl 3.11.0** — LGPL-2.1-only; the pinned source archive and public
   Platform build instructions allow rebuilding and relinking the statically
   incorporated `libnl-3` and `libnl-genl-3` code.
+- **Mbed TLS 3.6.4** — Apache-2.0; rebuilt from the pinned upstream release
+  archive as static ARM32 `libmbedcrypto`, `libmbedx509`, and `libmbedtls`
+  archives and linked into the Web UI (`libreecho-web`) and the radio client
+  (`libreecho-radiod`). The upstream `LICENSE` ships beside the archives and the
+  pinned source + build record is named in
+  `release/CORE-RUNTIME-SOURCE-OFFER.md`.
 - **wireless-tools, wireless-regdb, libsodium, and TinyALSA** are source-locked and
   independently checked or rebuilt for the exact core-image/OTA outputs. Their
   GPL/LGPL, ISC, and BSD-3-Clause terms remain applicable.

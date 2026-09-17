@@ -73,6 +73,21 @@
       ]
     },
     {
+      "id": "mbedtls",
+      "name": "Mbed TLS static ARM32 TLS for the Web UI and radiod",
+      "version": "3.6.4",
+      "license": "Apache-2.0",
+      "release_status": "cleared",
+      "distribution_scope": "core-image",
+      "download_location": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/mbedtls-3.6.4.tar.bz2",
+      "source_offer": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/mbedtls-3.6.4.tar.bz2",
+      "evidence": [
+        "release/THIRD_PARTY_NOTICES.md",
+        "release/CORE-RUNTIME-SOURCE-OFFER.md"
+      ],
+      "source_archive_sha256": "ec35b18a6c593cf98c3e30db8b98ff93e8940a8c4e690e66b41dfc011d678110"
+    },
+    {
       "id": "busybox",
       "name": "BusyBox runtime",
       "version": "1.37.0",
