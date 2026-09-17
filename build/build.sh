@@ -1318,6 +1318,30 @@ mbedtls_archive_sha="$(sha256sum "$MBEDTLS_SOURCE_ARCHIVE" | awk '{print $1}')"
   echo "ERROR: mbedTLS source archive $MBEDTLS_SOURCE_ARCHIVE does not match the pinned source lock" >&2
   exit 1
 }
+# The builder regenerates its sources with this interpreter, so the installed
+# dependency closure is part of the component identity: a prefix produced by a
+# different jinja2/jsonschema set must never satisfy this key.
+mbedtls_interpreter_identity=
+if ! mbedtls_interpreter_identity="$("$MBEDTLS_BUILD_PYTHON" -B - <<'PY'
+import importlib.metadata as metadata
+import platform
+
+records = ["python==" + platform.python_version()]
+for distribution in metadata.distributions():
+    name = distribution.metadata["Name"]
+    if name:
+        records.append(f"{name}=={distribution.version}")
+print("\n".join(sorted(records)))
+PY
+)"; then
+  echo "ERROR: the pinned mbedTLS build interpreter cannot report its closure: $MBEDTLS_BUILD_PYTHON" >&2
+  exit 1
+fi
+[[ -n "$mbedtls_interpreter_identity" ]] || {
+  echo "ERROR: the pinned mbedTLS build interpreter reported an empty closure: $MBEDTLS_BUILD_PYTHON" >&2
+  exit 1
+}
+mbedtls_interpreter_sha="$(printf '%s\n' "$mbedtls_interpreter_identity" | sha256sum | awk '{print $1}')"
 mbedtls_cache_key="$(component_cache_key mbedtls-arm32 \
   --tree "platform-mbedtls=$TOOLS_DIR/mbedtls" \
   --file "builder=$MBEDTLS_BUILDER" \
@@ -1327,6 +1351,7 @@ mbedtls_cache_key="$(component_cache_key mbedtls-arm32 \
   --value "version=$mbedtls_version" \
   --value "source_sha256=$mbedtls_archive_sha" \
   --value "target=$mbedtls_target" \
+  --value "build-interpreter=$mbedtls_interpreter_sha" \
   --value "ui-toolchain=$UI_TOOLCHAIN_KEY" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY")"
 record_component_identity mbedtls-arm32 "$mbedtls_cache_key"

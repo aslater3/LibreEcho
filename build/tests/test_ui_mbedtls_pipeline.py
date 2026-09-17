@@ -386,6 +386,21 @@ printf '{{"name":"mbedtls","version":"{version}"}}\\n' >"$output/mbedtls-source.
 printf 'mbedtls_version={version}\\n'
 """
 
+# Stand-in for the pinned build interpreter: it reports the installed
+# distribution closure the shipped block must bind into the component key.
+# FIXTURE_MBEDTLS_CLOSURE lets a test shift one installed version.
+INTERPRETER_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-B" && "${2:-}" == "-" ]]; then
+  cat >/dev/null
+  printf '%s\\n' "${FIXTURE_MBEDTLS_CLOSURE:-python==3.11.14
+jinja2==3.1.6
+jsonschema==4.25.1}"
+  exit 0
+fi
+exit 0
+"""
+
 
 class MbedtlsComponentBlockTests(unittest.TestCase):
     """Replay the shipped component block with the shipped cache helpers."""
@@ -411,7 +426,7 @@ class MbedtlsComponentBlockTests(unittest.TestCase):
             tool.chmod(0o755)
         self.interpreter = self.work / "mbedtls-build-venv/bin/python"
         self.interpreter.parent.mkdir(parents=True)
-        self.interpreter.write_text("fixture\n")
+        self.interpreter.write_text(INTERPRETER_TEMPLATE)
         self.interpreter.chmod(0o755)
         self.core_key = "9" * 64
 
@@ -524,6 +539,7 @@ class MbedtlsComponentBlockTests(unittest.TestCase):
              "--value", f"version={MBEDTLS_VERSION}",
              "--value", f"source_sha256={json.loads(self.lock.read_text())['source_sha256']}",
              "--value", "target=arm-linux-gnueabihf-static",
+             "--value", "build-interpreter=" + self.pinned_interpreter_sha(),
              "--value", "ui-toolchain=" + self.ui_toolchain_key(),
              "--value", f"core-toolchain={self.core_key}"],
             text=True).strip()
@@ -537,6 +553,46 @@ class MbedtlsComponentBlockTests(unittest.TestCase):
         self.assertEqual(recorded[0]["root"], str(prefix))
         self.assertIn(f"mbedtls_component_key={key}", result.stdout)
         self.assertIn("mbedtls_version=" + MBEDTLS_VERSION, result.stdout)
+
+    def component_key(self, result) -> str:
+        for line in result.stdout.splitlines():
+            if line.startswith("mbedtls_component_key="):
+                return line.split("=", 1)[1]
+        raise AssertionError(f"no component key recorded: {result.stdout[-400:]!r}")
+
+    def pinned_interpreter_sha(self) -> str:
+        """Digest of the closure the fixture interpreter reports.
+
+        Mirrors the shipped block: the block reads the reported ``name==version``
+        records through a command substitution and hashes them with ``printf
+        '%s\\n'``, so the digest covers exactly the reported text plus its final
+        newline.
+        """
+        reported = subprocess.check_output(
+            [str(self.interpreter), "-B", "-"], input="", text=True,
+        )
+        return hashlib.sha256(reported.encode()).hexdigest()
+
+    def test_component_key_binds_the_build_interpreter_closure(self):
+        """A cached prefix must never be restored for a different interpreter."""
+        cache = self.work / "cache"
+        pinned = "python==3.11.14\njinja2==3.1.6\njsonschema==4.25.1"
+        first = self.run_block(
+            self.work / "run-a", cache, env={"FIXTURE_MBEDTLS_CLOSURE": pinned}
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        reused = self.run_block(
+            self.work / "run-b", cache, env={"FIXTURE_MBEDTLS_CLOSURE": pinned}
+        )
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertIn("component_cache_hit=mbedtls-arm32", reused.stdout)
+        shifted = "python==3.11.14\njinja2==3.1.5\njsonschema==4.25.1"
+        changed = self.run_block(
+            self.work / "run-c", cache, env={"FIXTURE_MBEDTLS_CLOSURE": shifted}
+        )
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertNotEqual(self.component_key(first), self.component_key(changed))
+        self.assertNotIn("component_cache_hit=mbedtls-arm32", changed.stdout)
 
     def test_second_identical_run_restores_the_cached_component(self):
         cache = self.work / "cache"
