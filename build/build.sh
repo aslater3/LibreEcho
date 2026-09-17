@@ -109,6 +109,17 @@ UI_SOURCE="${LIBREECHO_UI_SRC:?ERROR: set LIBREECHO_UI_SRC explicitly}"
 UI_CROSS="${LIBREECHO_UI_CROSS:-/usr/bin/arm-linux-gnueabihf-}"
 CORE_RUNTIME_SYSROOT="${LIBREECHO_CORE_RUNTIME_SYSROOT:?ERROR: set exact ARMHF glibc sysroot}"
 CORE_GCC_LIBDIR="${LIBREECHO_CORE_GCC_LIBDIR:?ERROR: set exact ARMHF GCC runtime directory}"
+# HTTPS is a shipped production capability, so the production UI bundle links
+# the pinned ARM32 Mbed TLS prefix instead of the stub TLS implementation that
+# let the Web UI advertise an HTTPS toggle which could never listen
+# (LibreEcho-UI#250).  The source archive is a reviewed public input; the
+# mbedtls-arm32 component block below independently validates it against the
+# Platform source lock, and the build interpreter is the pinned wheel closure
+# the release workflow installs outside the source trees.
+MBEDTLS_SOURCE_ARCHIVE="${LIBREECHO_MBEDTLS_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_MBEDTLS_SOURCE_ARCHIVE explicitly}"
+MBEDTLS_BUILD_PYTHON="${LIBREECHO_MBEDTLS_BUILD_PYTHON:?ERROR: set LIBREECHO_MBEDTLS_BUILD_PYTHON explicitly}"
+MBEDTLS_BUILDER="$TOOLS_DIR/mbedtls/build_mbedtls.sh"
+MBEDTLS_SOURCE_LOCK="$TOOLS_DIR/mbedtls/SOURCE.lock"
 SHERPA_SOURCE=
 SHERPA_PREFIX=
 ORT_BUILD=
@@ -1242,12 +1253,150 @@ UI_TOOLCHAIN_KEY="$(component_cache_key ui-armhf-toolchain \
   --tree "runtime-sysroot=$CORE_RUNTIME_SYSROOT" \
   --tree "gcc-runtime=$CORE_GCC_LIBDIR")"
 record_component_identity ui-armhf-toolchain "$UI_TOOLCHAIN_KEY"
+
+# --- mbedtls-arm32 component block
+# The production UI bundle must link the pinned ARM32 Mbed TLS prefix: without
+# it the UI Makefile silently selects src/tls_stub.c and the shipped Web UI
+# advertises an HTTPS toggle that can never listen (LibreEcho-UI#250, Platform
+# #164).  Every pinned input is validated before anything is built, cached, or
+# materialised, and the resulting component identity is bound into the UI
+# bundle cache key below so a cached stub bundle can never satisfy a production
+# build.  Source acquisition stays with the reviewed public-input inventory;
+# this block never downloads anything.
+echo "=== building or restoring pinned ARM32 Mbed TLS for the UI bundle ==="
+MBEDTLS_OUTPUT="$RUN/components/mbedtls-arm32"
+MBEDTLS_STAGE="$RUN/mbedtls-stage"
+MBEDTLS_METADATA="$MBEDTLS_OUTPUT/mbedtls-source.json"
+mbedtls_version=
+mbedtls_lock_sha256=
+mbedtls_lock_target=
+mbedtls_target=arm-linux-gnueabihf-static
+mbedtls_input_error=0
+mbedtls_reject() {
+  echo "ERROR: $1" >&2
+  mbedtls_input_error=1
+}
+[[ -f "$MBEDTLS_SOURCE_LOCK" && ! -L "$MBEDTLS_SOURCE_LOCK" ]] ||
+  mbedtls_reject "missing pinned mbedTLS source lock: $MBEDTLS_SOURCE_LOCK"
+[[ -x "$MBEDTLS_BUILDER" ]] ||
+  mbedtls_reject "mbedTLS builder is missing or not executable: $MBEDTLS_BUILDER"
+[[ -f "$MBEDTLS_SOURCE_ARCHIVE" && ! -L "$MBEDTLS_SOURCE_ARCHIVE" ]] ||
+  mbedtls_reject "missing pinned mbedTLS source archive: $MBEDTLS_SOURCE_ARCHIVE"
+[[ -x "$MBEDTLS_BUILD_PYTHON" ]] ||
+  mbedtls_reject "pinned mbedTLS build interpreter is unavailable: $MBEDTLS_BUILD_PYTHON"
+((mbedtls_input_error == 0)) || exit 1
+# The Platform lock is the packaging contract for the archive, its target, and
+# the build requirements the pinned interpreter must satisfy.
+mbedtls_lock_record=
+if ! mbedtls_lock_record="$(python3 -B - "$MBEDTLS_SOURCE_LOCK" <<'PY'
+import json
+import sys
+
+lock = json.load(open(sys.argv[1], encoding="utf-8"))
+fields = []
+for name in ("version", "source_sha256", "target"):
+    value = lock.get(name)
+    if not isinstance(value, str) or not value:
+        raise SystemExit(f"missing {name}")
+    fields.append(value)
+print("\t".join(fields))
+PY
+)"; then
+  mbedtls_reject "the pinned mbedTLS source lock is unreadable: $MBEDTLS_SOURCE_LOCK"
+else
+  mbedtls_version="${mbedtls_lock_record%%$'\t'*}"
+  mbedtls_lock_remainder="${mbedtls_lock_record#*$'\t'}"
+  mbedtls_lock_sha256="${mbedtls_lock_remainder%%$'\t'*}"
+  mbedtls_lock_target="${mbedtls_lock_remainder#*$'\t'}"
+fi
+((mbedtls_input_error == 0)) || exit 1
+[[ "$mbedtls_lock_target" == "$mbedtls_target" ]] ||
+  mbedtls_reject "pinned mbedTLS source lock targets $mbedtls_lock_target, not $mbedtls_target"
+((mbedtls_input_error == 0)) || exit 1
+mbedtls_archive_sha="$(sha256sum "$MBEDTLS_SOURCE_ARCHIVE" | awk '{print $1}')"
+[[ "$mbedtls_archive_sha" == "$mbedtls_lock_sha256" ]] || {
+  echo "ERROR: mbedTLS source archive $MBEDTLS_SOURCE_ARCHIVE does not match the pinned source lock" >&2
+  exit 1
+}
+# The builder regenerates its sources with this interpreter, so the installed
+# dependency closure is part of the component identity: a prefix produced by a
+# different jinja2/jsonschema set must never satisfy this key.
+mbedtls_interpreter_identity=
+if ! mbedtls_interpreter_identity="$("$MBEDTLS_BUILD_PYTHON" -B - <<'PY'
+import importlib.metadata as metadata
+import platform
+
+records = ["python==" + platform.python_version()]
+for distribution in metadata.distributions():
+    name = distribution.metadata["Name"]
+    if name:
+        records.append(f"{name}=={distribution.version}")
+print("\n".join(sorted(records)))
+PY
+)"; then
+  echo "ERROR: the pinned mbedTLS build interpreter cannot report its closure: $MBEDTLS_BUILD_PYTHON" >&2
+  exit 1
+fi
+[[ -n "$mbedtls_interpreter_identity" ]] || {
+  echo "ERROR: the pinned mbedTLS build interpreter reported an empty closure: $MBEDTLS_BUILD_PYTHON" >&2
+  exit 1
+}
+mbedtls_interpreter_sha="$(printf '%s\n' "$mbedtls_interpreter_identity" | sha256sum | awk '{print $1}')"
+mbedtls_cache_key="$(component_cache_key mbedtls-arm32 \
+  --tree "platform-mbedtls=$TOOLS_DIR/mbedtls" \
+  --file "builder=$MBEDTLS_BUILDER" \
+  --file "source-lock=$MBEDTLS_SOURCE_LOCK" \
+  --file "source-archive=$MBEDTLS_SOURCE_ARCHIVE" \
+  --file "cross-gcc=${UI_CROSS}gcc" --file "cross-ar=${UI_CROSS}ar" \
+  --value "version=$mbedtls_version" \
+  --value "source_sha256=$mbedtls_archive_sha" \
+  --value "target=$mbedtls_target" \
+  --value "build-interpreter=$mbedtls_interpreter_sha" \
+  --value "ui-toolchain=$UI_TOOLCHAIN_KEY" \
+  --value "core-toolchain=$CORE_TOOLCHAIN_KEY")"
+record_component_identity mbedtls-arm32 "$mbedtls_cache_key"
+rm -rf "$MBEDTLS_STAGE" "$MBEDTLS_OUTPUT"
+mbedtls_status=rebuilt
+if ! component_cache_restore mbedtls-arm32 "$mbedtls_cache_key" "$MBEDTLS_STAGE"; then
+  # The builder owns creation of the prefix at --output and refuses a path that
+  # already exists, so do not pre-create it here: an existing directory (from
+  # `mkdir -p`, or a leftover from an earlier attempt in the same run) makes the
+  # build refuse before it starts.
+  "$MBEDTLS_BUILDER" --archive "$MBEDTLS_SOURCE_ARCHIVE" \
+    --output "$MBEDTLS_STAGE" --cc "${UI_CROSS}gcc" \
+    --python "$MBEDTLS_BUILD_PYTHON" --jobs "$JOBS" \
+    | tee "$RUN/mbedtls-build.log"
+  component_cache_store mbedtls-arm32 "$mbedtls_cache_key" "$MBEDTLS_STAGE"
+else
+  mbedtls_status=hit
+  printf 'component_cache_hit=mbedtls-arm32\n' >"$RUN/mbedtls-build.log"
+fi
+component_materialize mbedtls-arm32 "$mbedtls_cache_key" "$mbedtls_status" \
+  "$MBEDTLS_STAGE" "$MBEDTLS_OUTPUT"
+rm -rf "$MBEDTLS_STAGE"
+for mbedtls_archive in libmbedcrypto.a libmbedx509.a libmbedtls.a; do
+  [[ -f "$MBEDTLS_OUTPUT/lib/$mbedtls_archive" ]] || {
+    echo "ERROR: mbedTLS prefix is incomplete: $MBEDTLS_OUTPUT/lib/$mbedtls_archive" >&2
+    exit 1
+  }
+done
+# The source record lives inside the materialised prefix and is copied beside
+# the other component records so the run keeps its own provenance copy.
+[[ -f "$MBEDTLS_METADATA" && ! -L "$MBEDTLS_METADATA" ]] || {
+  echo "ERROR: mbedTLS source record is missing inside the prefix: $MBEDTLS_METADATA" >&2
+  exit 1
+}
+install -m 0644 "$MBEDTLS_METADATA" "$RUN/mbedtls-source.json"
+echo "mbedtls_component_key=$mbedtls_cache_key"
+echo "mbedtls_source_sha256=$mbedtls_archive_sha"
+# --- end mbedtls-arm32 component block ---
 ui_bundle_cache_key="$(component_cache_key ui-bundle \
   --value "payload_layout=bundle-relink-v1" \
   --value "ui_head=$ui_commit" --value "ui_diff=$ui_diff_sha" \
   --value "ui_toolchain=$UI_TOOLCHAIN_KEY" \
   --file "builder=$UI_BUILDER" \
   --file "ui-musl-gcc=$AUDIO_CC" \
+  --value "ui_mbedtls=$mbedtls_cache_key" \
   --value "cross_target=armhf" --value "musl_cc_target=armhf" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --value "service_profile=$SERVICE_PROFILE")"
 UI_BUNDLE_STAGE="$RUN/ui-bundle-stage"
@@ -1256,6 +1405,7 @@ ui_bundle_status=rebuilt
 if ! component_cache_restore ui-bundle "$ui_bundle_cache_key" "$UI_BUNDLE_STAGE"; then
   mkdir -p "$UI_BUNDLE_STAGE"
   LIBREECHO_UI_CROSS_COMPILE="$UI_CROSS" \
+  LIBREECHO_UI_MBEDTLS_ROOT="$MBEDTLS_OUTPUT" \
   LIBREECHO_UI_MUSL_NATIVE_ROOT="$OTA_MUSL_NATIVE_ROOT" \
   LIBREECHO_UI_MUSL_SYSROOT="$OTA_MUSL_SYSROOT" \
   LIBREECHO_UI_MUSL_CC="$AUDIO_CC" \
@@ -2395,6 +2545,10 @@ tinyalsa_source_metadata=$RUN/tinyalsa-source.json
 wireless_tools_source_metadata=$RUN/wireless-tools-source.json
 wireless_regdb_source_metadata=$RUN/wireless-regdb-source.json
 libsodium_source_metadata=$RUN/libsodium-source.json
+mbedtls_prefix=$MBEDTLS_OUTPUT
+mbedtls_source_metadata=$RUN/mbedtls-source.json
+mbedtls_source_sha256=$mbedtls_archive_sha
+mbedtls_component_key=$mbedtls_cache_key
 audio_probe=$RUN/audio_probe
 audio_probe_sha256=$audio_probe_sha
 tinyplay=$RUN/tinyplay
@@ -2520,6 +2674,10 @@ tinyalsa_source_metadata=$RUN/tinyalsa-source.json
 wireless_tools_source_metadata=$RUN/wireless-tools-source.json
 wireless_regdb_source_metadata=$RUN/wireless-regdb-source.json
 libsodium_source_metadata=$RUN/libsodium-source.json
+mbedtls_prefix=$MBEDTLS_OUTPUT
+mbedtls_source_metadata=$RUN/mbedtls-source.json
+mbedtls_source_sha256=$mbedtls_archive_sha
+mbedtls_component_key=$mbedtls_cache_key
 audio_probe=$RUN/audio_probe
 audio_probe_sha256=$audio_probe_sha
 tinyplay=$RUN/tinyplay

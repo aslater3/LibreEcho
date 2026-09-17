@@ -37,8 +37,26 @@ runtime input has a complete corresponding-source and relink path.
   verifies the archive and patch hashes, static ARM32 outputs, and every
   shipped utility hash; BSD-3-Clause creates no static relinkable-object
   obligation.
+- `mbedTLS 3.6.4` is Apache-2.0 and is rebuilt from the pinned upstream release
+  archive
+  `https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/mbedtls-3.6.4.tar.bz2`,
+  SHA-256
+  `ec35b18a6c593cf98c3e30db8b98ff93e8940a8c4e690e66b41dfc011d678110`.
+  The public Platform builder `tools/mt8163-arm32/mbedtls/build_mbedtls.sh`
+  verifies that archive hash, builds static ARM32 `libmbedcrypto`,
+  `libmbedx509`, and `libmbedtls` with the pinned UI cross compiler, and records
+  the archive, compiler, interpreter, and per-archive digests in
+  `mbedtls-source.json` inside the materialized prefix. The Product pipeline
+  (`mbedtls-arm32` in `build/build.sh`) independently validates that archive
+  against the Platform `SOURCE.lock`, binds the component identity into the UI
+  bundle cache key, passes the materialized prefix to the UI bundle builder as
+  `LIBREECHO_UI_MBEDTLS_ROOT`, and links it into `libreecho-web` and
+  `libreecho-radiod`; a missing prefix or a stub TLS bundle fails the build.
+  The upstream `LICENSE` ships beside the archives, and the complete
+  application and library source plus build instructions provide the relink
+  path.
 
-These checks close provenance for these five inputs. The aggregate runtime
+These checks close provenance for these six inputs. The aggregate runtime
 closure is independently bound to the exact candidate source-offer and relink
 object records named in `release/components.json`.
 
