@@ -377,6 +377,14 @@ while (($#)); do
   shift 2
 done
 [[ -n "$archive" && -n "$output" ]] || {{ echo "ERROR: missing option" >&2; exit 2; }}
+# The shipped Platform builder refuses an existing output and publishes by an
+# atomic rename, so the caller must name a path that does not exist yet.  The
+# stand-in enforces the same contract: a block that pre-creates the output
+# directory fails here instead of at the end of a hosted image build.
+if [[ -e "$output" || -L "$output" ]]; then
+  echo "ERROR: refusing to overwrite an existing mbedTLS prefix: $output" >&2
+  exit 1
+fi
 {failure}mkdir -p "$output/lib" "$output/include/mbedtls"
 for archive_name in libmbedcrypto.a libmbedx509.a libmbedtls.a; do
   printf 'fixture object\\n' >"$output/lib/$archive_name"

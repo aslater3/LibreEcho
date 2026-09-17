@@ -1358,7 +1358,10 @@ record_component_identity mbedtls-arm32 "$mbedtls_cache_key"
 rm -rf "$MBEDTLS_STAGE" "$MBEDTLS_OUTPUT"
 mbedtls_status=rebuilt
 if ! component_cache_restore mbedtls-arm32 "$mbedtls_cache_key" "$MBEDTLS_STAGE"; then
-  mkdir -p "$MBEDTLS_STAGE"
+  # The builder owns creation of the prefix at --output and refuses a path that
+  # already exists, so do not pre-create it here: an existing directory (from
+  # `mkdir -p`, or a leftover from an earlier attempt in the same run) makes the
+  # build refuse before it starts.
   "$MBEDTLS_BUILDER" --archive "$MBEDTLS_SOURCE_ARCHIVE" \
     --output "$MBEDTLS_STAGE" --cc "${UI_CROSS}gcc" \
     --python "$MBEDTLS_BUILD_PYTHON" --jobs "$JOBS" \
