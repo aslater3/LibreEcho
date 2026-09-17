@@ -325,7 +325,7 @@ class InstallerPublicationTests(unittest.TestCase):
             files[f"{prefix}-feature-assets.json"] = (
                 json.dumps(inventory, sort_keys=True) + "\n").encode()
             files[f"{prefix}-feature-plan.json"] = (
-                b'{"schema": "libreecho-product-feature-plan-v1"}\n')
+                b'{"schema": "libreecho-product-feature-plan-v1", "transaction_type": "system", "activation": "reboot", "release": "0.14.0"}\n')
             files.update(asset_names)
             files.update(extra_files)
             return files
