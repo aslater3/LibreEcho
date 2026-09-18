@@ -11,7 +11,7 @@
     "ui": {
       "repository": "aslater3/LibreEcho-UI",
       "ref": "feature/014-gpt-live-ui",
-      "commit": "989ea7e"
+      "commit": "63c0a43"
     },
     "linux": {
       "repository": "aslater3/LibreEcho-Linux-6.1",
