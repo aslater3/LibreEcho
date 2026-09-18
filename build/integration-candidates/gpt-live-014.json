@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "base": "release/0.14.0",
+  "purpose": "GPT-Live hardware validation",
+  "components": {
+    "platform": {
+      "repository": "aslater3/LibreEcho-Platform",
+      "ref": "feature/014-gpt-live-platform",
+      "commit": "4dbae9334ce1a8c5091b136a68c41f343bf41a02"
+    },
+    "ui": {
+      "repository": "aslater3/LibreEcho-UI",
+      "ref": "feature/014-gpt-live-ui",
+      "commit": "989ea7e"
+    },
+    "linux": {
+      "repository": "aslater3/LibreEcho-Linux-6.1",
+      "ref": "release/0.14.0"
+    }
+  },
+  "publication": false,
+  "hardware_validation_required": true
+}
