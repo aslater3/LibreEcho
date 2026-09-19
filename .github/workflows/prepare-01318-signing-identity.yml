@@ -36,29 +36,25 @@ jobs:
           source = path.read_text()
           marker = 'class OtaV2InputTests(unittest.TestCase):\n'
           assert source.count(marker) == 1
-          regression = '''    def test_01318_signing_and_input_guards_share_the_release_identity(self) -> None:
-                  import ota_v2_inputs as inputs
-                  import sign_ota_candidate as signer
-                  self.assertEqual(inputs.EXPECTED_RELEASE, "0.13.18")
-                  self.assertEqual(signer.EXPECTED_RELEASE, "0.13.18")
-                  self.assertEqual(signer._impl.EXPECTED_RELEASE, "0.13.18")
-                  with tempfile.TemporaryDirectory() as directory:
-                      path = Path(directory) / "handoff.json"
-                      path.write_text('{"schema":"wrong"}')
-                      # Implicit calls must reach the unchanged schema gate.
-                      with self.assertRaisesRegex(HandoffError, "schema mismatch"):
-                          signer.validate_handoff(path)
-                      for stale in ("0.13.17", "0.14.0"):
-                          with self.subTest(release=stale), self.assertRaisesRegex(
-                              HandoffError, "release must be 0.13.18"
-                          ):
-                              signer.validate_handoff(path, stale)
-
-          '''
-          # Normalise the function body to the existing four-space class style.
-          lines = regression.splitlines(True)
-          regression = lines[0] + ''.join(line[8:] if line.startswith('        ') else line for line in lines[1:])
+          regression = '\n'.join([
+              '    def test_01318_signing_and_input_guards_share_the_release_identity(self) -> None:',
+              '        import ota_v2_inputs as inputs',
+              '        import sign_ota_candidate as signer',
+              '        self.assertEqual(inputs.EXPECTED_RELEASE, "0.13.18")',
+              '        self.assertEqual(signer.EXPECTED_RELEASE, "0.13.18")',
+              '        self.assertEqual(signer._impl.EXPECTED_RELEASE, "0.13.18")',
+              '        with tempfile.TemporaryDirectory() as directory:',
+              '            path = Path(directory) / "handoff.json"',
+              '            path.write_text(\'{"schema":"wrong"}\')',
+              '            with self.assertRaisesRegex(HandoffError, "schema mismatch"):',
+              '                signer.validate_handoff(path)',
+              '            for stale in ("0.13.17", "0.14.0"):',
+              '                with self.subTest(release=stale), self.assertRaisesRegex(HandoffError, "release must be 0.13.18"):',
+              '                    signer.validate_handoff(path, stale)',
+              '', '',
+          ])
           path.write_text(source.replace(marker, marker + regression))
+          compile(path.read_text(), str(path), 'exec')
           result = subprocess.run([sys.executable, '-B', '-m', 'unittest',
               'build.tests.test_ota_v2_signing.OtaV2InputTests.test_01318_signing_and_input_guards_share_the_release_identity', '-v'],
               text=True, capture_output=True, timeout=60)
