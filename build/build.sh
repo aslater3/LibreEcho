@@ -45,6 +45,7 @@ else
 fi
 FEATURE_POLICY="${LIBREECHO_FEATURE_POLICY:-preserve}"
 UPDATE_CHANNEL="${LIBREECHO_UPDATE_CHANNEL:-dev}"
+NETWORK_ADB="${LIBREECHO_NETWORK_ADB:-disabled}"
 KERNEL_SRC_INPUT="${LIBREECHO_KERNEL_SRC:?ERROR: set LIBREECHO_KERNEL_SRC explicitly}"
 [[ -d "$KERNEL_SRC_INPUT" ]] || { echo "ERROR: kernel source directory not found: $KERNEL_SRC_INPUT" >&2; exit 1; }
 KERNEL_SRC="$(cd -- "$KERNEL_SRC_INPUT" && pwd -P)"
@@ -151,7 +152,6 @@ ASSISTANT_CURL_SOURCE="$INPUTS/curl-8.21.0.tar.xz"
 ASSISTANT_CA_BUNDLE="$INPUTS/ca-certificates-20260601.crt"
 ASSISTANT_CA_COPYRIGHT="$INPUTS/ca-certificates-20260601.copyright"
 SSH_ENABLED="${LIBREECHO_SSH_ENABLED:-0}"
-SSH_ROOT_PASSWORD_HASH="${LIBREECHO_SSH_ROOT_PASSWORD_HASH:-}"
 JOBS="${JOBS:-$(nproc)}"
 OTA_DIR="$TOOLS_DIR/ota"
 PLATFORM_RUNTIME_VERIFIER="$TOOLS_DIR/feature_runtime/verify_runtime.py"
@@ -386,6 +386,11 @@ done
 case "$IMAGE_PROFILE" in development|ota) ;; *) echo "ERROR: invalid image profile: $IMAGE_PROFILE" >&2; exit 1 ;; esac
 case "$SERVICE_PROFILE" in diagnostic|production) ;; *) echo "ERROR: invalid service profile: $SERVICE_PROFILE" >&2; exit 1 ;; esac
 case "$UPDATE_CHANNEL" in dev|stable) ;; *) echo "ERROR: invalid update channel: $UPDATE_CHANNEL" >&2; exit 1 ;; esac
+case "$NETWORK_ADB" in disabled|open-dev) ;; *) echo "ERROR: invalid network ADB mode: $NETWORK_ADB" >&2; exit 1 ;; esac
+if [[ "$NETWORK_ADB" == open-dev && "$UPDATE_CHANNEL" != dev ]]; then
+  echo "ERROR: open network ADB is restricted to the dev channel" >&2
+  exit 1
+fi
 FEATURES_ENABLED=0
 WAKEWORD_ENABLED=0
 policy_token=
@@ -593,19 +598,7 @@ done
   exit 1
 }
 case "$SSH_ENABLED" in
-  0) [[ -z "$SSH_ROOT_PASSWORD_HASH" ]] || {
-       echo "ERROR: LIBREECHO_SSH_ROOT_PASSWORD_HASH requires LIBREECHO_SSH_ENABLED=1" >&2
-       exit 1
-     } ;;
-  1) [[ -n "$SSH_ROOT_PASSWORD_HASH" && -f "$SSH_ROOT_PASSWORD_HASH" && ! -L "$SSH_ROOT_PASSWORD_HASH" ]] || {
-       echo "ERROR: SSH requires a regular build-local root password hash file" >&2
-       exit 1
-     }
-     hash_mode="$(stat -c %a "$SSH_ROOT_PASSWORD_HASH")"
-     if (( 8#$hash_mode & 022 )); then
-       echo "ERROR: SSH root password hash file is group/world-writable" >&2
-       exit 1
-     fi ;;
+  0|1) ;;
   *) echo "ERROR: LIBREECHO_SSH_ENABLED must be 0 or 1" >&2; exit 1 ;;
 esac
 [[ -x "$TOOLS_DIR/busybox/build_busybox.sh" && -x "$TOOLS_DIR/musl/build_musl.sh" && \
@@ -1210,7 +1203,8 @@ echo "=== building or restoring source-pinned ARM32 adbd ==="
 adbd_cache_key="$(component_cache_key adbd \
   --tree "aosp-system-core=$ADBD_SOURCE" --tree "linux-uapi=$ADBD_KERNEL_HEADERS" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --tree "adbd-tooling=$TOOLS_DIR/adbd" \
-  --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static")"
+  --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static" \
+  --value "network-adb=$NETWORK_ADB")"
 ADBD_STAGE="$RUN/adbd-stage"
 adbd_status=rebuilt
 rm -rf "$ADBD_STAGE" "$RUN/components/adbd"
@@ -1219,7 +1213,8 @@ if ! component_cache_restore adbd "$adbd_cache_key" "$ADBD_STAGE"; then
   env LD_LIBRARY_PATH="$OTA_MUSL_NATIVE_ROOT/usr/lib" \
     "$ADBD_BUILDER" --source "$ADBD_SOURCE" --output "$ADBD_STAGE" \
     --cc "$OTA_MUSL_CC" --sysroot "$OTA_MUSL_SYSROOT" \
-    --kernel-headers "$ADBD_KERNEL_HEADERS" | tee "$RUN/adbd-build.log"
+    --kernel-headers "$ADBD_KERNEL_HEADERS" --network-adb "$NETWORK_ADB" \
+    | tee "$RUN/adbd-build.log"
   component_cache_store adbd "$adbd_cache_key" "$ADBD_STAGE"
 else
   adbd_status=hit
@@ -2124,8 +2119,9 @@ ssh_builder_args=()
 ssh_verifier_args=()
 dropbear_sha=
 dropbearkey_sha=
+scp_sha=
 if [[ "$SSH_ENABLED" == 1 ]]; then
-  echo "=== building static ARM32 password-only SSH server ==="
+  echo "=== building static ARM32 deferred-account SSH server ==="
   DROPBEAR_BUILDER="$TOOLS_DIR/ssh/build_dropbear.sh"
   [[ -x "$DROPBEAR_BUILDER" ]] || {
     echo "ERROR: SSH builder is missing or not executable: $DROPBEAR_BUILDER" >&2
@@ -2134,23 +2130,27 @@ if [[ "$SSH_ENABLED" == 1 ]]; then
   LIBREECHO_PIPELINE_ROOT="$BUILD_ROOT" \
     "$DROPBEAR_BUILDER" | tee "$RUN/dropbear-build.log"
   DROPBEAR_OUTPUT="$WORK_ROOT/dropbear-2026.93/output"
-  [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" ]] || {
-    echo "ERROR: SSH builder did not produce both Dropbear binaries" >&2
+  [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" &&
+     -f "$DROPBEAR_OUTPUT/scp" ]] || {
+    echo "ERROR: SSH builder did not produce dropbear, dropbearkey, and scp" >&2
     exit 1
   }
   dropbear_sha="$(sha256sum "$DROPBEAR_OUTPUT/dropbear" | awk '{print $1}')"
   dropbearkey_sha="$(sha256sum "$DROPBEAR_OUTPUT/dropbearkey" | awk '{print $1}')"
+  scp_sha="$(sha256sum "$DROPBEAR_OUTPUT/scp" | awk '{print $1}')"
   echo "dropbear_sha256=$dropbear_sha"
   echo "dropbearkey_sha256=$dropbearkey_sha"
+  echo "scp_sha256=$scp_sha"
   ssh_builder_args=(
     --ssh-enabled
     --dropbear "$DROPBEAR_OUTPUT/dropbear"
     --dropbearkey "$DROPBEAR_OUTPUT/dropbearkey"
-    --ssh-root-password-hash "$SSH_ROOT_PASSWORD_HASH"
+    --scp "$DROPBEAR_OUTPUT/scp"
   )
   ssh_verifier_args=(
     --expected-dropbear-sha256 "$dropbear_sha"
     --expected-dropbearkey-sha256 "$dropbearkey_sha"
+    --expected-scp-sha256 "$scp_sha"
   )
 fi
 
@@ -2228,6 +2228,7 @@ python3 -B "$BUILDER" \
   --musl-loader "$MUSL_LOADER" --expected-musl-loader-sha256 "$musl_loader_sha" \
   --image-profile "$IMAGE_PROFILE" --service-profile "$SERVICE_PROFILE" \
   --update-channel "$UPDATE_CHANNEL" \
+  --network-adb "$NETWORK_ADB" \
   --feature-policy "$FEATURE_POLICY" \
   --bootctl "$OTA_BOOTCTL" \
   --update-verifier "$OTA_VERIFIER" --ota-public-key "$OTA_PUBLIC_KEY" \
@@ -2278,6 +2279,7 @@ python3 -B "$VERIFIER" \
   --expected-service-profile "$SERVICE_PROFILE" \
   --expected-feature-policy "$FEATURE_POLICY" \
   --expected-update-channel "$UPDATE_CHANNEL" \
+  --expected-network-adb "$NETWORK_ADB" \
   --expected-bootctl-sha256 "$ota_bootctl_sha" \
   --expected-update-verifier-sha256 "$ota_verifier_sha" \
   --expected-ota-public-key-sha256 "$ota_public_key_sha" \
@@ -2496,6 +2498,7 @@ image_profile=$IMAGE_PROFILE
 service_profile=$SERVICE_PROFILE
 feature_policy=$FEATURE_POLICY
 update_channel=$UPDATE_CHANNEL
+network_adb=$NETWORK_ADB
 run_id=$run_id
 public_release_mode=$PUBLIC_RELEASE_MODE
 build_source=$PIPELINE
@@ -2594,6 +2597,7 @@ ui_manifest_sha256=$ui_manifest_sha
 ssh_enabled=$SSH_ENABLED
 dropbear_sha256=$dropbear_sha
 dropbearkey_sha256=$dropbearkey_sha
+scp_sha256=$scp_sha
 manifest=$RUN/manifest.json
 userdata_tree=$USERDATA_TREE
 userdata_tree_manifest_sha256=$userdata_manifest_sha
@@ -2628,6 +2632,7 @@ image_profile=$IMAGE_PROFILE
 service_profile=$SERVICE_PROFILE
 feature_policy=$FEATURE_POLICY
 update_channel=$UPDATE_CHANNEL
+network_adb=$NETWORK_ADB
 run_id=$run_id
 public_release_mode=$PUBLIC_RELEASE_MODE
 build_source=$PIPELINE
@@ -2723,6 +2728,7 @@ ui_manifest_sha256=$ui_manifest_sha
 ssh_enabled=$SSH_ENABLED
 dropbear_sha256=$dropbear_sha
 dropbearkey_sha256=$dropbearkey_sha
+scp_sha256=$scp_sha
 zimage=$RUN/zImage
 zimage_sha256=$zsha
 system_map=$RUN/System.map

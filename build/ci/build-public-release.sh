@@ -27,15 +27,24 @@ export LIBREECHO_BUILD_ROOT="${LIBREECHO_BUILD_ROOT:-${RUNNER_TEMP:?set RUNNER_T
 export LIBREECHO_PRIVATE_ROOT="${LIBREECHO_PRIVATE_ROOT:-$RUNNER_TEMP/libreecho-private}"
 export LIBREECHO_PUBLIC_RELEASE=1 LIBREECHO_FEATURE_POLICY=community-noncommercial
 channel="${LIBREECHO_UPDATE_CHANNEL:-dev}"
+network_adb="${LIBREECHO_NETWORK_ADB:-disabled}"
 signing_mode="${LIBREECHO_OTA_SIGNING_MODE:-github}"
 case "$channel" in
   dev|stable) ;;
   *) echo "ERROR: unsupported OTA update channel: $channel" >&2; exit 2 ;;
 esac
+case "$network_adb" in
+  disabled|open-dev) ;;
+  *) echo "ERROR: unsupported network ADB mode: $network_adb" >&2; exit 2 ;;
+esac
+[[ "$network_adb" != open-dev || "$channel" == dev ]] || {
+  echo "ERROR: open network ADB requires the dev channel" >&2; exit 2;
+}
 case "$signing_mode" in
   github) [[ "$channel" == dev ]] || { echo "ERROR: stable releases require local OTA signing" >&2; exit 2; } ;;
   local) ;;
   *) echo "ERROR: unsupported OTA signing mode: $signing_mode" >&2; exit 2 ;;
 esac
-export LIBREECHO_OTA_SIGNING_MODE="$signing_mode" LIBREECHO_UPDATE_CHANNEL="$channel" JOBS=2
+export LIBREECHO_OTA_SIGNING_MODE="$signing_mode" LIBREECHO_UPDATE_CHANNEL="$channel" \
+  LIBREECHO_NETWORK_ADB="$network_adb" JOBS=2
 exec "$ROOT/build.sh" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish

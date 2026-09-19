@@ -22,11 +22,29 @@ on:
         type: choice
         options: [dev, stable]
       ssh_enabled:
-        description: Include password-authenticated root SSH in the image
+        description: Include deferred WebUI-account SSH in the image
         required: true
-        default: enabled
+        default: disabled
         type: choice
         options: [disabled, enabled]
+      network_adb:
+        description: Include OPEN network ADB on TCP 5555 (development only)
+        required: true
+        default: disabled
+        type: choice
+        options: [disabled, open-dev]
+      platform_sha:
+        description: Exact Platform commit for an integration dispatch
+        required: false
+        type: string
+      linux_sha:
+        description: Exact Linux commit for an integration dispatch
+        required: false
+        type: string
+      ui_sha:
+        description: Exact UI commit for an integration dispatch
+        required: false
+        type: string
       release_version:
         description: Stable SemVer version, for example 0.14.0
         required: false
@@ -84,6 +102,7 @@ jobs:
       release_notes: ${{ steps.resolve.outputs.release_notes }}
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
+      network_adb: ${{ steps.resolve.outputs.network_adb }}
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
       ota_format: ${{ steps.resolve.outputs.ota_format }}
       ota_release: ${{ steps.resolve.outputs.ota_release }}
@@ -100,6 +119,10 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
+          NETWORK_ADB_INPUT: ${{ inputs.network_adb || 'disabled' }}
+          PLATFORM_SHA_INPUT: ${{ inputs.platform_sha || '' }}
+          LINUX_SHA_INPUT: ${{ inputs.linux_sha || '' }}
+          UI_SHA_INPUT: ${{ inputs.ui_sha || '' }}
           OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
           OTA_RELEASE_INPUT: ${{ inputs.ota_release || (inputs.ota_format == 'v2' && inputs.release_version) || '' }}
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
@@ -122,6 +145,11 @@ jobs:
           else
             case "$GITHUB_REF" in
               refs/heads/main|refs/heads/release/*) ;;
+              refs/heads/feature/*)
+                [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || {
+                  echo "ERROR: feature refs are manual-dispatch only" >&2; exit 1;
+                }
+                ;;
               *) echo "ERROR: unsupported build ref: $GITHUB_REF" >&2; exit 1 ;;
             esac
           fi
@@ -178,6 +206,16 @@ jobs:
             enabled) SSH_ENABLED=1 ;;
             *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
           esac
+          case "$NETWORK_ADB_INPUT" in
+            disabled) NETWORK_ADB=disabled ;;
+            open-dev)
+              [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev ]] || {
+                echo "ERROR: open-dev requires a manual dev dispatch" >&2; exit 1;
+              }
+              NETWORK_ADB=open-dev
+              ;;
+            *) echo "ERROR: unsupported network_adb input: $NETWORK_ADB_INPUT" >&2; exit 1 ;;
+          esac
           component_ref=main
           platform_ref=main
           linux_ref=main
@@ -223,6 +261,36 @@ jobs:
           p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$platform_ref" | cut -f1)
           l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$linux_ref" | cut -f1)
           u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$ui_ref" | cut -f1)
+          PLATFORM_SHA_INPUT=${PLATFORM_SHA_INPUT:-}
+          LINUX_SHA_INPUT=${LINUX_SHA_INPUT:-}
+          UI_SHA_INPUT=${UI_SHA_INPUT:-}
+          explicit_count=0
+          for explicit_sha in "$PLATFORM_SHA_INPUT" "$LINUX_SHA_INPUT" "$UI_SHA_INPUT"; do
+            [[ -z "$explicit_sha" ]] || explicit_count=$((explicit_count + 1))
+          done
+          if [[ "$explicit_count" -ne 0 ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$explicit_count" -eq 3 ]] || {
+              echo "ERROR: explicit component SHAs require one manual dispatch with all three values" >&2
+              exit 1
+            }
+            for explicit_sha in "$PLATFORM_SHA_INPUT" "$LINUX_SHA_INPUT" "$UI_SHA_INPUT"; do
+              [[ "$explicit_sha" =~ ^[0-9a-f]{40}$ ]] || {
+                echo "ERROR: explicit component SHAs must be full lowercase commits" >&2
+                exit 1
+              }
+            done
+            p="$PLATFORM_SHA_INPUT"
+            l="$LINUX_SHA_INPUT"
+            u="$UI_SHA_INPUT"
+            for repo_sha in "LibreEcho-Platform:$p" "LibreEcho-Linux-6.1:$l" "LibreEcho-UI:$u"; do
+              component="${repo_sha%%:*}"
+              commit="${repo_sha#*:}"
+              git ls-remote "https://github.com/aslater3/$component.git" | grep -q "^${commit}[[:space:]]" || {
+                echo "ERROR: explicit component commit is not advertised by $component: $commit" >&2
+                exit 1
+              }
+            done
+          fi
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
             --channel "$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
@@ -233,6 +301,7 @@ jobs:
           fi
           printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          printf 'network_adb=%s\n' "$NETWORK_ADB" >> "$GITHUB_OUTPUT"
           printf 'signing_mode=%s\n' "$SIGNING_MODE" >> "$GITHUB_OUTPUT"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
@@ -690,15 +759,6 @@ jobs:
           test -n "$OTA_SIGNING_KEY_HEX"
           umask 077
           printf '%s\n' "$OTA_SIGNING_KEY_HEX" >"$RUNNER_TEMP/ota-signing-key.hex"
-      - name: Materialize protected SSH root password hash
-        if: needs.resolve-and-preflight.outputs.ssh_enabled == '1'
-        env:
-          SSH_ROOT_PASSWORD_HASH: ${{ secrets.LIBREECHO_SSH_ROOT_PASSWORD_HASH }}
-        run: |
-          set -euo pipefail
-          test -n "$SSH_ROOT_PASSWORD_HASH"
-          umask 077
-          printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
       - name: Derive reviewed TTS voice models
         run: |
           set -euo pipefail
@@ -1190,7 +1250,7 @@ jobs:
           LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
           LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
-          LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
+          LIBREECHO_NETWORK_ADB: ${{ needs.resolve-and-preflight.outputs.network_adb }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
@@ -1267,6 +1327,7 @@ jobs:
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           AMONET_COMMIT: ${{ inputs.amonet_commit || '' }}
           SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
+          NETWORK_ADB: ${{ needs.resolve-and-preflight.outputs.network_adb }}
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
@@ -1288,6 +1349,7 @@ jobs:
               "amonet_tag": os.environ["AMONET_TAG"],
               "amonet_commit": os.environ["AMONET_COMMIT"],
               "ssh_enabled": os.environ["SSH_ENABLED"],
+              "network_adb": os.environ["NETWORK_ADB"],
           }, sort_keys=True) + "\n", encoding="utf-8")
           PY
 
