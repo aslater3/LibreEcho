@@ -43,6 +43,21 @@ PLATFORM_TOOL = PLATFORM_ROOT / "tools/mt8163-arm32/ota/make_ota_bundle.py"
 
 
 class OtaV2InputTests(unittest.TestCase):
+    def test_01318_signing_and_input_guards_share_the_release_identity(self) -> None:
+        import ota_v2_inputs as inputs
+        import sign_ota_candidate as signer
+        self.assertEqual(inputs.EXPECTED_RELEASE, "0.13.18")
+        self.assertEqual(signer.EXPECTED_RELEASE, "0.13.18")
+        self.assertEqual(signer._impl.EXPECTED_RELEASE, "0.13.18")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "handoff.json"
+            path.write_text('{"schema":"wrong"}')
+            with self.assertRaisesRegex(HandoffError, "schema mismatch"):
+                signer.validate_handoff(path)
+            for stale in ("0.13.17", "0.14.0"):
+                with self.subTest(release=stale), self.assertRaisesRegex(HandoffError, "release must be 0.13.18"):
+                    signer.validate_handoff(path, stale)
+
     def test_v1_is_the_safe_default_bridge(self) -> None:
         self.assertEqual(validate_inputs("v1", "", "", "", "push", "refs/heads/main"), {
             "ota_format": "v1",
@@ -51,35 +66,35 @@ class OtaV2InputTests(unittest.TestCase):
         })
 
     def test_v2_requires_the_actual_01315_candidate_and_pinned_prior_catalog(self) -> None:
-        with self.assertRaisesRegex(InputError, "0.13.17"):
+        with self.assertRaisesRegex(InputError, "0.13.18"):
             validate_inputs(
                 "v2", "0.14.0",
                 "https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.14/libreecho-radar-puffin-v0.13.14-feature-catalog.json",
-                "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.17",
+                "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.18",
             )
         with self.assertRaises(InputError):
             validate_inputs(
-                "v2", "0.13.17",
+                "v2", "0.13.18",
                 "https://attacker.invalid/$(touch-pwned).json", "a" * 64,
-                "workflow_dispatch", "refs/heads/release/0.13.17",
+                "workflow_dispatch", "refs/heads/release/0.13.18",
             )
         accepted = validate_inputs(
-            "v2", "0.13.17",
+            "v2", "0.13.18",
             "https://github.com/aslater3/LibreEcho/releases/download/radar-puffin-v0.13.14/libreecho-radar-puffin-v0.13.14-feature-catalog.json",
-            "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.17",
+            "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.18",
         )
         self.assertEqual(accepted["ota_format"], "v2")
 
     def test_01315_accepts_only_the_pinned_01314_catalog(self) -> None:
         url = ("https://github.com/aslater3/LibreEcho/releases/download/"
                "radar-puffin-v0.13.14/libreecho-radar-puffin-v0.13.14-feature-catalog.json")
-        accepted = validate_inputs("v2", "0.13.17", url, "a" * 64,
-                                   "workflow_dispatch", "refs/heads/release/0.13.17")
-        self.assertEqual(accepted["ota_release"], "0.13.17")
+        accepted = validate_inputs("v2", "0.13.18", url, "a" * 64,
+                                   "workflow_dispatch", "refs/heads/release/0.13.18")
+        self.assertEqual(accepted["ota_release"], "0.13.18")
         for stale in ("0.13.13", "0.13.15"):
             with self.assertRaises(InputError):
-                validate_inputs("v2", "0.13.17", url.replace("0.13.14", stale),
-                                "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.17")
+                validate_inputs("v2", "0.13.18", url.replace("0.13.14", stale),
+                                "a" * 64, "workflow_dispatch", "refs/heads/release/0.13.18")
 
     def test_base_catalog_hash_mismatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -92,14 +107,14 @@ class OtaV2InputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ota-v2-publisher-gate-") as directory:
             output = Path(directory)
             expected = [
-                {"name": "libreecho-radar-puffin-0.13.17-assistant.runtime.squashfs"},
-                {"name": "libreecho-radar-puffin-0.13.17-assistant.runtime-manifest.json"},
+                {"name": "libreecho-radar-puffin-0.13.18-assistant.runtime.squashfs"},
+                {"name": "libreecho-radar-puffin-0.13.18-assistant.runtime-manifest.json"},
             ]
             for item in expected:
                 (output / item["name"]).write_bytes(b"fixture")
-            (output / "libreecho-radar-puffin-0.13.17-extra.payload.squashfs").write_bytes(b"extra")
+            (output / "libreecho-radar-puffin-0.13.18-extra.payload.squashfs").write_bytes(b"extra")
             with self.assertRaisesRegex(ContractError, "publisher asset set"):
-                validate_v2_publisher_asset_set(output, "0.13.17", expected)
+                validate_v2_publisher_asset_set(output, "0.13.18", expected)
 
 
 class OtaV2SigningHandoffTests(unittest.TestCase):
@@ -157,7 +172,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
                 return {"name": name, "path": str(asset), "size": asset.stat().st_size, "sha256": hashlib.sha256(asset.read_bytes()).hexdigest()}
             data = {
                 "schema": "libreecho-ota-v2-signing-handoff-v1", "format": "v2",
-                "release": "0.13.17", "source_commit": "a" * 40,
+                "release": "0.13.18", "source_commit": "a" * 40,
                 "update_channel": "stable", "base_catalog_sha256": hashlib.sha256(asset.read_bytes()).hexdigest(),
                 "run_dir": str(root), "base_catalog": record(asset.name),
                 "build_manifest": record(asset.name),
@@ -167,7 +182,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
             }
             handoff.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(HandoffError, "schema mismatch"):
-                validate_handoff(handoff, "0.13.17")
+                validate_handoff(handoff, "0.13.18")
 
     def test_actual_platform_v1_bundle_is_verified_by_product_with_ephemeral_key(self) -> None:
         from nacl.signing import SigningKey
@@ -229,7 +244,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ota-v2-signer-fixture-") as directory:
             root = Path(directory)
             run, commits = fixture(root)
-            add_v2_contract(run, commits, release="0.13.17")
+            add_v2_contract(run, commits, release="0.13.18")
             build_manifest = json.loads((run / "manifest.json").read_text())
             build_manifest["update_channel"] = "stable"
             (run / "manifest.json").write_text(json.dumps(build_manifest))
@@ -245,7 +260,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
             anchor = hashlib.sha256(public_path.read_bytes()).hexdigest()
             with mock.patch.dict(os.environ, {"LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": anchor}):
                 create_handoff(
-                    run, "0.13.17", commits["ui"], "stable", base,
+                    run, "0.13.18", commits["ui"], "stable", base,
                     hashlib.sha256(base.read_bytes()).hexdigest(), handoff,
                     PLATFORM_ROOT, PLATFORM_TOOL,
                 )
@@ -275,7 +290,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
                 command = invoke_platform_signer(
                     platform_tool=root / "make_ota_bundle.py", boot_image=boot,
                     build_manifest=manifest, signing_key=key, public_key=public,
-                    output=output, plan=plan, release="0.13.17",
+                    output=output, plan=plan, release="0.13.18",
                     update_channel="stable",
                 )
                 self.assertIn("--format", command)
