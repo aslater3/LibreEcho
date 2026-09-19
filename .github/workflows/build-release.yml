@@ -285,7 +285,8 @@ jobs:
             for repo_sha in "LibreEcho-Platform:$p" "LibreEcho-Linux-6.1:$l" "LibreEcho-UI:$u"; do
               component="${repo_sha%%:*}"
               commit="${repo_sha#*:}"
-              git ls-remote "https://github.com/aslater3/$component.git" | grep -q "^${commit}[[:space:]]" || {
+              git ls-remote "https://github.com/aslater3/$component.git" |
+                awk -v expected="$commit" '$1 == expected { found=1 } END { exit !found }' || {
                 echo "ERROR: explicit component commit is not advertised by $component: $commit" >&2
                 exit 1
               }

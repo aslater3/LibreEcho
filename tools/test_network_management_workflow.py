@@ -17,6 +17,8 @@ class NetworkManagementWorkflowTests(unittest.TestCase):
         self.assertIn("OPEN network ADB", source)
         self.assertIn("open-dev requires a manual dev dispatch", source)
         self.assertIn("explicit component SHAs must be full lowercase commits", source)
+        self.assertIn('awk -v expected="$commit"', source)
+        self.assertNotIn('grep -q "^${commit}[[:space:]]"', source)
         self.assertIn("network_adb: ${{ steps.resolve.outputs.network_adb }}", source)
         self.assertIn("LIBREECHO_NETWORK_ADB", source)
 
