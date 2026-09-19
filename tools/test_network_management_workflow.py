@@ -48,6 +48,7 @@ class NetworkManagementWorkflowTests(unittest.TestCase):
         self.assertIn("DROPBEAR_LIBCRYPT_DEV_PACKAGE:", workflow)
         self.assertIn("DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE:", workflow)
         self.assertIn("usr/share/libreecho-build-debs/dropbear", workflow)
+        self.assertIn('ref="${ref//\\//-}"', workflow)
 
 
 if __name__ == "__main__":

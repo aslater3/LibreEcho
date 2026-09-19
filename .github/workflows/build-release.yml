@@ -1384,6 +1384,7 @@ jobs:
         run: |
           ref="${GITHUB_REF_NAME#release/}"
           [[ "$GITHUB_EVENT_NAME" != pull_request ]] || ref="pr-$PR_NUMBER"
+          ref="${ref//\//-}"
           printf 'value=%s-%s\n' "$ref" "${PRODUCT_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Upload verified dev build
