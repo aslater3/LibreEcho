@@ -148,6 +148,8 @@ USERDATA_SUPPORTED_BYTES = frozenset((USERDATA_BYTES, USERDATA_VARIANT_BYTES))
 # Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
 # control-command timeout to this bounded eMMC operation.
 USERDATA_FLASH_TIMEOUT = 900
+# Bulk feature images need a separate budget from ordinary ADB commands.
+FEATURE_UPLOAD_TIMEOUT = 900
 BOOTOPT = b"bootopt=64S3,32N2,32N2"
 AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 AMONET_LAUNCHER = "bootrom-k32-native-diag-step.sh"
@@ -2043,7 +2045,11 @@ def stage_device_features(
         remote_payload = f"/tmp/libreecho-{name}.squashfs"
         remote_manifest = f"/tmp/libreecho-{name}.manifest.json"
         print(f"Staging feature {name} ({feature['payload']['size']} bytes)...", flush=True)
-        _run_command([adb_bin, "-s", serial, "push", str(payload), remote_payload], timeout)
+        _run_command_with_heartbeat(
+            [adb_bin, "-s", serial, "push", str(payload), remote_payload],
+            max(timeout, FEATURE_UPLOAD_TIMEOUT),
+            f"PAYLOAD STAGE: {name} upload still in progress; do not disconnect USB",
+        )
         _run_command([adb_bin, "-s", serial, "push", str(feature_manifest), remote_manifest], timeout)
         config = cache_root / f"stage-{name}.conf"
         config.write_text(
