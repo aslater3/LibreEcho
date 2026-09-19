@@ -813,7 +813,9 @@ fi
                         digest = "0" * 64 if tampered and kind == "manifest" else feature[kind]["sha256"]
                         out = f"{digest}  {argv[-1]}\r\n"
                     return subprocess.CompletedProcess(argv, 0, out, "")
-                with mock.patch.object(INSTALLER, "_run_command", side_effect=command):
+                with mock.patch.object(INSTALLER, "_run_command", side_effect=command), \
+                     mock.patch.object(INSTALLER, "_run_command_with_heartbeat",
+                                       side_effect=lambda argv, timeout, message: command(argv, timeout)):
                     if tampered:
                         with self.assertRaisesRegex(INSTALLER.InstallerError, "installed manifest hash mismatch"):
                             INSTALLER.stage_device_features("adb", "SERIAL", root, {"release": tag, "features": [feature]})
@@ -907,6 +909,9 @@ class OneShotContinuationTests(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(INSTALLER, "collect_adb_diagnostics"))
         self.raw_run = self.stack.enter_context(mock.patch.object(INSTALLER.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")))
         self.stack.enter_context(mock.patch.object(INSTALLER, "_run_command", side_effect=self.command))
+        self.stack.enter_context(mock.patch.object(
+            INSTALLER, "_run_command_with_heartbeat",
+            side_effect=lambda argv, timeout, message: self.command(argv, timeout)))
 
     def save_state(self, **changes):
         # Direct fixture write deliberately avoids carrying fields across cases.
