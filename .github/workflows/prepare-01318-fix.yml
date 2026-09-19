@@ -2,6 +2,7 @@ name: Prepare bounded 0.13.18 installer fix
 on:
   push:
     branches: ['fix/0.13.18-installer-upload-176']
+    paths: ['.github/prepare-01318-fix.py', '.github/workflows/prepare-01318-fix.yml']
 permissions:
   contents: write
 jobs:
@@ -23,8 +24,7 @@ jobs:
           timeout 120s python3 -B -m unittest tools.test_feature_upload_timeout tools.test_initial_installer_publication.InstallerPublicationTests.test_checked_in_installer_matches_its_sha256_sidecar -v
           python3 -m py_compile tools/libreecho-install.py tools/test_feature_upload_timeout.py
           git diff --check
-          git rm .github/prepare-01318-fix.py .github/workflows/prepare-01318-fix.yml
-          git add tools/libreecho-install.py tools/libreecho-install.py.sha256 .github/workflows/release-gate.yml
+          git add tools/libreecho-install.py tools/libreecho-install.py.sha256
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

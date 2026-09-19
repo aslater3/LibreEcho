@@ -23,6 +23,7 @@ on:
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'tools/test_feature_upload_timeout.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -48,6 +49,7 @@ on:
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'tools/test_feature_upload_timeout.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -104,3 +106,5 @@ jobs:
         run: python -B -m unittest tools.test_brom_preflight -v
       - name: Verify host fastboot preflight suite
         run: python -B -m unittest tools.test_oneshot_host_preflight -v
+      - name: Verify bounded feature upload regressions
+        run: python -B -m unittest tools.test_feature_upload_timeout -v
