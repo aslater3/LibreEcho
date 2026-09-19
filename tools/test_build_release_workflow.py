@@ -389,9 +389,10 @@ class Tests(unittest.TestCase):
  def test_release_lanes_and_ota_boundaries(self):
   self.assertIn('LIBREECHO_OTA_SIGNING_MODE', W)
   self.assertIn('LIBREECHO_OTA_SIGNING_KEY_HEX', W)
-  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
+  self.assertNotIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
   self.assertIn('LIBREECHO_SSH_ENABLED', W)
-  self.assertIn('Materialize protected SSH root password hash', W)
+  self.assertNotIn('Materialize protected SSH root password hash', W)
+  self.assertIn('Include deferred WebUI-account SSH in the image', W)
   self.assertIn('dropbear_sha256', (ROOT/'build/ci/prepare-dev-release.py').read_text())
   self.assertIn('stable-release', W)
   self.assertIn('local) ;;', PUBLIC_WRAPPER)
@@ -410,13 +411,12 @@ class Tests(unittest.TestCase):
   self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
 
  def test_ssh_enabled_default(self):
-  # Manual selection retains the protected password and non-dispatch gates.
+  # SSH is explicit opt-in; no build-time credential enters the image.
   field = W.split('      ssh_enabled:', 1)[1].split('      release_version:', 1)[0]
-  self.assertIn('default: enabled', field)
+  self.assertIn('default: disabled', field)
   self.assertIn('options: [disabled, enabled]', field)
   self.assertIn("SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}", W)
-  self.assertIn("needs.resolve-and-preflight.outputs.ssh_enabled == '1'", W)
-  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
+  self.assertNotIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
 
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
