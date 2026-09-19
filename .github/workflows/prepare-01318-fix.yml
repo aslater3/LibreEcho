@@ -1,0 +1,32 @@
+name: Prepare bounded 0.13.18 installer fix
+on:
+  push:
+    branches: ['fix/0.13.18-installer-upload-176']
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.repository == 'aslater3/LibreEcho' && github.ref == 'refs/heads/fix/0.13.18-installer-upload-176'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Apply exact source patch and run focused host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = fix/0.13.18-installer-upload-176
+          python3 .github/prepare-01318-fix.py
+          timeout 120s python3 -B -m unittest tools.test_feature_upload_timeout tools.test_initial_installer_publication.InstallerPublicationTests.test_checked_in_installer_matches_its_sha256_sidecar -v
+          python3 -m py_compile tools/libreecho-install.py tools/test_feature_upload_timeout.py
+          git diff --check
+          git rm .github/prepare-01318-fix.py .github/workflows/prepare-01318-fix.yml
+          git add tools/libreecho-install.py tools/libreecho-install.py.sha256 .github/workflows/release-gate.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: allow bounded bulk feature uploads for issue 176'
+          git push origin "HEAD:$GITHUB_REF_NAME"
