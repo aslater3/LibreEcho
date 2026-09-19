@@ -1,0 +1,41 @@
+name: Dispatch authorised stable 0.13.18 release
+on:
+  push:
+    branches: ['fix/0.13.18-release-dispatch']
+    paths: ['.github/workflows/dispatch-01318-stable.yml']
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dispatch:
+    if: github.repository == 'aslater3/LibreEcho' && github.ref == 'refs/heads/fix/0.13.18-release-dispatch' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Check immutable release heads and dispatch the existing stable pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=aslater3/LibreEcho
+          product=89ec0c4bb533e767dd3d1f4aca4e800908a7bc95
+          test "$(timeout 30s gh api "repos/$repo/git/ref/heads/release/0.13.18" --jq .object.sha)" = "$product"
+          for pair in \
+            LibreEcho-Platform:262c12a849f88ff6ba4c5a8235e8b2733d44bfae \
+            LibreEcho-Linux-6.1:61d92db00162126e33bf984c9f68eb819bddca19 \
+            LibreEcho-UI:49fb7d6401c36e3d9459470a6d12c9f168d884d3; do
+            component=${pair%%:*}
+            expected=${pair#*:}
+            actual=$(timeout 30s git ls-remote --exit-code "https://github.com/aslater3/$component.git" refs/heads/release/0.13.18 | cut -f1)
+            test "$actual" = "$expected"
+            echo "$component=$actual"
+          done
+          timeout 30s gh api "repos/$repo/releases?per_page=100" --paginate --jq '.[] | select(.tag_name == "radar-puffin-v0.13.18") | .id' > existing-release.txt
+          test ! -s existing-release.txt
+          timeout 30s gh api "repos/$repo/actions/workflows/build-release.yml/runs?event=workflow_dispatch&branch=release%2F0.13.18&per_page=100" --jq '.workflow_runs[] | select(.head_sha == "89ec0c4bb533e767dd3d1f4aca4e800908a7bc95") | .id' > existing-dispatch.txt
+          test ! -s existing-dispatch.txt
+          timeout 30s gh api --method POST "repos/$repo/actions/workflows/build-release.yml/dispatches" --input - <<'JSON'
+          {"ref":"release/0.13.18","inputs":{"update_channel":"stable","release_version":"0.13.18","ssh_enabled":"disabled","amonet_repository":"https://github.com/aslater3/amonet-k32","amonet_tag":"v0.1.0","amonet_commit":"dfefe52f0eed7296012707cfff1f753b0ea33257","ota_format":"v2","ota_release":"0.13.18"}}
+          JSON
+          echo "stable_dispatch=ACCEPTED product=$product version=0.13.18 channel=stable ota=v2"
