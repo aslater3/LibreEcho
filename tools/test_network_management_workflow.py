@@ -43,6 +43,11 @@ class NetworkManagementWorkflowTests(unittest.TestCase):
         self.assertIn("--expected-scp-sha256", build)
         self.assertNotIn("LIBREECHO_SSH_ROOT_PASSWORD_HASH", workflow)
         self.assertNotIn("SSH_ROOT_PASSWORD_HASH", workflow)
+        self.assertIn("libcrypt-dev:armhf libcrypt1:armhf", workflow)
+        self.assertIn("DROPBEAR_SOURCE_ARCHIVE:", workflow)
+        self.assertIn("DROPBEAR_LIBCRYPT_DEV_PACKAGE:", workflow)
+        self.assertIn("DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE:", workflow)
+        self.assertIn("usr/share/libreecho-build-debs/dropbear", workflow)
 
 
 if __name__ == "__main__":

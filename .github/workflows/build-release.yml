@@ -436,7 +436,8 @@ jobs:
           apt-get download "${apt_opts[@]}" \
             libasound2-dev:armhf libasound2-data avahi-daemon:armhf \
             libavahi-client-dev:armhf libavahi-common-dev:armhf \
-            libdbus-1-dev:armhf dbus-daemon:armhf
+            libdbus-1-dev:armhf dbus-daemon:armhf \
+            libcrypt-dev:armhf libcrypt1:armhf
           cd "$RUNNER_TEMP"
           apt-get download \
             gcc-13-arm-linux-gnueabihf-base gcc-13-cross-base \
@@ -447,6 +448,23 @@ jobs:
             libc6-dev-armhf-cross libc6-armhf-cross linux-libc-dev-armhf-cross
           for deb in "$debs"/*.deb "$RUNNER_TEMP"/*.deb; do
             dpkg-deb -x "$deb" "$RUNNER_TEMP/armhf-root"
+          done
+          dropbear_debs="$RUNNER_TEMP/armhf-root/usr/share/libreecho-build-debs/dropbear"
+          mkdir -p "$dropbear_debs"
+          for package_dest in \
+            "libcrypt-dev:libcrypt-dev_4.4.36-4build1_armhf.deb" \
+            "libcrypt1:libcrypt1_4.4.36-4build1_armhf.deb"; do
+            package="${package_dest%%:*}"
+            destination="${package_dest#*:}"
+            matches=()
+            for deb in "$debs"/*.deb; do
+              [[ "$(dpkg-deb -f "$deb" Package)" == "$package" ]] && matches+=("$deb")
+            done
+            [[ "${#matches[@]}" -eq 1 ]] || {
+              echo "ERROR: expected one ARMHF package for Dropbear: $package" >&2
+              exit 1
+            }
+            install -m 0644 "${matches[0]}" "$dropbear_debs/$destination"
           done
           for tool in gcc g++ cpp; do
             ln -sfn "arm-linux-gnueabihf-${tool}-13" \
@@ -1270,6 +1288,10 @@ jobs:
           LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
           LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
           LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
+          DROPBEAR_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/dropbear-2026.93.tar.bz2
+          DROPBEAR_LIBCRYPT_DEV_PACKAGE: ${{ runner.temp }}/armhf-root/usr/share/libreecho-build-debs/dropbear/libcrypt-dev_4.4.36-4build1_armhf.deb
+          DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE: ${{ runner.temp }}/armhf-root/usr/share/libreecho-build-debs/dropbear/libcrypt1_4.4.36-4build1_armhf.deb
+          DROPBEAR_CROSS_PREFIX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
           # The production UI bundle links the pinned ARM32 Mbed TLS prefix:
           # the reviewed source archive and the pinned wheel-closure
           # interpreter are build inputs exactly like the other source-locked
