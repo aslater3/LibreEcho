@@ -6,12 +6,12 @@
     "platform": {
       "repository": "aslater3/LibreEcho-Platform",
       "ref": "feature/014-gpt-live-platform",
-      "commit": "4dbae9334ce1a8c5091b136a68c41f343bf41a02"
+      "commit": "fe4ae7ccf086f0760b63bd8a03704b5464b76375"
     },
     "ui": {
       "repository": "aslater3/LibreEcho-UI",
       "ref": "feature/014-gpt-live-ui",
-      "commit": "63c0a43"
+      "commit": "dc8fb5a"
     },
     "linux": {
       "repository": "aslater3/LibreEcho-Linux-6.1",
