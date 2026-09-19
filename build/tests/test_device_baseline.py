@@ -44,12 +44,27 @@ class DeviceBaselineTests(unittest.TestCase):
         guard = textwrap.dedent(block.split('          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then', 1)[0])
         env = dict(os.environ, DEVICE_BASELINE_JSON=json.dumps(self.baseline()),
                    GITHUB_EVENT_NAME='workflow_dispatch', RELEASE_CHANNEL='dev',
-                   OTA_FORMAT_INPUT='v2', GITHUB_REF='refs/heads/release/0.14.0')
+                   OTA_FORMAT_INPUT='v2', GITHUB_REF='refs/heads/release/0.14.0',
+                   FEATURE_V2_CANDIDATE_INPUT='disabled',
+                   PLATFORM_SHA_INPUT='', LINUX_SHA_INPUT='', UI_SHA_INPUT='')
         self.assertEqual(subprocess.run(['bash', '-c', guard], env=env, cwd=root, capture_output=True, timeout=10).returncode, 0)
+        feature_env = env | {
+            'GITHUB_REF': 'refs/heads/feature/014-open-network-management-product',
+            'FEATURE_V2_CANDIDATE_INPUT': 'enabled',
+            'PLATFORM_SHA_INPUT': 'a' * 40,
+            'LINUX_SHA_INPUT': 'b' * 40,
+            'UI_SHA_INPUT': 'c' * 40,
+        }
+        self.assertEqual(subprocess.run(['bash', '-c', guard], env=feature_env, cwd=root, capture_output=True, timeout=10).returncode, 0)
         for key, value in [('RELEASE_CHANNEL', 'stable'), ('OTA_FORMAT_INPUT', 'v1'),
                            ('GITHUB_EVENT_NAME', 'push'), ('GITHUB_REF', 'refs/heads/main'),
                            ('DEVICE_BASELINE_JSON', '{"serial":"private"}')]:
             result = subprocess.run(['bash', '-c', guard], env=env | {key: value}, cwd=root, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0, key)
+        for key, value in [('FEATURE_V2_CANDIDATE_INPUT', 'disabled'),
+                           ('PLATFORM_SHA_INPUT', ''), ('LINUX_SHA_INPUT', ''),
+                           ('UI_SHA_INPUT', '')]:
+            result = subprocess.run(['bash', '-c', guard], env=feature_env | {key: value}, cwd=root, capture_output=True, timeout=10)
             self.assertNotEqual(result.returncode, 0, key)
         self.assertIn('build.tests.test_device_baseline', workflow)
 

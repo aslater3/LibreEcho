@@ -51,6 +51,25 @@ class OtaV2InputTests(unittest.TestCase):
             "ota_base_catalog_sha256": "",
         })
 
+    def test_release_derived_feature_v2_is_explicit_manual_dev_only(self) -> None:
+        args = ("v2", "0.14.0", "", "", "workflow_dispatch",
+                "refs/heads/feature/014-open-network-management-product")
+        with self.assertRaisesRegex(InputError, "release branch"):
+            validate_inputs(*args)
+        accepted = validate_inputs(*args, allow_release_derived_feature=True)
+        self.assertEqual(accepted, {
+            "ota_format": "v2", "ota_release": "0.14.0",
+            "ota_base_catalog_url": "", "ota_base_catalog_sha256": "",
+        })
+        for event, ref, release in (
+            ("push", args[5], "0.14.0"),
+            ("workflow_dispatch", "refs/heads/main", "0.14.0"),
+            ("workflow_dispatch", args[5], "0.14.1"),
+        ):
+            with self.assertRaises(InputError):
+                validate_inputs("v2", release, "", "", event, ref,
+                                allow_release_derived_feature=True)
+
     def test_v2_requires_the_actual_0140_candidate_and_pinned_prior_catalog(self) -> None:
         with self.assertRaisesRegex(InputError, "0.14.0"):
             validate_inputs(

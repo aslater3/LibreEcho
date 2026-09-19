@@ -33,6 +33,12 @@ on:
         default: disabled
         type: choice
         options: [disabled, open-dev]
+      feature_v2_candidate:
+        description: Permit a release/0.14.0-derived feature branch v2 candidate
+        required: true
+        default: disabled
+        type: choice
+        options: [disabled, enabled]
       platform_sha:
         description: Exact Platform commit for an integration dispatch
         required: false
@@ -120,6 +126,7 @@ jobs:
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
           NETWORK_ADB_INPUT: ${{ inputs.network_adb || 'disabled' }}
+          FEATURE_V2_CANDIDATE_INPUT: ${{ inputs.feature_v2_candidate || 'disabled' }}
           PLATFORM_SHA_INPUT: ${{ inputs.platform_sha || '' }}
           LINUX_SHA_INPUT: ${{ inputs.linux_sha || '' }}
           UI_SHA_INPUT: ${{ inputs.ui_sha || '' }}
@@ -131,8 +138,26 @@ jobs:
           SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
+          FEATURE_V2_ALLOWED=0
+          case "$FEATURE_V2_CANDIDATE_INPUT" in
+            disabled) ;;
+            enabled)
+              [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev &&
+                 "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/feature/014-*-product &&
+                 "$PLATFORM_SHA_INPUT" =~ ^[0-9a-f]{40}$ &&
+                 "$LINUX_SHA_INPUT" =~ ^[0-9a-f]{40}$ &&
+                 "$UI_SHA_INPUT" =~ ^[0-9a-f]{40}$ ]] || {
+                echo "ERROR: feature v2 requires a manual dev dispatch with all exact component SHAs" >&2
+                exit 1
+              }
+              FEATURE_V2_ALLOWED=1
+              ;;
+            *) echo "ERROR: unsupported feature_v2_candidate input" >&2; exit 1 ;;
+          esac
           if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
-            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.14.0 ]] || {
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev &&
+               "$OTA_FORMAT_INPUT" == v2 &&
+               ( "$GITHUB_REF" == refs/heads/release/0.14.0 || "$FEATURE_V2_ALLOWED" == 1 ) ]] || {
               echo "ERROR: device migration requires manual dev v2 release/0.14.0 dispatch" >&2; exit 1;
             }
             UPDATE_CHANNEL="$RELEASE_CHANNEL" python3 -c 'import os,sys; sys.path.insert(0,"build/ci"); from device_baseline import parse; parse(os.environ["DEVICE_BASELINE_JSON"], os.environ["UPDATE_CHANNEL"])'
@@ -196,11 +221,16 @@ jobs:
               *) echo "ERROR: OTA v2 requires a release/X.Y.Z ref (got $GITHUB_REF); select v1 for main builds" >&2; exit 1 ;;
             esac
           fi
-          python3 build/ci/ota_v2_inputs.py \
-            --format "$OTA_FORMAT_INPUT" --release "$OTA_RELEASE_INPUT" \
-            --base-catalog-url "$OTA_BASE_CATALOG_URL_INPUT" \
-            --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256_INPUT" \
-            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" >> "$GITHUB_OUTPUT"
+          ota_v2_tool=(python3 build/ci/ota_v2_inputs.py)
+          FEATURE_V2_ALLOWED=${FEATURE_V2_ALLOWED:-0}
+          ota_v2_args=(
+            --format "$OTA_FORMAT_INPUT" --release "$OTA_RELEASE_INPUT"
+            --base-catalog-url "$OTA_BASE_CATALOG_URL_INPUT"
+            --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256_INPUT"
+            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF"
+          )
+          [[ "$FEATURE_V2_ALLOWED" != 1 ]] || ota_v2_args+=(--allow-release-derived-feature)
+          "${ota_v2_tool[@]}" "${ota_v2_args[@]}" >> "$GITHUB_OUTPUT"
           case "$SSH_ENABLED_INPUT" in
             disabled) SSH_ENABLED=0 ;;
             enabled) SSH_ENABLED=1 ;;

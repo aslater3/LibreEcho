@@ -28,6 +28,8 @@ def validate_inputs(
     base_catalog_sha256: str,
     event_name: str,
     ref: str,
+    *,
+    allow_release_derived_feature: bool = False,
 ) -> dict[str, str]:
     """Return normalized inputs, retaining v1 as the default bridge."""
     if ota_format == "v1":
@@ -44,7 +46,13 @@ def validate_inputs(
     if not base_catalog_url and not base_catalog_sha256:
         if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", ota_release):
             raise InputError("OTA v2 requires a numeric candidate release")
-        if ref != f"refs/heads/release/{ota_release}":
+        release_ref = ref == f"refs/heads/release/{ota_release}"
+        feature_ref = bool(
+            allow_release_derived_feature
+            and ota_release == EXPECTED_RELEASE
+            and re.fullmatch(r"refs/heads/feature/014-[A-Za-z0-9._-]+-product", ref)
+        )
+        if not release_ref and not feature_ref:
             raise InputError("OTA v2 candidate must match its release branch")
         return {"ota_format": "v2", "ota_release": ota_release,
                 "ota_base_catalog_url": "", "ota_base_catalog_sha256": ""}
@@ -91,11 +99,13 @@ def main() -> int:
     parser.add_argument("--base-catalog-sha256", default="")
     parser.add_argument("--event", required=True)
     parser.add_argument("--ref", required=True)
+    parser.add_argument("--allow-release-derived-feature", action="store_true")
     args = parser.parse_args()
     try:
         values = validate_inputs(
             args.ota_format, args.ota_release, args.base_catalog_url,
             args.base_catalog_sha256, args.event, args.ref,
+            allow_release_derived_feature=args.allow_release_derived_feature,
         )
     except InputError as exc:
         parser.error(str(exc))

@@ -56,7 +56,7 @@ class CandidateSelectionTests(unittest.TestCase):
 
     def derivation(self, **overrides):
         block = shell_block('          # Release dispatches default to v2;',
-                            '          python3 build/ci/ota_v2_inputs.py')
+                            '          ota_v2_tool=')
         return self.run_shell(block + '\nprintf "%s\\n" "$OTA_RELEASE_INPUT"', **overrides)
 
     def test_v2_derives_branch_version_and_preserves_explicit_input(self):
