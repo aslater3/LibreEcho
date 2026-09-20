@@ -150,6 +150,17 @@ USERDATA_SUPPORTED_BYTES = frozenset((USERDATA_BYTES, USERDATA_VARIANT_BYTES))
 USERDATA_FLASH_TIMEOUT = 900
 # Bulk feature images need a separate budget from ordinary ADB commands.
 FEATURE_UPLOAD_TIMEOUT = 900
+# Boot-slot confirmation. The preloader refuses a slot whose retry counter
+# reaches zero while its success flag is 0, so the installer verifies the
+# running slot against the same boot/recovery-plane preflight the reviewed
+# device-side confirm path uses: two minutes of uptime, a published ADB
+# FunctionFS control plane, and a running web service.
+BOOTCTL = "/usr/local/sbin/libreecho-bootctl"
+BOOT_DIAGNOSTIC_LABELS = frozenset({
+    "bootctl-status", "boot-health", "boot-history", "boot-count", "init-verdicts",
+})
+BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 120
+BOOT_SLOT_PREFLIGHT_TIMEOUT = 180
 BOOTOPT = b"bootopt=64S3,32N2,32N2"
 AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 AMONET_LAUNCHER = "bootrom-k32-native-diag-step.sh"
@@ -1149,6 +1160,12 @@ def collect_adb_diagnostics(adb_bin: str, serial: str, timeout: float = 30, reas
         ("userdata-blkid", ["blkid", "/dev/mmcblk0p16"]),
         ("partitions", ["cat", "/proc/partitions"]),
         ("dmesg-storage", ["dmesg"]),
+        ("bootctl-status", [BOOTCTL, "status"]),
+        ("boot-health", ["cat", "/data/libreecho/update/boot-health"]),
+        ("boot-history", ["cat", "/data/libreecho/update/boot-history"]),
+        ("boot-count", ["cat", "/data/libreecho/update/boot-count"]),
+        ("update-records", ["ls", "-l", "/data/libreecho/update"]),
+        ("init-verdicts", ["sh", "-c", "dmesg | grep libreecho-init | tail -n 60"]),
     )
     for label, remote in commands:
         result = _run_command([adb_bin, "-s", serial, "shell", *remote], timeout, check=False)
@@ -1159,7 +1176,128 @@ def collect_adb_diagnostics(adb_bin: str, serial: str, timeout: float = 30, reas
                 if re.search(r"mmc|ext4|f2fs|userdata|mount|superblock|I/O error", line, re.IGNORECASE)
             ]
             _append_log("ADB_DIAGNOSTIC dmesg-storage-filtered:\n" + "\n".join(lines[-200:]))
+        elif label in BOOT_DIAGNOSTIC_LABELS:
+            # The boot-slot records are the only evidence that survives a device
+            # which stops booting, so the archive carries them verbatim.
+            lines = (result.stdout + "\n" + result.stderr).splitlines()
+            _append_log(f"ADB_DIAGNOSTIC {label} output:\n" + "\n".join(lines[:120]))
     _append_log("ADB_DIAGNOSTICS end")
+
+
+def _boot_slot_field(status: str, key: str) -> str | None:
+    match = re.search(rf"^{re.escape(key)}=(.+)$", status, re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+def _boot_slot_preflight(adb_bin: str, serial: str, timeout: float) -> tuple[bool, str]:
+    """Wait for the plane a slot confirmation needs, then verify it is still up."""
+    deadline = time.monotonic() + BOOT_SLOT_PREFLIGHT_TIMEOUT
+    while True:
+        result = _run_command(
+            [adb_bin, "-s", serial, "shell", "cut", "-d.", "-f1", "/proc/uptime"],
+            timeout, check=False,
+        )
+        raw = result.stdout.strip()
+        if raw.isdigit():
+            if int(raw) >= BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS:
+                break
+        elif result.returncode != 0 or not raw:
+            # A booted device always answers this. No answer means the recovery
+            # plane this write depends on is not up, so refuse rather than wait.
+            return False, "uptime-unavailable"
+        if time.monotonic() >= deadline:
+            return False, f"uptime-below-{BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS}s"
+        time.sleep(5)
+    for endpoint in ("ep0", "ep1", "ep2"):
+        result = _run_command(
+            [adb_bin, "-s", serial, "shell", "test", "-e", f"/dev/usb-ffs/adb/{endpoint}"],
+            timeout, check=False,
+        )
+        if result.returncode != 0:
+            return False, f"adb-functionfs-{endpoint}"
+    result = _run_command(
+        [adb_bin, "-s", serial, "shell", "/etc/init.d/libreecho-web.init", "status"],
+        timeout, check=False,
+    )
+    if result.returncode != 0:
+        return False, "web-service"
+    return True, "ok"
+
+
+def verify_boot_slot(adb_bin: str, serial: str, timeout: float = 60) -> dict[str, str]:
+    """Confirm the running boot slot from the host while ADB is still available.
+
+    The preloader refuses a slot whose retry counter reaches zero while its
+    success flag is 0, and only `libreecho-bootctl confirm` clears that counter:
+    an install that leaves the slot unconfirmed produces a device that stops
+    booting after a handful of restarts with no ADB and no way in. The device
+    confirms itself once its health gate passes, but that gate can legitimately
+    fail on a slow or degraded optional service, so the host closes the loop.
+
+    The write is gated on the same boot/recovery-plane preflight the reviewed
+    device-side confirm path uses. A refusal is reported with the raw bootloader
+    state rather than skipped, and it never fails the install: the device is
+    usable now, and the operator needs the evidence and the instruction.
+    """
+    observations: dict[str, str] = {}
+    preflight_ok, preflight_reason = _boot_slot_preflight(adb_bin, serial, timeout)
+    observations["preflight"] = "ok" if preflight_ok else preflight_reason
+    status = _run_command([adb_bin, "-s", serial, "shell", BOOTCTL, "status"], timeout, check=False)
+    text = status.stdout + "\n" + status.stderr
+    selected = _boot_slot_field(text, "selected_slot")
+    observations["bootctl_status"] = "read" if status.returncode == 0 else "unavailable"
+    observations["selected_slot"] = selected if selected in {"a", "b"} else "unavailable"
+    for label, key in (("slot_a_tries", "slot_a_tries"), ("slot_a_success", "slot_a_success"),
+                       ("slot_b_tries", "slot_b_tries"), ("slot_b_success", "slot_b_success")):
+        observations[label] = _boot_slot_field(text, key) or "unavailable"
+    _append_log("BOOT_SLOT observations: " + json.dumps(observations, sort_keys=True))
+    if selected not in {"a", "b"}:
+        print("BOOT SLOT: the bootloader did not report a selected slot; "
+              "collect the evidence archive before rebooting.", flush=True)
+        _append_log("BOOT_SLOT unverified: selected slot not reported:\n" + "\n".join(text.splitlines()[:40]))
+        return observations
+    success = observations.get(f"slot_{selected}_success", "unavailable")
+    tries = observations.get(f"slot_{selected}_tries", "unavailable")
+    if success == "1":
+        print(f"BOOT SLOT: slot {selected} is confirmed (bootloader tries={tries}).", flush=True)
+        observations["confirmed"] = "true"
+        observations["confirmed_by"] = "device"
+        return observations
+    if not preflight_ok:
+        print(
+            f"BOOT SLOT: WARNING slot {selected} is NOT confirmed (success={success}, tries={tries}) "
+            f"and the preflight refused a write ({preflight_reason}). The device will stop booting once "
+            f"the bootloader runs out of tries. Collect the evidence archive, then reinstall the image.",
+            flush=True,
+        )
+        observations["confirmed"] = "false"
+        observations["confirmed_by"] = "refused"
+        _append_log("BOOT_SLOT unconfirmed, preflight refused: " + preflight_reason)
+        return observations
+    confirm = _run_command(
+        [adb_bin, "-s", serial, "shell", BOOTCTL, "confirm", selected], timeout, check=False,
+    )
+    _append_log(
+        f"BOOT_SLOT confirm rc={confirm.returncode} stdout={confirm.stdout.strip()!r} "
+        f"stderr={confirm.stderr.strip()!r}"
+    )
+    readback = _run_command([adb_bin, "-s", serial, "shell", BOOTCTL, "status"], timeout, check=False)
+    readback_text = readback.stdout + "\n" + readback.stderr
+    if _boot_slot_field(readback_text, f"slot_{selected}_success") == "1":
+        print(f"BOOT SLOT: slot {selected} confirmed by the installer (success=1, tries=0).", flush=True)
+        observations["confirmed"] = "true"
+        observations["confirmed_by"] = "installer"
+        return observations
+    print(
+        f"BOOT SLOT: WARNING slot {selected} could not be confirmed (success={success}, tries={tries}). "
+        "The device will stop booting once the bootloader runs out of tries; collect the evidence "
+        "archive and reinstall the image before rebooting repeatedly.",
+        flush=True,
+    )
+    observations["confirmed"] = "false"
+    observations["confirmed_by"] = "failed"
+    _append_log("BOOT_SLOT confirm failed; readback:\n" + "\n".join(readback_text.splitlines()[:40]))
+    return observations
 
 
 def _capture_evidence_command(argv: list[str], destination: Path, timeout: float = 20) -> None:
@@ -1775,6 +1913,12 @@ def one_shot(
             collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
             raise
         _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release_tag, "bundle_sha256": bundle_sha})
+        print("BOOT SLOT: verifying the running slot is confirmed.", flush=True)
+        try:
+            verify_boot_slot(adb_bin, serial, adb_timeout)
+        except InstallerError as error:
+            print(f"BOOT SLOT: verification could not complete: {error}", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "boot slot verification failure")
         _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
         url = f"http://127.0.0.1:{local_port}/setup.html"
         _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha})
@@ -2007,6 +2151,12 @@ def continue_one_shot(
             raise
         _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release,
                                   "bundle_sha256": state["bundle_sha256"]})
+        print("BOOT SLOT: verifying the running slot is confirmed.", flush=True)
+        try:
+            verify_boot_slot(adb_bin, serial, adb_timeout)
+        except InstallerError as error:
+            print(f"BOOT SLOT: verification could not complete: {error}", flush=True)
+            collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "boot slot verification failure")
         _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
         url = f"http://127.0.0.1:{local_port}/setup.html"
         _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
