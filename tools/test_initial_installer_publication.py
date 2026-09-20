@@ -19,6 +19,130 @@ INSTALLER = ROOT / "tools" / "libreecho-install.py"
 CHECKSUM = ROOT / "tools" / "libreecho-install.py.sha256"
 
 
+def load_installer_module():
+    """Load the published installer as a module so its helpers can be exercised."""
+    spec = importlib.util.spec_from_file_location("installer", INSTALLER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class BootSlotVerificationTests(unittest.TestCase):
+    """The installer must not leave a device on an unconfirmed slot.
+
+    The preloader refuses a slot whose retry counter reaches zero while success
+    is 0, and only libreecho-bootctl confirm clears that counter, so an install
+    that leaves the slot unconfirmed stops booting after a handful of restarts.
+    """
+
+    STATUS_CONFIRMED = (
+        "selected_slot=a\ninactive_slot=b\nslot_suffix=a\n"
+        "slot_a_priority=15\nslot_a_tries=0\nslot_a_success=1\n"
+        "slot_b_priority=14\nslot_b_tries=7\nslot_b_success=0\n"
+    )
+    STATUS_UNCONFIRMED = (
+        "selected_slot=a\ninactive_slot=b\nslot_suffix=a\n"
+        "slot_a_priority=15\nslot_a_tries=2\nslot_a_success=0\n"
+        "slot_b_priority=14\nslot_b_tries=7\nslot_b_success=0\n"
+    )
+
+    def _run(self, statuses, uptime="200", functionfs_rc=0, web_rc=0, confirm_rc=0):
+        module = load_installer_module()
+        module.BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 0
+        module.BOOT_SLOT_PREFLIGHT_TIMEOUT = 5
+        calls: list[list[str]] = []
+        pending = list(statuses)
+
+        def fake(argv, timeout=None, check=True):
+            calls.append(list(argv))
+            joined = " ".join(argv)
+            stdout = ""
+            returncode = 0
+            if "/proc/uptime" in joined:
+                stdout = f"{uptime}\n"
+            if "/usr/local/sbin/libreecho-bootctl" in joined:
+                if "confirm" in argv:
+                    returncode = confirm_rc
+                else:
+                    stdout = pending.pop(0) if pending else ""
+            elif "/dev/usb-ffs/adb/" in joined:
+                returncode = functionfs_rc
+            elif "libreecho-web.init" in joined:
+                returncode = web_rc
+            return subprocess.CompletedProcess(argv, returncode, stdout, "")
+
+        module._run_command = fake
+        return module, calls, module.verify_boot_slot("adb", "serial", 5)
+
+    def test_confirmed_slot_is_observed_without_a_write(self):
+        _, calls, observations = self._run([self.STATUS_CONFIRMED])
+        self.assertEqual(observations["confirmed_by"], "device")
+        self.assertEqual(observations["selected_slot"], "a")
+        self.assertEqual(observations["slot_a_success"], "1")
+        self.assertFalse(any("confirm" in call for call in calls))
+
+    def test_unconfirmed_slot_is_confirmed_and_read_back(self):
+        _, calls, observations = self._run([self.STATUS_UNCONFIRMED, self.STATUS_CONFIRMED])
+        self.assertEqual(observations["confirmed_by"], "installer")
+        self.assertEqual(observations["preflight"], "ok")
+        confirmations = [call for call in calls if "confirm" in call]
+        self.assertEqual(len(confirmations), 1)
+        # The confirmed slot is the one the bootloader reported as selected.
+        self.assertEqual(confirmations[0][-2:], ["confirm", "a"])
+        self.assertEqual(confirmations[0][-3], "/usr/local/sbin/libreecho-bootctl")
+
+    def test_preflight_refusal_never_writes_the_bcb(self):
+        _, calls, observations = self._run([self.STATUS_UNCONFIRMED], web_rc=1)
+        self.assertEqual(observations["confirmed_by"], "refused")
+        self.assertEqual(observations["preflight"], "web-service")
+        self.assertFalse(any("confirm" in call for call in calls))
+
+    def test_unreported_slot_is_reported_without_a_write(self):
+        _, calls, observations = self._run(["selected_slot=-\n"])
+        self.assertEqual(observations["selected_slot"], "unavailable")
+        self.assertNotIn("confirmed_by", observations)
+        self.assertFalse(any("confirm" in call for call in calls))
+
+    def test_functionfs_missing_refuses_the_write(self):
+        module = load_installer_module()
+        module.BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 0
+        module.BOOT_SLOT_PREFLIGHT_TIMEOUT = 5
+        calls: list[list[str]] = []
+
+        def fake(argv, timeout=None, check=True):
+            calls.append(list(argv))
+            joined = " ".join(argv)
+            if "/proc/uptime" in joined:
+                return subprocess.CompletedProcess(argv, 0, "300\n", "")
+            if "/dev/usb-ffs/adb/ep1" in joined:
+                return subprocess.CompletedProcess(argv, 1, "", "")
+            if "libreecho-web.init" in joined:
+                return subprocess.CompletedProcess(argv, 0, "running\n", "")
+            return subprocess.CompletedProcess(argv, 0, self.STATUS_UNCONFIRMED, "")
+
+        module._run_command = fake
+        observations = module.verify_boot_slot("adb", "serial", 5)
+        self.assertEqual(observations["preflight"], "adb-functionfs-ep1")
+        self.assertEqual(observations["confirmed_by"], "refused")
+
+    def test_preflight_waits_for_uptime_before_deciding(self):
+        module = load_installer_module()
+        module.BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 120
+        module.BOOT_SLOT_PREFLIGHT_TIMEOUT = 0
+        calls: list[list[str]] = []
+
+        def fake(argv, timeout=None, check=True):
+            calls.append(list(argv))
+            if "/proc/uptime" in " ".join(argv):
+                return subprocess.CompletedProcess(argv, 0, "5\n", "")
+            return subprocess.CompletedProcess(argv, 0, self.STATUS_UNCONFIRMED, "")
+
+        module._run_command = fake
+        observations = module.verify_boot_slot("adb", "serial", 5)
+        self.assertEqual(observations["preflight"], "uptime-below-120s")
+        self.assertTrue(any("/proc/uptime" in " ".join(call) for call in calls))
+
+
 class InstallerPublicationTests(unittest.TestCase):
     def test_download_reuses_stable_ota_alias(self):
         spec = importlib.util.spec_from_file_location("installer", INSTALLER)
