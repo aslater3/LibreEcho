@@ -115,6 +115,36 @@ jobs:
             prepare-release.out >>"$GITHUB_OUTPUT"
           test "$(grep -Ec '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle|asset_count)=' prepare-release.out)" -eq 7
           python3 tools/check-public-metadata.py release-assets
+
+          # Build the recovery (TWRP) install bundle from the assembled asset set.
+          # Both the install manifest and the signed OTA manifest live inside the
+          # tars at this point, which is exactly what the bundle builder unpacks,
+          # and the boot image and feature payloads are already flat here.
+          mapfile -t builders < <(find verified-build -path '*/twrp-builder/build_install_bundle.py' -type f)
+          test "${#builders[@]}" -eq 1
+          builder_dir="$(dirname "${builders[0]}")"
+          twrp_out="$(mktemp -d)"
+          python3 "$builder_dir/build_install_bundle.py" \
+            --assets release-assets --out "$twrp_out" --src "$builder_dir/src"
+          install -m 0644 "$twrp_out/libreecho-install.zip" \
+                          "$twrp_out/bundle.manifest" release-assets/
+          mapfile -t sums < <(find release-assets -maxdepth 1 -name '*-SHA256SUMS' \
+            ! -name '*-TWRPINSTALL-SHA256SUMS')
+          test "${#sums[@]}" -eq 1
+          prefix="$(basename "${sums[0]}")"
+          prefix="${prefix%-SHA256SUMS}"
+          (cd release-assets && \
+            sha256sum libreecho-install.zip bundle.manifest \
+              > "$prefix-TWRPINSTALL-SHA256SUMS")
+
+          # The recovery set adds three assets (libreecho-install.zip,
+          # bundle.manifest and the checksum file above). Later output values win,
+          # so re-emit asset_count in step with what actually lands.
+          original_asset_count="$(sed -n 's/^asset_count=//p' prepare-release.out)"
+          [[ "$original_asset_count" =~ ^[0-9]+$ ]]
+          printf 'asset_count=%s\n' "$((original_asset_count + 3))" >>"$GITHUB_OUTPUT"
+
+          # Verifies the original assets and the two TWRP bundle files added above.
           (cd release-assets && sha256sum -c *-SHA256SUMS)
       - name: Publish development or nightly prerelease
         env:
