@@ -78,6 +78,35 @@ It verifies the installer checksum using public GitHub download URLs and does
 not require a GitHub account or token. Do not rename or mix asset files from
 another release.
 
+### Recovery install bundle (published for testing)
+
+Development and nightly releases also carry a recovery install bundle, built by
+CI from the same immutable asset set:
+
+- `libreecho-install.zip` — the installer TWRP runs
+- `bundle.manifest` — key=value pin of every payload the installer verifies
+- `libreecho-<release>-TWRPINSTALL-SHA256SUMS` — digests for those two files
+
+Verify the bundle before use:
+
+```sh
+sha256sum -c libreecho-<release>-TWRPINSTALL-SHA256SUMS
+```
+
+The bundle is a **testing route, not yet the supported one** — sections 2–5
+remain the supported path, and these releases are published as
+`PREPARED_NOT_FLASHED`. With the device already unlocked, TWRP can validate the
+target, prepare the userdata layout, write both boot slots and stage the
+features from it. Stage the bundle on `/cache`: in recovery `/sdcard` is the
+same block device as `/data`, which the install formats.
+
+Feature payloads are staged through the release's signed manifest rather than
+copied into the live tree, because the OS commits features through a signed,
+journalled transaction. The installer's contract, its write allowlist and the
+recovery environment's constraints are documented with the package: see
+[`tools/mt8163-arm32/recovery-install`](https://github.com/aslater3/LibreEcho-Platform/tree/main/tools/mt8163-arm32/recovery-install)
+in the Platform repository.
+
 ## 2. Open the Echo
 
 1. Disconnect power and USB.
