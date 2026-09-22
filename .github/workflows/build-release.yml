@@ -985,6 +985,23 @@ jobs:
           }, sort_keys=True) + "\n", encoding="utf-8")
           PY
 
+      # Ship the recovery-install builder with the build artifact. The publisher
+      # runs it after prepare-dev-release has assembled the flat release asset
+      # set, because the install manifest only exists then (inside the
+      # initial-install tar) and the Platform checkout is not available there.
+      - name: Stage recovery install builder
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -eq 1
+          src="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/recovery-install"
+          test -f "$src/build_install_bundle.py"
+          test -f "$src/src/META-INF/com/google/android/update-binary"
+          dest="${runs[0]}/twrp-builder"
+          mkdir -p "$dest/src"
+          cp "$src/build_install_bundle.py" "$dest/"
+          cp -r "$src/src/." "$dest/src/"
+
       - name: Name build artifact
         id: dev-build-name
         env:
