@@ -123,6 +123,10 @@ jobs:
           mapfile -t builders < <(find verified-build -path '*/twrp-builder/build_install_bundle.py' -type f)
           test "${#builders[@]}" -eq 1
           builder_dir="$(dirname "${builders[0]}")"
+          # A build artifact does not preserve file modes, so the staged entry
+          # point arrives non-executable. The builder requires it executable -
+          # that is how TWRP consumes it - so restore the bit that git carried.
+          chmod 0755 "$builder_dir/src/META-INF/com/google/android/update-binary"
           twrp_out="$(mktemp -d)"
           python3 "$builder_dir/build_install_bundle.py" \
             --assets release-assets --out "$twrp_out" --src "$builder_dir/src"
