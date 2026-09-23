@@ -696,9 +696,17 @@ jobs:
           SSH_ROOT_PASSWORD_HASH: ${{ secrets.LIBREECHO_SSH_ROOT_PASSWORD_HASH }}
         run: |
           set -euo pipefail
-          test -n "$SSH_ROOT_PASSWORD_HASH"
+          # Enabling SSH ships the bundle and starts the supervisor; the root
+          # password is optional.  Without the secret this writes an empty file
+          # so the build-local path stays valid, and the image then carries no
+          # root password at all: credentials come from the users database that
+          # setup writes.
           umask 077
-          printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
+          if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then
+            printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
+          else
+            : >"$RUNNER_TEMP/ssh-root-password-hash"
+          fi
       - name: Derive reviewed TTS voice models
         run: |
           set -euo pipefail

@@ -597,14 +597,27 @@ case "$SSH_ENABLED" in
        echo "ERROR: LIBREECHO_SSH_ROOT_PASSWORD_HASH requires LIBREECHO_SSH_ENABLED=1" >&2
        exit 1
      } ;;
-  1) [[ -n "$SSH_ROOT_PASSWORD_HASH" && -f "$SSH_ROOT_PASSWORD_HASH" && ! -L "$SSH_ROOT_PASSWORD_HASH" ]] || {
-       echo "ERROR: SSH requires a regular build-local root password hash file" >&2
-       exit 1
-     }
-     hash_mode="$(stat -c %a "$SSH_ROOT_PASSWORD_HASH")"
-     if (( 8#$hash_mode & 022 )); then
-       echo "ERROR: SSH root password hash file is group/world-writable" >&2
-       exit 1
+  1) # Enabling SSH ships the bundle, not a credential: init starts the
+     # supervisor, which waits for the WebUI users database that setup writes.
+     # A staged hash adds password-only root login on top of that, and is
+     # optional.  An absent, unset or empty-path hash simply means the image
+     # carries no root password, which is the intended default for a device
+     # whose credentials come from setup.
+     if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then
+       [[ -f "$SSH_ROOT_PASSWORD_HASH" && ! -L "$SSH_ROOT_PASSWORD_HASH" ]] || {
+         echo "ERROR: SSH requires a regular build-local root password hash file" >&2
+         exit 1
+       }
+       hash_mode="$(stat -c %a "$SSH_ROOT_PASSWORD_HASH")"
+       if (( 8#$hash_mode & 022 )); then
+         echo "ERROR: SSH root password hash file is group/world-writable" >&2
+         exit 1
+       fi
+       if [[ ! -s "$SSH_ROOT_PASSWORD_HASH" ]]; then
+         echo "SSH enabled without a root password hash: no root password will be set" >&2
+       fi
+     else
+       echo "SSH enabled without a root password hash: no root password will be set" >&2
      fi ;;
   *) echo "ERROR: LIBREECHO_SSH_ENABLED must be 0 or 1" >&2; exit 1 ;;
 esac
