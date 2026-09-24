@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import json
 import os
 import re
 import shlex
@@ -638,5 +639,42 @@ class SshOptionTests(unittest.TestCase):
   flat=' '.join((ROOT/'build/README.md').read_text().split())
   self.assertIn('The root password is **optional and is not what enables SSH**',flat)
   self.assertNotIn('enabled run requires the protected LIBREECHO_SSH_ROOT_PASSWORD_HASH secret',flat)
+
+
+class SshInputInventoryTests(unittest.TestCase):
+ """The SSH build needs three pinned inputs, and must be handed the fetched
+ copies rather than a path under the build root that nothing populates."""
+
+ # Mirrors the Platform builder's EXPECTED_* pins. If the builder's pins move,
+ # this fails here instead of at the end of a hosted build.
+ SSH_INPUTS={
+  'dropbear-2026.93.tar.bz2':'310a6087952897c182efbe16088fa0c4d07c467e850a22699472137278fabf09',
+  'libcrypt-dev_4.4.36-4build1_armhf.deb':'58010a8f588477dae4444f3b92636ef4e02aa2d21ab4587d33702299163a5380',
+  'libcrypt1_4.4.36-4build1_armhf.deb':'198990e999add09e21b0ab3522c94333a0e135656c7f00960f534cec15477a74',
+ }
+
+ def test_inventory_carries_every_ssh_builder_input(self):
+  records=json.loads((ROOT/'build/inputs/public-inputs.json').read_text())['inputs']
+  by_filename={record['url'].rsplit('/',1)[-1]:record for record in records}
+  for filename,digest in self.SSH_INPUTS.items():
+   with self.subTest(input=filename):
+    self.assertIn(filename,by_filename)
+    record=by_filename[filename]
+    self.assertEqual(digest,record['sha256'])
+    self.assertTrue(record['url'].startswith('https://'))
+    self.assertEqual('cleared',record['redistribution'])
+    self.assertTrue(record['license'])
+
+ def test_build_passes_the_fetched_inputs_to_the_ssh_builder(self):
+  block=B.split('DROPBEAR_BUILDER=',1)[1].split('DROPBEAR_OUTPUT=',1)[0]
+  for variable in ('DROPBEAR_SOURCE_ARCHIVE','DROPBEAR_LIBCRYPT_DEV_PACKAGE',
+                   'DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE'):
+   with self.subTest(variable=variable):
+    self.assertIn(f'{variable}="$INPUTS/',block)
+  for filename in self.SSH_INPUTS:
+   self.assertIn(f'/{filename}"',block)
+
+ def test_dropbear_is_only_built_when_ssh_is_enabled(self):
+  self.assertIn('if [[ "$SSH_ENABLED" == 1 ]]; then',B[:B.index('DROPBEAR_BUILDER=')][-400:])
 
 if __name__=='__main__': unittest.main()
