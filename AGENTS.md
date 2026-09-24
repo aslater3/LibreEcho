@@ -53,6 +53,39 @@ execution.
 11. If the user asks only for a review, diagnosis, explanation, or plan, do not
     edit files. Return findings and proposed changes instead.
 
+## Boot-chain safety
+
+Current devices run an **amonet v2.0.0** chain. One partition changed purpose
+between chain generations, and writing it the old way destroys the chain:
+
+| Partition | Legacy amonet v1.x | **v2.0.0 (current)** |
+|---|---|---|
+| `expdb` (p7) | `FASTBOOT_PLEASE` marker | **`*-kaeru.bin` — the LK-stage patch payload, at offset 0** |
+| `misc` | — | `FASTBOOT_PLEASE` marker, at `misc[0:16]` |
+
+1. **Never write `FASTBOOT_PLEASE` to `expdb`, and never erase `expdb`, on a
+   v2.0.0 chain.** Those 15 bytes land exactly on the kaeru payload's MTK image
+   header (`88 16 88 58 | size | "LK"`); the LK-stage patch can then never run
+   and the device bricks. It is harmless on v1.x chains, which is why the old
+   location still appears in code.
+2. **Establish the chain generation before any flash write.** Read
+   `expdb[0:16]`: MTK magic `88 16 88 58` means the kaeru payload is present and
+   v2.0.0 is in use; ASCII `FASTBOOT_PLEASE` means the chain is already broken.
+   A partition *name* check (`PARTNAME=expdb`) cannot detect this — the name is
+   identical in both generations and only the content differs.
+3. **On v2.0.0 the marker target is `misc[0:16]`**, matching the amonet package's
+   own `force_fastboot()`.
+4. **The failure appears one boot later**, so it reads as a sudden hardware
+   fault. When a unit stops booting after an image that writes flash at boot,
+   inspect `expdb[0:16]` before concluding hardware. The recovery window is
+   entered by holding MUTE at power-on; recovery and the full byte-level analysis
+   are in LibreEcho-Platform issue #195.
+5. **This repository owns the build-time marker contract.** `build/check_marker_contract.sh`
+   still enforces the pre-v2.0.0 target (the `FASTBOOT_PLEASE` literal in the
+   kernel driver plus the `PARTNAME=expdb` gate). Any marker write that is
+   retained must be retargeted to `misc`, and this contract updated in the same
+   change, so the old location cannot silently return.
+
 # Branching, Pull Requests, and Versioning
 
 These rules govern how changes flow through this repository. They apply equally
