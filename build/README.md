@@ -59,15 +59,15 @@ are deliberately separate:
   validation evidence only and never publishes a release.
 - **SSH option:** all non-dispatch builds keep SSH disabled. A manual GitHub
   Actions run defaults to `ssh_enabled=enabled` and may select `disabled`; an
-  enabled run embeds the static ARM32 Dropbear server plus `dropbearkey` in the
-  initramfs, starts the SSH supervisor, and records both binary hashes in the
-  release manifest. The root password is **optional and is not what enables
-  SSH**: the supervisor waits for the WebUI users database that setup writes, so
-  credentials normally come from setup. When the protected
-  `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is present it is staged and the image
-  additionally accepts password-only root login; without it the image carries no
-  root password. Neither variant includes public-key authorization or persistent
-  host keys.
+  enabled run embeds the static ARM32 `dropbear`, `dropbearkey` and `scp`
+  binaries in the initramfs and starts the SSH supervisor, which stays in a
+  waiting state until setup writes the WebUI users database
+  (`/data/libreecho/config/users`). Authentication is against that database and
+  nothing else: the image has **root login disabled**, uses non-root ephemeral
+  accounts, carries no public-key authorization and no persistent host keys, and
+  records all three binary hashes in the release manifest. The protected
+  `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional and is not consumed by
+  the build, because the image accepts no root password.
 - **Development:** pushes to `main` publish a bounded signed `dev`-channel GitHub
   prerelease from the exact workflow artifact. Pull requests remain unsigned
   validation-only builds. These releases are `PREPARED_NOT_FLASHED`, are not
