@@ -2144,7 +2144,14 @@ if [[ "$SSH_ENABLED" == 1 ]]; then
     echo "ERROR: SSH builder is missing or not executable: $DROPBEAR_BUILDER" >&2
     exit 1
   }
+  # The builder resolves its three inputs under LIBREECHO_PIPELINE_ROOT, but
+  # the verified public inputs are fetched to $INPUTS.  Point it at them
+  # explicitly; it hashes each file against its own pins.  The output root needs
+  # no override: both sides already agree on $BUILD_ROOT/work/dropbear-2026.93.
   LIBREECHO_PIPELINE_ROOT="$BUILD_ROOT" \
+    DROPBEAR_SOURCE_ARCHIVE="$INPUTS/dropbear-2026.93.tar.bz2" \
+    DROPBEAR_LIBCRYPT_DEV_PACKAGE="$INPUTS/libcrypt-dev_4.4.36-4build1_armhf.deb" \
+    DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE="$INPUTS/libcrypt1_4.4.36-4build1_armhf.deb" \
     "$DROPBEAR_BUILDER" | tee "$RUN/dropbear-build.log"
   DROPBEAR_OUTPUT="$WORK_ROOT/dropbear-2026.93/output"
   [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" ]] || {
