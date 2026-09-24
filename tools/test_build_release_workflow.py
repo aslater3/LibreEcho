@@ -637,7 +637,8 @@ class SshOptionTests(unittest.TestCase):
 
  def test_documentation_states_the_root_password_is_optional(self):
   flat=' '.join((ROOT/'build/README.md').read_text().split())
-  self.assertIn('The root password is **optional and is not what enables SSH**',flat)
+  self.assertIn('`LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional',flat)
+  self.assertNotIn('password-only root login',flat)
   self.assertNotIn('enabled run requires the protected LIBREECHO_SSH_ROOT_PASSWORD_HASH secret',flat)
 
 
@@ -683,6 +684,29 @@ class SshInputInventoryTests(unittest.TestCase):
   self.assertIn('CROSS="${CROSS:-/usr/bin/arm-linux-gnueabihf-}"',B)
   self.assertIn('CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-',
                 (ROOT/'.github/workflows/build-release.yml').read_text())
+
+ def test_ssh_bundle_passes_what_the_image_builder_requires(self):
+  # build_recovery_image.py accepts exactly --ssh-enabled/--dropbear/
+  # --dropbearkey/--scp and rejects an enabled bundle missing any of them.
+  block=B.split('ssh_builder_args=(\n',1)[1].split('ssh_verifier_args=(\n',1)[0]
+  self.assertIn('--ssh-enabled',block)
+  self.assertIn('--dropbear "$DROPBEAR_OUTPUT/dropbear"',block)
+  self.assertIn('--dropbearkey "$DROPBEAR_OUTPUT/dropbearkey"',block)
+  self.assertIn('--scp "$DROPBEAR_OUTPUT/scp"',block)
+  # The image has root login disabled, so no root password argument exists.
+  self.assertNotIn('--ssh-root-password-hash',B)
+
+ def test_ssh_verifier_expects_all_three_binaries(self):
+  block=B.split('ssh_verifier_args=(\n',1)[1].split('\nfi',1)[0]
+  self.assertIn('--expected-dropbear-sha256',block)
+  self.assertIn('--expected-dropbearkey-sha256',block)
+  self.assertIn('--expected-scp-sha256',block)
+  self.assertIn('-f "$DROPBEAR_OUTPUT/scp"',B)
+
+ def test_documentation_denies_root_login(self):
+  flat=' '.join((ROOT/'build/README.md').read_text().split())
+  self.assertIn('root login disabled',flat)
+  self.assertNotIn('accepts password-only root login',flat)
 
  def test_dropbear_is_only_built_when_ssh_is_enabled(self):
   self.assertIn('if [[ "$SSH_ENABLED" == 1 ]]; then',B[:B.index('DROPBEAR_BUILDER=')][-400:])

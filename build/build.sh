@@ -2157,23 +2157,32 @@ if [[ "$SSH_ENABLED" == 1 ]]; then
     DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE="$INPUTS/libcrypt1_4.4.36-4build1_armhf.deb" \
     "$DROPBEAR_BUILDER" | tee "$RUN/dropbear-build.log"
   DROPBEAR_OUTPUT="$WORK_ROOT/dropbear-2026.93/output"
-  [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" ]] || {
-    echo "ERROR: SSH builder did not produce both Dropbear binaries" >&2
+  [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" &&
+     -f "$DROPBEAR_OUTPUT/scp" ]] || {
+    echo "ERROR: SSH builder did not produce dropbear, dropbearkey and scp" >&2
     exit 1
   }
   dropbear_sha="$(sha256sum "$DROPBEAR_OUTPUT/dropbear" | awk '{print $1}')"
   dropbearkey_sha="$(sha256sum "$DROPBEAR_OUTPUT/dropbearkey" | awk '{print $1}')"
+  scp_sha="$(sha256sum "$DROPBEAR_OUTPUT/scp" | awk '{print $1}')"
   echo "dropbear_sha256=$dropbear_sha"
   echo "dropbearkey_sha256=$dropbearkey_sha"
+  # The image bundles all three binaries and the verifier rejects an SSH image
+  # whose binary identities are incomplete, so all three paths are passed and
+  # all three digests are expected.  There is deliberately no root password
+  # argument: the image has root login disabled and authenticates against the
+  # users database setup writes, so the optional
+  # LIBREECHO_SSH_ROOT_PASSWORD_HASH secret is staged but never consumed.
   ssh_builder_args=(
     --ssh-enabled
     --dropbear "$DROPBEAR_OUTPUT/dropbear"
     --dropbearkey "$DROPBEAR_OUTPUT/dropbearkey"
-    --ssh-root-password-hash "$SSH_ROOT_PASSWORD_HASH"
+    --scp "$DROPBEAR_OUTPUT/scp"
   )
   ssh_verifier_args=(
     --expected-dropbear-sha256 "$dropbear_sha"
     --expected-dropbearkey-sha256 "$dropbearkey_sha"
+    --expected-scp-sha256 "$scp_sha"
   )
 fi
 
