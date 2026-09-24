@@ -674,6 +674,16 @@ class SshInputInventoryTests(unittest.TestCase):
   for filename in self.SSH_INPUTS:
    self.assertIn(f'/{filename}"',block)
 
+ def test_build_points_the_ssh_builder_at_the_pipeline_toolchain(self):
+  # The builder defaults to /usr/bin/arm-linux-gnueabihf-, which a hosted runner
+  # does not have. $CROSS is the pipeline's own ARMHF prefix, and the workflow
+  # is what points it at the relocated shim.
+  block=B.split('DROPBEAR_BUILDER=',1)[1].split('DROPBEAR_OUTPUT=',1)[0]
+  self.assertIn('DROPBEAR_CROSS_PREFIX="$CROSS"',block)
+  self.assertIn('CROSS="${CROSS:-/usr/bin/arm-linux-gnueabihf-}"',B)
+  self.assertIn('CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-',
+                (ROOT/'.github/workflows/build-release.yml').read_text())
+
  def test_dropbear_is_only_built_when_ssh_is_enabled(self):
   self.assertIn('if [[ "$SSH_ENABLED" == 1 ]]; then',B[:B.index('DROPBEAR_BUILDER=')][-400:])
 
