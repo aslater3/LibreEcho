@@ -414,6 +414,11 @@ class Tests(unittest.TestCase):
   self.assertIn('IFS= read -r release_notes_title <"$RELEASE_NOTES"', W)
   self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
 
+ def test_dev_adb_tcp_is_channel_scoped_and_cache_bound(self):
+  self.assertTrue('if [[ "$UPDATE_CHANNEL" == dev ]]; then\n  ADBD_TCP_PORT=5555\nelse\n  ADBD_TCP_PORT=0\nfi' in B, 'channel-specific port policy missing')
+  self.assertTrue('--value "tcp_port=$ADBD_TCP_PORT"' in B, 'cache does not bind port')
+  self.assertTrue('--tcp-port "$ADBD_TCP_PORT"' in B, 'adbd builder does not receive port')
+
  def test_ssh_enabled_default(self):
   # Manual selection keeps the non-dispatch gate; the protected password is
   # optional and no longer a condition of enabling SSH.

@@ -386,6 +386,11 @@ done
 case "$IMAGE_PROFILE" in development|ota) ;; *) echo "ERROR: invalid image profile: $IMAGE_PROFILE" >&2; exit 1 ;; esac
 case "$SERVICE_PROFILE" in diagnostic|production) ;; *) echo "ERROR: invalid service profile: $SERVICE_PROFILE" >&2; exit 1 ;; esac
 case "$UPDATE_CHANNEL" in dev|stable) ;; *) echo "ERROR: invalid update channel: $UPDATE_CHANNEL" >&2; exit 1 ;; esac
+if [[ "$UPDATE_CHANNEL" == dev ]]; then
+  ADBD_TCP_PORT=5555
+else
+  ADBD_TCP_PORT=0
+fi
 FEATURES_ENABLED=0
 WAKEWORD_ENABLED=0
 policy_token=
@@ -1223,7 +1228,8 @@ echo "=== building or restoring source-pinned ARM32 adbd ==="
 adbd_cache_key="$(component_cache_key adbd \
   --tree "aosp-system-core=$ADBD_SOURCE" --tree "linux-uapi=$ADBD_KERNEL_HEADERS" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --tree "adbd-tooling=$TOOLS_DIR/adbd" \
-  --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static")"
+  --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static" \
+  --value "tcp_port=$ADBD_TCP_PORT")"
 ADBD_STAGE="$RUN/adbd-stage"
 adbd_status=rebuilt
 rm -rf "$ADBD_STAGE" "$RUN/components/adbd"
@@ -1232,7 +1238,8 @@ if ! component_cache_restore adbd "$adbd_cache_key" "$ADBD_STAGE"; then
   env LD_LIBRARY_PATH="$OTA_MUSL_NATIVE_ROOT/usr/lib" \
     "$ADBD_BUILDER" --source "$ADBD_SOURCE" --output "$ADBD_STAGE" \
     --cc "$OTA_MUSL_CC" --sysroot "$OTA_MUSL_SYSROOT" \
-    --kernel-headers "$ADBD_KERNEL_HEADERS" | tee "$RUN/adbd-build.log"
+    --kernel-headers "$ADBD_KERNEL_HEADERS" \
+    --tcp-port "$ADBD_TCP_PORT" | tee "$RUN/adbd-build.log"
   component_cache_store adbd "$adbd_cache_key" "$ADBD_STAGE"
 else
   adbd_status=hit
