@@ -13,6 +13,26 @@ physical button and privacy integration, and USB role-switch support. It carries
 forward the signed OTA v2 transaction and verified provenance implementation
 rather than reverting those paths to the older boot-only updater.
 
+### Home Assistant: ESPHome satellite and retained Custom voice
+
+The 0.14 feature migration replaces the Wyoming **satellite** with a native
+ESPHome API satellite. Home Assistant adopts it through the ESPHome integration;
+Local and Custom voice modes and the existing custom web control centre remain.
+Custom may still select Wyoming STT/TTS clients for remote Whisper/Piper: those
+clients are not the retired HA satellite.
+
+The migration has no legacy satellite selector or phased 0.15/0.16 rollout.
+It includes native discovery, voice/media/announcement controls, encrypted API
+transport, and coordinated startup, packaging and OTA-health changes. See the
+[accepted implementation scope](../docs/plans/ha-esphome-0.14.md) for the
+contracts and verification gates. This describes the feature branch's scope,
+not completed image or hardware qualification.
+
+Before publication, independently verify repeated capture after TTS (Product
+#104), stable identity (Product #125), actual ESPHome adoption and turns,
+Local/Custom restoration, and ESPHome-mode OTA confirmation. Host protocol or
+packaging checks alone do not establish these outcomes.
+
 ### Maintenance fixes carried forward
 
 - Factory IDME Wi-Fi identity, so a reboot does not generate a new fallback MAC
