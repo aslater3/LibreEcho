@@ -16,6 +16,7 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn('      ota_base_catalog_url:', inputs)
         self.assertNotIn('      ota_base_catalog_sha256:', inputs)
         self.assertIn('python3 build/ci/fetch-ota-base.py --release', workflow)
+        self.assertIn('--channel "$UPDATE_CHANNEL"', workflow)
         self.assertIn('LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}', workflow)
         self.assertIn('LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}', workflow)
         self.assertIn('build.tests.test_fetch_ota_base', workflow)
@@ -42,6 +43,22 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(mod.previous_release(releases, 'radar-puffin-v0.13.11'), 'radar-puffin-v0.13.9')
         with self.assertRaises(ValueError):
             mod.previous_release([], 'radar-puffin-v0.13.11')
+
+        dev_tag = 'radar-puffin-build-' + 'a' * 7 + '-' + 'b' * 16 + '-' + 'c' * 16
+        dev_ota_sha = 'd' * 64
+        dev_release = {
+            'tag_name': dev_tag, 'draft': False, 'prerelease': True,
+            'assets': [{'name': 'libreecho-' + dev_tag + '.ota.tar',
+                        'digest': 'sha256:' + dev_ota_sha}],
+        }
+        dev_releases = releases + [dev_release]
+        pointer = dev_tag + '\n' + dev_ota_sha + '\n'
+        self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'dev', pointer), dev_tag)
+        self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'stable', pointer), 'radar-puffin-v0.14.0')
+        for invalid_pointer in (None, '', 'not-a-tag\n' + dev_ota_sha + '\n', dev_tag + '\n' + '0' * 64 + '\n'):
+            self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'dev', invalid_pointer), 'radar-puffin-v0.14.0')
+        dev_release['draft'] = True
+        self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'dev', pointer), 'radar-puffin-v0.14.0')
         tag = 'radar-puffin-v0.13.10'
         prefix = 'libreecho-' + tag
         blobs = {}

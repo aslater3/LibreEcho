@@ -1171,6 +1171,7 @@ jobs:
             python3 build/ci/device_baseline.py
           else
             python3 build/ci/fetch-ota-base.py --release "$OTA_RELEASE" \
+              --channel "$UPDATE_CHANNEL" \
               --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
           fi
 
