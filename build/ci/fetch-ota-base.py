@@ -144,7 +144,11 @@ def resolve(tag, root):
     if checksums.get(build_name) != sha(build_path):
         raise ValueError('build metadata checksum mismatch')
     build = json.loads(build_path.read_text())
-    if (build['release'], build['channel'], build['board']) != (tag, channel, 'radar_puffin'):
+    build_release = build.get('release', build.get('ota_release'))
+    if not isinstance(build_release, str) or not STABLE_TAG.fullmatch(
+            'radar-puffin-v' + build_release):
+        raise ValueError('baseline build release identity missing or invalid')
+    if (build['channel'], build['board']) != (channel, 'radar_puffin'):
         raise ValueError('baseline build identity mismatch')
     inventory = {r['name']: r for r in build['artifacts']}
     if len(inventory) != len(build['artifacts']):
