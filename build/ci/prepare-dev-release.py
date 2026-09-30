@@ -162,7 +162,7 @@ def prepare_complete_initial_install(
     completeness = None
     if feature_plan is not None:
         from release_completeness import ship
-        completeness, extra_paths = ship(run, output, prefix, feature_plan)
+        completeness, extra_paths = ship(run, output, prefix, feature_plan, target=target)
         files.extend((path.name, path) for path in extra_paths)
 
     records = {
@@ -191,7 +191,7 @@ def prepare_complete_initial_install(
     }
     if completeness is not None:
         from release_completeness import install_features
-        manifest['features'] = install_features(feature_plan, completeness, allow_runtime=True)
+        manifest['features'] = install_features(feature_plan, completeness, allow_runtime=True, target=target)
     bundle = output / f"{prefix}-initial-install.tar"
     bundle_members = [
         f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex",
