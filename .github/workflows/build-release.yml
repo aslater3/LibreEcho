@@ -1356,6 +1356,11 @@ jobs:
 
       - name: Stage every referenced base and gate fresh-install completeness
         timeout-minutes: 15
+        # v1 builds (default push/PR/schedule) carry no feature plan and no
+        # recovery feature contract, so there is nothing to stage. Every v2
+        # build — the release dispatch default — remains fail-closed here and
+        # again in prepare-*-release.py before any publication.
+        if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
