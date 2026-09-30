@@ -281,6 +281,7 @@ jobs:
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
+            build.tests.test_marker_contract \
             build.tests.test_device_baseline \
             build.tests.test_release_route \
             build.tests.test_publish_dev_pointer \
