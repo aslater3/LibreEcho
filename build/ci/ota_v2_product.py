@@ -676,6 +676,16 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         standard.update(str(item.get("name")) for item in feature_assets if isinstance(item, dict))
     elif ota_format != "v1":
         fail("stable build manifest has an unsupported OTA format")
+    if ota_format == 'v2':
+        from release_completeness import PROVENANCE, validate_completeness
+        completeness = load_json(output / PROVENANCE, 'release completeness provenance')
+        checked = validate_completeness(plan, output, completeness)
+        standard.update({PROVENANCE, *(item['name'] for item in checked.values())})
+        if (output / 'bundle.manifest').exists() or (output / 'libreecho-install.zip').exists():
+            from release_completeness import check_assets
+            check_assets(output, output / 'bundle.manifest')
+            digest(output / 'libreecho-install.zip')
+            standard.update({'bundle.manifest', 'libreecho-install.zip'})
     if actual | {sums.name} != standard:
         fail(f"stable release has an incomplete or extra asset set: expected={sorted(standard)} actual={sorted(actual | {sums.name})}")
     artifacts = build.get("artifacts")

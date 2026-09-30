@@ -156,6 +156,12 @@ def prepare_complete_initial_install(
             files.append((target, source))
             shutil.copyfile(source, output / target)
 
+    completeness = None
+    if feature_plan is not None:
+        from release_completeness import ship
+        completeness, extra_paths = ship(run, output, prefix, feature_plan)
+        files.extend((path.name, path) for path in extra_paths)
+
     records = {
         name: {"name": name, "size": (output / name).stat().st_size, "sha256": sha256(output / name)}
         for name, _ in files
@@ -180,10 +186,13 @@ def prepare_complete_initial_install(
             "commit": "dfefe52f0eed7296012707cfff1f753b0ea33257",
         },
     }
+    if completeness is not None:
+        from release_completeness import install_features
+        manifest['features'] = install_features(feature_plan, completeness, allow_runtime=True)
     bundle = output / f"{prefix}-initial-install.tar"
     bundle_members = [
         f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex",
-        *[f"{prefix}-{feature}.{suffix}" for feature in FEATURES for suffix in ("squashfs", "manifest.json")],
+        *[item[kind]['name'] for item in manifest['features'] for kind in ('payload', 'manifest')],
     ]
     manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
     with tarfile.open(bundle, "w") as archive:
@@ -390,6 +399,10 @@ def main() -> int:
             shutil.copyfile(source, target)
             copied.append(target)
         validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets)
+    if feature_plan is not None:
+        from release_completeness import ship
+        _, base_paths = ship(run, output, None, feature_plan)
+        copied.extend(base_paths)
     verification_target = output / f"{prefix}-verification.txt"
     shutil.copyfile(verification, verification_target)
     copied.append(verification_target)

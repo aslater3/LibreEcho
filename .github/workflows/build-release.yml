@@ -281,6 +281,7 @@ jobs:
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
+            build.tests.test_release_completeness \
             build.tests.test_marker_contract \
             build.tests.test_device_baseline \
             build.tests.test_release_route \
@@ -1162,6 +1163,7 @@ jobs:
         timeout-minutes: 10
         if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
           UPDATE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
@@ -1317,6 +1319,26 @@ jobs:
           mkdir -p "$dest/src"
           cp "$src/build_install_bundle.py" "$dest/"
           cp -r "$src/src/." "$dest/src/"
+
+      - name: Stage every referenced base and gate fresh-install completeness
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
+          LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/sources/platform
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -eq 1
+          if [[ -z "$BASE_CATALOG" ]]; then
+            echo "ERROR: fresh-install completeness requires a verified OTA v2 base catalog" >&2
+            exit 1
+          fi
+          python3 build/ci/release_completeness.py stage \
+            --run "${runs[0]}" --base-catalog "$BASE_CATALOG"
+          python3 build/ci/release_completeness.py check \
+            --run "${runs[0]}" --builder "${runs[0]}/twrp-builder"
 
       - name: Name build artifact
         id: dev-build-name

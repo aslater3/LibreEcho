@@ -185,6 +185,8 @@ def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.14.0",
         f"feature_asset_dir={asset_dir}\n"
     )
     candidate.write_text(text)
+    from build.tests.test_release_completeness import complete_v2_fixture
+    complete_v2_fixture(run)
     return {"payload": payload_name, "manifest": manifest_name}
 
 
@@ -256,6 +258,8 @@ class Tests(unittest.TestCase):
                     for key in ('asset', 'size', 'sha256', 'manifest_asset', 'manifest_size', 'manifest_sha256'):
                         record.pop(key, None)
                 plan_path.write_text(json.dumps(plan))
+                from build.tests.test_release_completeness import complete_v2_fixture
+                complete_v2_fixture(run)
                 inventory_path = run / 'feature-assets.json'
                 inventory = json.loads(inventory_path.read_text())
                 inventory['assets'] = []

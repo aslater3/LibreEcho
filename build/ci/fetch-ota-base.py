@@ -7,6 +7,7 @@ Device signature verification and protected release signing remain independent.
 import argparse
 import hashlib
 import json
+import os
 import re
 import tempfile
 import urllib.request
@@ -27,7 +28,11 @@ def version(tag):
     return tuple(map(int, match.groups()))
 
 def download(url, dest, limit):
-    req = urllib.request.Request(url, headers={'User-Agent': 'LibreEcho-OTA-baseline', 'Accept': 'application/vnd.github+json'})
+    headers = {'User-Agent': 'LibreEcho-OTA-baseline', 'Accept': 'application/vnd.github+json'}
+    token = os.environ.get('GH_TOKEN')
+    if token and url.startswith(API + '/'):
+        headers['Authorization'] = 'Bearer ' + token
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as response, dest.open('xb') as output:
         if not response.url.startswith('https://'):
             raise ValueError('non-HTTPS redirect')
@@ -160,8 +165,9 @@ def resolve(tag, root):
     inventory = {r['name']: r for r in build['artifacts']}
     if len(inventory) != len(build['artifacts']):
         raise ValueError('duplicate build artifact')
-    catalog = {'features': {}}
+    catalog = {'features': {}, 'sources': {}}
     for feature in FEATURES:
+        catalog['sources'][feature] = {}
         record = {}
         for kind, suffix in [('payload', '.squashfs'), ('manifest', '.manifest.json')]:
             name = prefix + '-' + feature + suffix
@@ -170,6 +176,7 @@ def resolve(tag, root):
             if checksums.get(name) != digest or inventory[name]['sha256'] != digest or inventory[name]['size'] != size:
                 raise ValueError('baseline inventory disagreement')
             record[kind] = {'path': str(path.resolve()), 'sha256': digest, 'size': size}
+            catalog['sources'][feature][kind] = {'release': tag, 'asset': name}
         manifest = json.loads(Path(record['manifest']['path']).read_text())
         expected = {'filename': feature + '.squashfs', 'sha256': record['payload']['sha256'], 'size': record['payload']['size']}
         if (manifest.get('schema_version') != 1 or manifest.get('feature_id') != feature

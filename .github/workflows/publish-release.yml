@@ -144,6 +144,8 @@ jobs:
           [[ "$original_asset_count" =~ ^[0-9]+$ ]]
           printf 'asset_count=%s\n' "$((original_asset_count + 3))" >>"$GITHUB_OUTPUT"
 
+          python3 build/ci/release_completeness.py check \
+            --assets release-assets --bundle release-assets/bundle.manifest
           # Verifies the original assets and the two TWRP bundle files added above.
           (cd release-assets && sha256sum -c *-SHA256SUMS)
       - name: Publish development or nightly prerelease
@@ -355,6 +357,16 @@ jobs:
             --amonet-commit "$AMONET_COMMIT" \
             --output-dir release-assets
           python3 tools/check-public-metadata.py release-assets
+          mapfile -t builders < <(find verified-build -path '*/twrp-builder/build_install_bundle.py' -type f)
+          test "${#builders[@]}" -eq 1
+          builder_dir="$(dirname "${builders[0]}")"
+          twrp_out="$(mktemp -d)"
+          python3 "$builder_dir/build_install_bundle.py" \
+            --assets release-assets --out "$twrp_out" --src "$builder_dir/src"
+          install -m 0644 "$twrp_out/libreecho-install.zip" "$twrp_out/bundle.manifest" release-assets/
+          python3 build/ci/release_completeness.py check \
+            --assets release-assets --bundle release-assets/bundle.manifest
+          python3 build/ci/release_completeness.py record-recovery --assets release-assets
           (cd release-assets && sha256sum -c *-SHA256SUMS)
       - name: Publish stable Product release
         env:
