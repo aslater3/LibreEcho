@@ -14,6 +14,7 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, load_target
 from ota_v2_product import (  # noqa: E402
     load_feature_contract,
     validate_control_tar,
@@ -79,8 +80,9 @@ def initial_install_manifest(
     amonet_repository: str,
     amonet_tag: str,
     amonet_commit: str,
+    target: str = DEFAULT,
 ) -> dict[str, object]:
-    prefix = f"libreecho-{release_tag}"
+    prefix = asset_prefix(release_tag, target)
     features = []
     for feature in FEATURES:
         payload = output / f"{prefix}-{feature}.squashfs"
@@ -93,7 +95,7 @@ def initial_install_manifest(
     return {
         "schema": "libreecho-initial-install-v1",
         "release": release_tag,
-        "board": "radar_puffin",
+        "board": target,
         "soc": "mt8163",
         "image_profile": "ota",
         "service_profile": "production",
@@ -113,12 +115,13 @@ def write_initial_install_bundle(
     release_tag: str,
     manifest: dict[str, object],
 ) -> Path:
-    prefix = f"libreecho-{release_tag}"
+    target = str(manifest["board"])
+    prefix = asset_prefix(release_tag, target)
     bundle = output / f"{prefix}-initial-install.tar"
     manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
     members = ["manifest.json", f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"]
-    for feature in FEATURES:
-        members.extend((f"{prefix}-{feature}.squashfs", f"{prefix}-{feature}.manifest.json"))
+    for feature in manifest['features']:
+        members.extend((feature['payload']['name'], feature['manifest']['name']))
     with tarfile.open(bundle, "w") as archive:
         manifest_info = tarfile.TarInfo("manifest.json")
         manifest_info.size = len(manifest_bytes)
@@ -136,6 +139,8 @@ def write_initial_install_bundle(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--target", default=DEFAULT)
+    parser.add_argument("--combined-release-tag")
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--product-root", type=Path, required=True)
     parser.add_argument("--product-commit", required=True)
@@ -146,6 +151,17 @@ def main() -> int:
     parser.add_argument("--amonet-commit", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
+    from combined_release import discover_runs
+    if "--target" not in sys.argv:
+        selected = discover_runs(args.artifact_root)
+        if len(selected) == 1:
+            args.target = next(iter(selected))
+    target = args.target
+    load_target(target)
+    from combined_release import prepare_if_combined
+    combined = prepare_if_combined(args, Path(__file__))
+    if combined is not None:
+        return combined
 
     if not COMMIT.fullmatch(args.product_commit):
         fail("product commit must be a full lowercase SHA")
@@ -169,6 +185,8 @@ def main() -> int:
 
     run = find_run(args.artifact_root)
     candidate = read_kv(run / "CURRENT.candidate")
+    if candidate.get("board", DEFAULT) != args.target:
+        fail("requested target and candidate disagree")
     provenance = read_kv(run / "provenance.txt")
     sources = read_kv(run / "release-source-commits.txt")
     ota_format = candidate.get("ota_format", "v1")
@@ -238,6 +256,8 @@ def main() -> int:
     regular(manifest_path)
     regular(verification)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if contract_target(candidate, manifest) != args.target:
+        fail("image target mismatch")
     connectivity = manifest.get("connectivity", {})
     if connectivity.get("embedded_vendor_file_count") != 0 or connectivity.get("vendor_delivery") != "owner-device-local-extraction":
         fail("candidate has an unsafe vendor connectivity policy")
@@ -262,6 +282,7 @@ def main() -> int:
     regular(public_key)
     validate_control_tar(
         ota[0], public_key, ota_format, ota_format == "v2" and args.release_version or "",
+        expected_target=args.target,
         feature_plan=feature_plan,
         feature_inventory=feature_inventory,
         feature_asset_dir=feature_asset_dir,
@@ -275,7 +296,7 @@ def main() -> int:
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
-    prefix = f"libreecho-{release_tag}"
+    prefix = asset_prefix(release_tag, target)
     copied: list[Path] = []
 
     def copy(source: Path, suffix: str, expected_hash: str = "", expected_size: str = "") -> None:
@@ -284,16 +305,16 @@ def main() -> int:
             expect_hash(source, expected_hash, suffix)
         if expected_size and source.stat().st_size != int(expected_size):
             fail(f"artifact size mismatch: {source.name}")
-        target = output / f"{prefix}-{suffix}"
-        shutil.copyfile(source, target)
-        copied.append(target)
+        destination = output / f"{prefix}-{suffix}"
+        shutil.copyfile(source, destination)
+        copied.append(destination)
 
     copy(run / "boot.img", "boot.img", candidate.get("boot_image_sha256", ""))
     ota_target = output / f"{prefix}.ota.tar"
     shutil.copyfile(ota[0], ota_target)
     copied.append(ota_target)
     # Existing devices discover stable updates using this fixed asset name.
-    ota_alias = output / "libreecho-radar-puffin-stable.ota.tar"
+    ota_alias = output / f"libreecho-{load_target(target)['release_slug']}-stable.ota.tar"
     shutil.copyfile(ota_target, ota_alias)
     copied.append(ota_alias)
     copy(public_key, "ota-public-key.hex")
@@ -309,10 +330,10 @@ def main() -> int:
             source = feature_asset_dir / str(item["name"])
             regular(source)
             expect_hash(source, str(item["sha256"]), str(item["name"]))
-            target = output / str(item["name"])
-            shutil.copyfile(source, target)
-            copied.append(target)
-        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets)
+            destination = output / str(item["name"])
+            shutil.copyfile(source, destination)
+            copied.append(destination)
+        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets, args.target)
         copy(
             run / "feature-plan.json", "feature-plan.json",
             sha256(run / "feature-plan.json"),
@@ -322,7 +343,12 @@ def main() -> int:
             sha256(run / "feature-assets.json"),
         )
 
-    install_manifest = initial_install_manifest(release_tag, output / f"{prefix}-boot.img", output / f"{prefix}-ota-public-key.hex", output, args.amonet_repository, args.amonet_tag, args.amonet_commit)
+    install_manifest = initial_install_manifest(release_tag, output / f"{prefix}-boot.img", output / f"{prefix}-ota-public-key.hex", output, args.amonet_repository, args.amonet_tag, args.amonet_commit, target)
+    if feature_plan is not None:
+        from release_completeness import install_features, ship
+        completeness, extra_paths = ship(run, output, prefix, feature_plan, target=target)
+        copied.extend(extra_paths)
+        install_manifest['features'] = install_features(feature_plan, completeness, allow_runtime=True, target=target)
     bundle = write_initial_install_bundle(output, release_tag, install_manifest)
     copied.append(bundle)
 
@@ -331,7 +357,7 @@ def main() -> int:
     build_manifest.write_text(json.dumps({
         "schema": "libreecho-stable-release-v1",
         "release": release_tag,
-        "board": "radar_puffin",
+        "board": args.target,
         "channel": "stable",
         "status": "PREPARED_NOT_FLASHED",
         "signed": True,
@@ -356,6 +382,10 @@ def main() -> int:
             for item in feature_assets or []
         ]
         build_manifest.write_text(json.dumps(release_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    release_data = json.loads(build_manifest.read_text())
+    if "board" in candidate:
+        release_data["target_descriptor_sha256"] = descriptor_sha256(target)
+    build_manifest.write_text(json.dumps(release_data, indent=2, sort_keys=True) + "\n")
     copied.append(build_manifest)
 
     sums = output / f"{prefix}-SHA256SUMS"

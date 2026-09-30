@@ -330,7 +330,8 @@ adopt_feature_payload() {
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [--defconfig] [--profile development|ota] \
+Usage: ./build.sh [--target radar_puffin|biscuit] [--targets radar_puffin,biscuit] \
+  [--defconfig] [--profile development|ota] \
   [--service-profile diagnostic|production] \
   [--feature-policy exclude|preserve|redistributable|community-noncommercial] \
   [--update-channel dev|stable] \
@@ -349,10 +350,14 @@ No image is overwritten. Every run gets its own immutable directory.
 EOF
 }
 
+TARGET="${LIBREECHO_TARGET:-radar_puffin}"
+TARGETS="${LIBREECHO_TARGETS:-}"
 defconfig=0
 publish_current=1
 while (($#)); do
   case "$1" in
+    --target) shift; TARGET="${1:?--target requires a value}"; TARGETS="$TARGET" ;;
+    --targets) shift; TARGETS="${1:?--targets requires a comma-separated list}" ;;
     --defconfig) defconfig=1 ;;
     --no-publish) publish_current=0 ;;
     --profile)
@@ -382,6 +387,27 @@ while (($#)); do
     *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
   shift
+done
+# Resolve the registry before cache restore/compilation. Scaffolding requires
+# identical kernel/DTB/feature inputs across the selected target set.
+TARGETS="${TARGETS:-$TARGET}"
+python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGETS"
+IFS=, read -r -a selected_targets <<< "$TARGETS"
+TARGET="${selected_targets[0]}"
+target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
+eval "$target_values" # only schema-validated identifiers/digests; no user strings
+TOOLS_DIR="$TOOLING_SRC/tools/$TOOLS_PROFILE"
+platform_args() {
+  local output
+  output="$(python3 -B "$PIPELINE/ci/platform-target-args.py" --tool "$1" --target "$TARGET" "${@:2}")" || return
+  TARGET_TOOL_ARGS=()
+  [[ -z "$output" ]] || mapfile -t TARGET_TOOL_ARGS <<< "$output"
+}
+# Probe the whole target/tool frontier now, not after an expensive build.
+for probe_target in "${selected_targets[@]}"; do
+  for probe_tool in generate_boot_envelope.py build_recovery_image.py verify_recovery_image.py ota/make_ota_bundle.py; do
+    python3 -B "$PIPELINE/ci/platform-target-args.py" --tool "$TOOLS_DIR/$probe_tool" --target "$probe_target" >/dev/null
+  done
 done
 case "$IMAGE_PROFILE" in development|ota) ;; *) echo "ERROR: invalid image profile: $IMAGE_PROFILE" >&2; exit 1 ;; esac
 case "$SERVICE_PROFILE" in diagnostic|production) ;; *) echo "ERROR: invalid service profile: $SERVICE_PROFILE" >&2; exit 1 ;; esac
@@ -444,7 +470,7 @@ if [[ "$FEATURES_ENABLED" == 1 && "$SERVICE_PROFILE" == production ]]; then
     echo "ERROR: MT8163 audio FPGA firmware identity mismatch" >&2; exit 1
   }
   grep -qx 'CONFIG_SND_SOC_AMZN_MT8163_SPI_AUDIO=y' \
-    "$KERNEL_SRC/arch/arm/configs/mt8163_arm32_defconfig" || {
+    "$KERNEL_SRC/arch/arm/configs/$KERNEL_DEFCONFIG" || {
     echo "ERROR: full-feature production build requires the verified MT8163 audio driver" >&2; exit 1
   }
 fi
@@ -878,7 +904,7 @@ if ((defconfig)) || [[ ! -f "$KERNEL_OUT/.config" ]]; then
     echo "=== generating ARM32 defconfig (new build directory) ==="
   fi
   make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-    LD="${CROSS}ld.bfd" mt8163_arm32_defconfig
+    LD="${CROSS}ld.bfd" "$KERNEL_DEFCONFIG"
 fi
 
 recovery_marker_kconfig=0
@@ -1065,15 +1091,15 @@ fi
 
 echo "=== building ARM32 zImage and Radar-Puffin DTB (-j$JOBS) ==="
 make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-  LD="${CROSS}ld.bfd" -j"$JOBS" zImage libreecho-radar-puffin.dtb
+  LD="${CROSS}ld.bfd" -j"$JOBS" zImage "$KERNEL_DTB_NAME"
 
 ZIMAGE_BUILD="$KERNEL_OUT/arch/arm/boot/zImage"
 SYSMAP_BUILD="$KERNEL_OUT/System.map"
-KERNEL_DTB="$KERNEL_OUT/arch/arm/boot/dts/libreecho-radar-puffin.dtb"
+KERNEL_DTB="$KERNEL_OUT/arch/arm/boot/dts/$KERNEL_DTB_NAME"
 [[ -f "$ZIMAGE_BUILD" && -f "$SYSMAP_BUILD" && -f "$KERNEL_DTB" ]] || {
   echo "ERROR: kernel or DTB outputs missing" >&2; exit 1;
 }
-DTB_VERIFIER="$TOOLS_DIR/verify_radar_puffin_dtb.py"
+DTB_VERIFIER="$TOOLS_DIR/verify_${DTB_VERIFIER_ID}_dtb.py"
 [[ -f "$DTB_VERIFIER" && ! -L "$DTB_VERIFIER" ]] || {
   echo "ERROR: Radar-Puffin DTB verifier missing: $DTB_VERIFIER" >&2
   exit 1
@@ -1112,6 +1138,7 @@ build_state=clean
 [[ -z "$(git -C "$PIPELINE" status --porcelain)" ]] || build_state=dirty
 build_diffsha="$(source_state_sha256 "$PIPELINE")"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${head}-${dirty}-${IMAGE_PROFILE}-${SERVICE_PROFILE}-${UPDATE_CHANNEL}-${policy_token}-ssh${SSH_ENABLED}-ui${ui_commit:0:8}-${zsha:0:8}"
+[[ "$TARGET" == radar_puffin ]] || run_id="$run_id-$TARGET"
 RUN="$RUNS/$run_id"
 mkdir -p "$RUN/components"
 COMPONENTS_MANIFEST="$RUN/components.json"
@@ -1159,7 +1186,7 @@ else
   cp -- "$ZIMAGE_BUILD" "$RUN/zImage"
   cp -- "$SYSMAP_BUILD" "$RUN/System.map"
 fi
-cp -- "$KERNEL_DTB" "$RUN/libreecho-radar-puffin.dtb"
+cp -- "$KERNEL_DTB" "$RUN/$KERNEL_DTB_NAME"
 cp -- "$KERNEL_OUT/.config" "$RUN/kernel.config"
 kernel_config_sha="$(sha256sum "$RUN/kernel.config" | awk '{print $1}')"
 echo "kernel_config_sha256=$kernel_config_sha"
@@ -2252,15 +2279,54 @@ echo "mdns_runtime_key=$MDNS_RUNTIME_KEY"
 echo "mdns_runtime_manifest_sha256=$MDNS_RUNTIME_MANIFEST_SHA256"
 echo "mdns_runtime_provenance_sha256=$mdns_runtime_provenance_sha"
 
+# Snapshot the shared kernel/userspace/features ONCE before target packaging.
+# Target-sensitive outputs never enter this shared snapshot.
+SHARED_RUN="$RUN"
+SHARED_RUN_ID="$run_id"
+for package_target in "${selected_targets[@]}"; do
+  if [[ "$package_target" != "${selected_targets[0]}" ]]; then
+    cp -a -- "$SHARED_RUN" "$RUNS/${SHARED_RUN_ID}-$package_target"
+  fi
+done
+package_target_image() (
+TARGET=$1
+# The legacy CURRENT is Radar-only; Biscuit never replaces Radar discovery.
+[[ "$TARGET" == radar_puffin ]] || publish_current=0
+export LIBREECHO_TARGET="$TARGET"
+target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
+eval "$target_values"
+run_id="$SHARED_RUN_ID"
+[[ "$TARGET" == "${selected_targets[0]}" ]] || run_id="$SHARED_RUN_ID-$TARGET"
+RUN="$RUNS/$run_id"
+COMPONENTS_MANIFEST="$RUN/components.json"
+if [[ "$OTA_FORMAT" == v2 && -n "${LIBREECHO_OTA_BASE_CATALOGS:-}" ]]; then
+  base_values="$(python3 - "$LIBREECHO_OTA_BASE_CATALOGS" "$TARGET" <<'PY'
+import json, sys
+record = json.load(open(sys.argv[1]))[sys.argv[2]]
+print(record["catalog"])
+print(record["sha256"])
+PY
+)"
+  mapfile -t base_record <<< "$base_values"
+  OTA_BASE_CATALOG="${base_record[0]}"
+  OTA_BASE_CATALOG_SHA256="${base_record[1]}"
+fi
+# Baseline payload bytes are shared at parity; plans/assets/control remain
+# independently target-bound. A device migration input cannot target both.
+[[ "${#selected_targets[@]}" == 1 || -z "${LIBREECHO_DEVICE_BASELINE_JSON:-}" ]] || {
+  echo "ERROR: a device baseline cannot be reused across targets" >&2; exit 1;
+}
 BUILDER="$TOOLS_DIR/build_recovery_image.py"
 VERIFIER="$TOOLS_DIR/verify_recovery_image.py"
-IMAGE_DTB="$RUN/libreecho-radar-puffin.dtb"
+IMAGE_DTB="$RUN/$KERNEL_DTB_NAME"
 IMAGE_DTB_SHA256="$dtbsha"
 echo "radar_puffin_dtb_sha256=$IMAGE_DTB_SHA256"
 echo "=== packaging canonical ARM32 recovery image ==="
 BOOT_ENVELOPE="$RUN/boot-envelope.bin"
-python3 -B "$BOOT_ENVELOPE_GENERATOR" --output "$BOOT_ENVELOPE" | tee "$RUN/boot-envelope-build.log"
-python3 -B "$BUILDER" \
+platform_args "$BOOT_ENVELOPE_GENERATOR"
+python3 -B "$BOOT_ENVELOPE_GENERATOR" "${TARGET_TOOL_ARGS[@]}" --output "$BOOT_ENVELOPE" | tee "$RUN/boot-envelope-build.log"
+platform_args "$BUILDER" --descriptor "$TARGET_DESCRIPTOR_SHA256"
+python3 -B "$BUILDER" "${TARGET_TOOL_ARGS[@]}" \
   --boot-envelope "$BOOT_ENVELOPE" \
   --adbd "$ADBD_BINARY" --adbd-source-metadata "$ADBD_METADATA" \
   --busybox "$BUSYBOX_OUTPUT/busybox" --expected-busybox-sha256 "$busybox_sha" \
@@ -2295,7 +2361,8 @@ python3 -B "$BUILDER" \
 
 bootsha="$(sha256sum "$RUN/boot.img" | awk '{print $1}')"
 echo "=== independent image verification ==="
-python3 -B "$VERIFIER" \
+platform_args "$VERIFIER"
+python3 -B "$VERIFIER" "${TARGET_TOOL_ARGS[@]}" \
   --boot-envelope "$BOOT_ENVELOPE" \
   --zimage "$RUN/zImage" --expected-zimage-sha256 "$zsha" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
@@ -2461,9 +2528,13 @@ for offset in range(0, len(args), 3):
         "payload": {"path": str(payload), "sha256": payload_hash, "size": payload.stat().st_size},
         "manifest": {"path": str(feature_manifest), "sha256": manifest_hash, "size": feature_manifest.stat().st_size},
     }
-output_path.write_text(json.dumps({"features": features}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+target = __import__("os").environ["LIBREECHO_TARGET"]
+catalog = {"features": features}
+if target != "radar_puffin": catalog["board"] = target
+output_path.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
   planner_args=(
+    --target "$TARGET"
     --update-channel "$UPDATE_CHANNEL"
     --base-catalog "$OTA_BASE_CATALOG"
     --candidate-catalog "$feature_candidate_catalog"
@@ -2488,7 +2559,7 @@ if [[ "$OTA_FORMAT" == v2 ]]; then
   # for artifact publication, but that is too late for create-handoff.
   install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"
   python3 -B "$PIPELINE/ci/sign_ota_candidate.py" create-handoff \
-    --run-dir "$RUN" --release "$OTA_RELEASE" --source-commit "$ui_commit" \
+    --target "$TARGET" --run-dir "$RUN" --release "$OTA_RELEASE" --source-commit "$ui_commit" \
     --update-channel "$UPDATE_CHANNEL" --base-catalog "$ota_base_catalog_copy" \
     --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256" \
     --platform-source "$TOOLING_SRC" --platform-tool "$OTA_DIR/make_ota_bundle.py" \
@@ -2513,7 +2584,8 @@ if [[ "$IMAGE_PROFILE" == ota && "$OTA_SIGNING_MODE" == local ]]; then
       --update-channel "$UPDATE_CHANNEL" --output "$ota_bundle"
       --version "$run_id"
     )
-    python3 -B "$OTA_DIR/make_ota_bundle.py" "${ota_args[@]}" | tee "$RUN/ota-bundle.log"
+    platform_args "$OTA_DIR/make_ota_bundle.py"
+    python3 -B "$OTA_DIR/make_ota_bundle.py" "${TARGET_TOOL_ARGS[@]}" "${ota_args[@]}" | tee "$RUN/ota-bundle.log"
   fi
   ota_bundle_sha="$(sha256sum "$ota_bundle" | awk '{print $1}')"
 fi
@@ -2530,6 +2602,8 @@ components_manifest_sha="$(sha256sum "$COMPONENTS_MANIFEST" | awk '{print $1}')"
 
 cat > "$RUN/provenance.txt" <<EOF
 schema=1
+board=$TARGET
+target_descriptor_sha256=$TARGET_DESCRIPTOR_SHA256
 status=PREPARED_NOT_FLASHED
 image_profile=$IMAGE_PROFILE
 service_profile=$SERVICE_PROFILE
@@ -2662,6 +2736,8 @@ provenance_sha="$(sha256sum "$RUN/provenance.txt" | awk '{print $1}')"
 tmp_current="$OUT/.CURRENT.$$"
 cat > "$tmp_current" <<EOF
 schema=1
+board=$TARGET
+target_descriptor_sha256=$TARGET_DESCRIPTOR_SHA256
 status=PREPARED_NOT_FLASHED
 image_profile=$IMAGE_PROFILE
 service_profile=$SERVICE_PROFILE
@@ -2805,3 +2881,7 @@ echo "boot_sha256=$bootsha"
 echo "candidate_record=$RUN/CURRENT.candidate"
 echo "published_current=$publish_current"
 echo "status=PREPARED_NOT_FLASHED"
+)
+for package_target in "${selected_targets[@]}"; do
+  package_target_image "$package_target"
+done

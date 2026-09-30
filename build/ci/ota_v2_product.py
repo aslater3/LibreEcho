@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from nacl.exceptions import BadSignatureError
+from target_registry import DEFAULT, KNOWN_TARGETS, load_target, asset_prefix, descriptor_sha256
 
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 SERVICE_PROFILES = frozenset({"diagnostic", "production"})
@@ -116,7 +117,8 @@ def _asset_name(value: Any, label: str, suffix: str, prefix: str) -> None:
         fail(f"invalid {label} identity")
 
 
-def validate_record(record: Any, release: str, source_commit: str) -> None:
+def validate_record(record: Any, release: str, source_commit: str, target: str = DEFAULT) -> None:
+    load_target(target)
     if not isinstance(record, dict):
         fail("feature record must be an object")
     if set(record) - (BASE_FIELDS | ASSET_FIELDS):
@@ -146,7 +148,7 @@ def validate_record(record: Any, release: str, source_commit: str) -> None:
         return
     suffix = ".runtime.squashfs" if action == "runtime" else ".payload.squashfs"
     manifest_suffix = ".runtime-manifest.json" if action == "runtime" else ".manifest.json"
-    prefix = f"libreecho-radar-puffin-{release}-{feature}"
+    prefix = f"libreecho-{load_target(target)['release_slug']}-{release}-{feature}"
     _asset_name(record.get("asset"), "payload asset", suffix, prefix)
     _asset_name(record.get("manifest_asset"), "feature manifest asset", manifest_suffix, prefix)
     _size(record.get("size"), "payload size")
@@ -155,9 +157,12 @@ def validate_record(record: Any, release: str, source_commit: str) -> None:
     _hash(record.get("manifest_sha256"), "manifest hash")
 
 
-def validate_plan(plan: Any, release: str, source_commit: str) -> list[dict[str, Any]]:
+def validate_plan(plan: Any, release: str, source_commit: str, target: str = DEFAULT) -> list[dict[str, Any]]:
+    load_target(target)
+    if not isinstance(plan, dict) or plan.get("board", DEFAULT) != target:
+        fail("feature plan target mismatch")
     if (not isinstance(plan, dict)
-            or set(plan) != {"schema", "transaction_type", "activation", "release", "source_commit", "features"}
+            or set(plan) - {"board"} != {"schema", "transaction_type", "activation", "release", "source_commit", "features"}
             or plan.get("schema") != "libreecho-product-feature-plan-v1"
             or plan.get("transaction_type") != "system"
             or plan.get("activation") != "reboot"):
@@ -168,13 +173,16 @@ def validate_plan(plan: Any, release: str, source_commit: str) -> list[dict[str,
     if not isinstance(records, list) or [r.get("feature_id") for r in records if isinstance(r, dict)] != list(FEATURES):
         fail("feature-only or incomplete OTA v2 plan is not supported")
     for record in records:
-        validate_record(record, release, source_commit)
+        validate_record(record, release, source_commit, target)
     return records
 
 
-def validate_inventory(inventory: Any, records: list[dict[str, Any]], release: str) -> list[dict[str, Any]]:
+def validate_inventory(inventory: Any, records: list[dict[str, Any]], release: str, target: str = DEFAULT) -> list[dict[str, Any]]:
+    load_target(target)
+    if not isinstance(inventory, dict) or inventory.get("board", DEFAULT) != target:
+        fail("feature inventory target mismatch")
     if (not isinstance(inventory, dict)
-            or set(inventory) != {"schema", "transaction_type", "activation", "release", "source_commit", "assets"}
+            or set(inventory) - {"board"} != {"schema", "transaction_type", "activation", "release", "source_commit", "assets"}
             or inventory.get("schema") != "libreecho-product-feature-assets-v1"
             or inventory.get("transaction_type") != "system"
             or inventory.get("activation") != "reboot"):
@@ -236,9 +244,10 @@ def load_feature_contract(run: Path, candidate: dict[str, str]) -> tuple[dict[st
         fail("candidate has an unsafe ota-assets path")
 
     plan = load_json(plan_path, "feature plan")
-    records = validate_plan(plan, release, source_commit)
+    target = candidate.get("board", DEFAULT)
+    records = validate_plan(plan, release, source_commit, target)
     inventory = load_json(inventory_path, "feature asset inventory")
-    assets = validate_inventory(inventory, records, release)
+    assets = validate_inventory(inventory, records, release, target)
     expected_names = {item["name"] for item in assets}
     # Artifact transport omits empty directories. Only an independently
     # validated empty plan/inventory may omit this directory.
@@ -279,10 +288,22 @@ def _canonical_parser() -> Any | None:
         if spec is None or spec.loader is None:
             continue
         module = importlib_util.module_from_spec(spec)
+        # Product and Platform both have a target_registry module. Load the
+        # pinned Platform parser with its own registry, then restore Product's
+        # import state; otherwise a cached Product module silently selects an
+        # older fallback parser and rejects Biscuit manifests.
+        import sys
+        prior_path = list(sys.path)
+        prior_registry = sys.modules.pop("target_registry", None)
         try:
             spec.loader.exec_module(module)
         except (OSError, ImportError, ValueError):
             continue
+        finally:
+            sys.path[:] = prior_path
+            sys.modules.pop("target_registry", None)
+            if prior_registry is not None:
+                sys.modules["target_registry"] = prior_registry
         if getattr(module, "parse_manifest", None) is not None:
             return module
     return None
@@ -355,12 +376,12 @@ def _parse_complete_v2_manifest(raw: bytes) -> dict[str, Any]:
                 record[field] = value
         if set(record) - BASE_FIELDS - ASSET_FIELDS:
             fail(f"OTA v2 feature record contains unsupported fields: {feature}")
-        validate_record(record, str(typed["version"]), str(record.get("source_commit", "")))
+        validate_record(record, str(typed["version"]), str(record.get("source_commit", "")), str(typed["board"]))
         records.append(record)
     result = {key: typed[key] for key in top}
     result["features"] = records
     if (result["format"] != "libreecho-ota-v2" or result["manifest_version"] != 1
-            or result["minimum_updater_schema"] != 2 or result["board"] != "radar_puffin"
+            or result["minimum_updater_schema"] != 2 or result["board"] not in KNOWN_TARGETS
             or result["soc"] != "mt8163" or result["architecture"] != "armv7"
             or result["image_profile"] != "ota" or result["transaction_type"] != "system"
             or result["update_channel"] not in {"dev", "stable"}
@@ -403,8 +424,8 @@ def _bind_control_to_feature_contract(
     expected_channel: str,
     boot_path: Path | None = None,
 ) -> None:
-    records = validate_plan(plan, str(manifest["version"]), str(plan.get("source_commit", "")))
-    assets = validate_inventory(inventory, records, str(manifest["version"]))
+    records = validate_plan(plan, str(manifest["version"]), str(plan.get("source_commit", "")), str(manifest["board"]))
+    assets = validate_inventory(inventory, records, str(manifest["version"]), str(manifest["board"]))
     transaction_material = (
         str(manifest["version"])
         + str(manifest["boot_sha256"])
@@ -455,7 +476,9 @@ def validate_control_tar(
     expected_channel: str | None = None,
     boot_path: Path | None = None,
     expected_key_sha256: str | None = None,
+    expected_target: str = DEFAULT,
 ) -> None:
+    load_target(expected_target)
     raw = b""
     if path.is_symlink() or not path.is_file():
         fail("OTA control bundle is unavailable")
@@ -502,7 +525,7 @@ def validate_control_tar(
         fail("OTA manifest version is unsupported")
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+~-]{0,95}", fields["version"]) is None:
         fail("OTA manifest version is malformed")
-    if fields["board"] != "radar_puffin" or fields["soc"] != "mt8163" or fields["architecture"] != "armv7":
+    if fields["board"] != expected_target or fields["soc"] != "mt8163" or fields["architecture"] != "armv7":
         fail("OTA manifest target identity mismatch")
     if fields["boot_filename"] != "boot.img" or fields["boot_size"] != str(len(boot)):
         fail("OTA manifest boot identity mismatch")
@@ -593,10 +616,10 @@ def verify_runtime_capsule(
         fail(f"Platform runtime verifier rejected {feature}: {detail[-1] if detail else 'unknown error'}")
 
 
-def validate_v2_publisher_asset_set(output: Path, release: str, feature_assets: list[dict[str, Any]]) -> None:
+def validate_v2_publisher_asset_set(output: Path, release: str, feature_assets: list[dict[str, Any]], target: str = DEFAULT) -> None:
     """Ensure the prepared publisher directory has exactly its v2 capsule set."""
     expected = {str(item["name"]) for item in feature_assets}
-    prefix = f"libreecho-radar-puffin-{release}-"
+    prefix = f"libreecho-{load_target(target)['release_slug']}-{release}-"
     members = [path for path in output.iterdir() if path.name.startswith(prefix)]
     if any(path.is_symlink() or not path.is_file() for path in members):
         fail("v2 publisher asset set contains a non-regular member")
@@ -627,7 +650,7 @@ def _validate_sha256_membership(output: Path, sums: Path) -> set[str]:
     return actual
 
 
-def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha256: str | None = None) -> set[str]:
+def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha256: str | None = None, *, target: str = DEFAULT, _single: bool = False) -> set[str]:
     """Run every stable gate without making a GitHub API call."""
     if output.is_symlink() or not output.is_dir():
         fail("stable release directory is unavailable")
@@ -635,8 +658,13 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
     if match is None:
         fail("stable release tag is malformed")
     version = match.group(1)
-    prefix = f"libreecho-{release_tag}"
-    alias = output / "libreecho-radar-puffin-stable.ota.tar"
+    if not _single:
+        from combined_publisher import validate_combined_publisher
+        combined = validate_combined_publisher(output, release_tag, validate_stable_publisher, expected_key_sha256)
+        if combined is not None:
+            return combined
+    prefix = asset_prefix(release_tag, target)
+    alias = output / f"libreecho-{load_target(target)['release_slug']}-stable.ota.tar"
     ota = output / f"{prefix}.ota.tar"
     if alias.is_symlink() or not alias.is_file() or digest(alias) != digest(ota):
         fail("stable OTA alias missing or differs from versioned bundle")
@@ -646,6 +674,8 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
     build = load_json(build_path, "stable build manifest")
     if (build.get("schema") != "libreecho-stable-release-v1"
             or build.get("release") != release_tag
+            or build.get("board", DEFAULT) != target
+            or ((target != DEFAULT or "target_descriptor_sha256" in build) and build.get("target_descriptor_sha256") != descriptor_sha256(target))
             or build.get("channel") != "stable"
             or build.get("status") != "PREPARED_NOT_FLASHED"
             or build.get("signed") is not True):
@@ -676,6 +706,19 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         standard.update(str(item.get("name")) for item in feature_assets if isinstance(item, dict))
     elif ota_format != "v1":
         fail("stable build manifest has an unsupported OTA format")
+    if ota_format == 'v2':
+        from release_completeness import provenance_name, validate_completeness
+        provenance = provenance_name(target)
+        completeness = load_json(output / provenance, 'release completeness provenance')
+        checked = validate_completeness(plan, output, completeness, target=target)
+        standard.update({provenance, *(item['name'] for item in checked.values())})
+        # Legacy single-target layout keeps the recovery bundle in the flat
+        # asset set; the combined layout tracks it in the TWRPINSTALL sections.
+        if (output / 'bundle.manifest').exists() or (output / 'libreecho-install.zip').exists():
+            from release_completeness import check_assets
+            check_assets(output, output / 'bundle.manifest', target=target)
+            digest(output / 'libreecho-install.zip')
+            standard.update({'bundle.manifest', 'libreecho-install.zip'})
     if actual | {sums.name} != standard:
         fail(f"stable release has an incomplete or extra asset set: expected={sorted(standard)} actual={sorted(actual | {sums.name})}")
     artifacts = build.get("artifacts")
@@ -686,14 +729,14 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
     ota = output / f"{prefix}.ota.tar"
     if ota_format == "v2":
         validate_control_tar(
-            ota, public_key, "v2", version,
+            ota, public_key, "v2", version, expected_target=target,
             feature_plan=plan, feature_inventory=inventory,
             feature_asset_dir=output, expected_channel="stable",
             boot_path=output / f"{prefix}-boot.img",
             expected_key_sha256=expected_key_sha256 or os.environ.get("LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256"),
         )
     else:
-        validate_control_tar(ota, public_key, "v1", "")
+        validate_control_tar(ota, public_key, "v1", "", expected_target=target)
     return actual
 
 

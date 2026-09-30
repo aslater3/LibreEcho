@@ -11,6 +11,10 @@ import json
 import os
 from pathlib import Path
 import re
+try:
+    from .target_registry import DEFAULT, load_target
+except ImportError:
+    from target_registry import DEFAULT, load_target
 
 SCHEMA = 'libreecho-dev-device-baseline-v1'
 FEATURES = ('airplay2', 'tts', 'wakeword', 'stt', 'assistant')
@@ -27,17 +31,20 @@ def pairs(items):
     return result
 
 
-def parse(text, channel):
+def parse(text, channel, target=DEFAULT):
+    load_target(target)
     if channel != 'dev':
         raise ValueError('device baseline requires dev channel')
     if len(text.encode('utf-8')) > MAX_BYTES:
         raise ValueError('device baseline exceeds limit')
     data = json.loads(text, object_pairs_hook=pairs)
     allowed_keys = ({'schema', 'features'}, {'schema', 'features', 'replace_wakeword'})
-    if not isinstance(data, dict) or set(data) not in allowed_keys or data['schema'] != SCHEMA:
+    if not isinstance(data, dict) or set(data) - {'board'} not in allowed_keys or data['schema'] != SCHEMA:
         raise ValueError('device baseline schema mismatch')
     if 'replace_wakeword' in data and data['replace_wakeword'] is not True:
         raise ValueError('replace_wakeword must be the explicit boolean true')
+    if data.get('board', DEFAULT) != target:
+        raise ValueError('device baseline target mismatch')
     features = data['features']
     if not isinstance(features, dict) or set(features) != set(FEATURES):
         raise ValueError('device baseline requires all five features')
@@ -51,6 +58,8 @@ def parse(text, channel):
 
 
 def validate_plan(data, plan):
+    if plan.get('board', DEFAULT) != data.get('board', DEFAULT):
+        raise ValueError('device migration target mismatch')
     records = plan['features']
     if len(records) != len(FEATURES) or {r['feature_id'] for r in records} != set(FEATURES):
         raise ValueError('device migration feature set mismatch')

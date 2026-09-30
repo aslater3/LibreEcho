@@ -897,6 +897,7 @@ class OneShotContinuationTests(unittest.TestCase):
         self.current_feature = ""
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(mock.patch.object(INSTALLER, "LEGACY_EXPDB_ERASE_CLOSURES", frozenset({("https://github.com/example/amonet", "a" * 40)})))
         self.host = self.stack.enter_context(mock.patch.object(INSTALLER, "require_host_commands"))
         self.tools = self.stack.enter_context(mock.patch.object(INSTALLER, "prepare_fastboot_tools", return_value="fake-fastboot"))
         self.format = self.stack.enter_context(mock.patch.object(INSTALLER, "format_userdata_in_fastboot"))
@@ -919,7 +920,7 @@ class OneShotContinuationTests(unittest.TestCase):
         if argv == ["fake-adb", "devices"]:
             output = f"List of devices attached\n{self.device}\tdevice\n"
         elif "getvar" in argv:
-            output = f"{argv[-1]}: 0x1000000\n"
+            output = "product: RADAR\n" if argv[-1] == "product" else f"{argv[-1]}: 0x1000000\n"
         elif argv[3:5] == ["shell", "cat"] and argv[-1].endswith("/uevent"):
             part = "10" if "mmcblk0p10" in argv[-1] else "11"
             slot = "a" if part == "10" else "b"
@@ -975,7 +976,7 @@ class OneShotContinuationTests(unittest.TestCase):
         with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
             INSTALLER.one_shot(self.release, self.root, cache_root=self.cache, state_root=self.state_root,
                                install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
-                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True, open_browser=False)
+                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True, open_browser=False, target="radar_puffin")
         self.format.assert_called_once()
         self.amonet.assert_called_once()
         self.assertEqual([c[4] for c in self.calls if c[3] == "flash"], ["boot_a", "boot_b"])

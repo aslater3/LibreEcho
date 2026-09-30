@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, load_target
 from ota_v2_product import (  # noqa: E402
     load_feature_contract,
     validate_control_tar,
@@ -79,6 +80,7 @@ def prepare_complete_initial_install(
     feature_plan: dict[str, object] | None = None,
     feature_asset_dir: Path | None = None,
     feature_assets: list[dict[str, object]] | None = None,
+    target: str = DEFAULT, combined_release_tag: str | None = None,
 ) -> tuple[str, int]:
     """Add the complete one-shot asset set to a dev or nightly release."""
     product = Path(__file__).resolve().parents[2]
@@ -90,7 +92,8 @@ def prepare_complete_initial_install(
         fail("Product installer source is missing")
     tag_prefix = "radar-puffin-nightly" if release_kind == "nightly" else "radar-puffin-build"
     release_tag = f"{tag_prefix}-{candidate['product_git_head'][:7]}-{source_set_id}-{artifact_set_id}"
-    prefix = f"libreecho-{release_tag}"
+    release_tag = combined_release_tag or release_tag
+    prefix = asset_prefix(release_tag, target)
     sources_dir = run / "features"
     if not sources_dir.is_dir():
         fail("nightly candidate is missing its features directory")
@@ -145,16 +148,22 @@ def prepare_complete_initial_install(
             expect_hash(source, str(item["sha256"]))
             files.append((str(item["name"]), source))
             shutil.copyfile(source, output / str(item["name"]))
-        validate_v2_publisher_asset_set(output, candidate["ota_release"], checked_assets)
+        validate_v2_publisher_asset_set(output, candidate["ota_release"], checked_assets, target)
         # The one-shot installer only accepts the checksum-covered plan and
         # inventory as the authoritative names for the v2 replacement assets,
         # so publish them under the release prefix alongside those assets.
         for basename in ("feature-plan.json", "feature-assets.json"):
             source = run / basename
             regular(source)
-            target = f"{prefix}-{basename}"
-            files.append((target, source))
-            shutil.copyfile(source, output / target)
+            destination = f"{prefix}-{basename}"
+            files.append((destination, source))
+            shutil.copyfile(source, output / destination)
+
+    completeness = None
+    if feature_plan is not None:
+        from release_completeness import ship
+        completeness, extra_paths = ship(run, output, prefix, feature_plan)
+        files.extend((path.name, path) for path in extra_paths)
 
     records = {
         name: {"name": name, "size": (output / name).stat().st_size, "sha256": sha256(output / name)}
@@ -163,7 +172,7 @@ def prepare_complete_initial_install(
     manifest = {
         "schema": "libreecho-initial-install-v1",
         "release": release_tag,
-        "board": "radar_puffin",
+        "board": target,
         "soc": "mt8163",
         "image_profile": "ota",
         "service_profile": "production",
@@ -180,10 +189,13 @@ def prepare_complete_initial_install(
             "commit": "dfefe52f0eed7296012707cfff1f753b0ea33257",
         },
     }
+    if completeness is not None:
+        from release_completeness import install_features
+        manifest['features'] = install_features(feature_plan, completeness, allow_runtime=True)
     bundle = output / f"{prefix}-initial-install.tar"
     bundle_members = [
         f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex",
-        *[f"{prefix}-{feature}.{suffix}" for feature in FEATURES for suffix in ("squashfs", "manifest.json")],
+        *[item[kind]['name'] for item in manifest['features'] for kind in ('payload', 'manifest')],
     ]
     manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
     with tarfile.open(bundle, "w") as archive:
@@ -204,7 +216,7 @@ def prepare_complete_initial_install(
         "build_id": f"{source_set_id}-{artifact_set_id}",
         "source_set_id": source_set_id,
         "artifact_set_id": artifact_set_id,
-        "board": "radar_puffin",
+        "board": target,
         "channel": "dev",
         "kind": release_kind,
         "status": "PREPARED_NOT_FLASHED",
@@ -220,6 +232,8 @@ def prepare_complete_initial_install(
         build_manifest["ota_release"] = candidate["ota_release"]
         build_manifest["feature_plan"] = feature_plan
         build_manifest["feature_assets"] = [dict(item) for item in feature_assets or []]
+    if "board" in candidate:
+        build_manifest["target_descriptor_sha256"] = descriptor_sha256(target)
     (output / f"{prefix}-build.json").write_text(json.dumps(build_manifest, indent=2, sort_keys=True) + "\n")
     notes = output / f"{prefix}-release-notes.md"
     notes.write_text(
@@ -236,21 +250,38 @@ def prepare_complete_initial_install(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--target", default=DEFAULT)
+    parser.add_argument("--combined-release-tag")
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--product-commit", required=True)
     parser.add_argument("--release-kind", choices=("development", "nightly"), default="development")
     args = parser.parse_args()
+    from combined_release import discover_runs
+    if "--target" not in sys.argv:
+        selected = discover_runs(args.artifact_root)
+        if len(selected) == 1:
+            args.target = next(iter(selected))
+    target = args.target
+    load_target(target)
+    from combined_release import prepare_if_combined
+    combined = prepare_if_combined(args, Path(__file__))
+    if combined is not None:
+        return combined
 
     if not COMMIT.fullmatch(args.product_commit):
         fail("product commit must be a full lowercase SHA")
     run = find_run(args.artifact_root)
     candidate = read_kv(run / "CURRENT.candidate")
+    if candidate.get("board", DEFAULT) != args.target:
+        fail("requested target and candidate disagree")
     provenance = read_kv(run / "provenance.txt")
     sources = read_kv(run / "release-source-commits.txt")
     manifest_path = run / "manifest.json"
     regular(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if contract_target(candidate, manifest) != args.target:
+        fail("image target mismatch")
     ota_format = candidate.get("ota_format", "v1")
     if ota_format not in {"v1", "v2"}:
         fail("candidate has an unsupported OTA format")
@@ -307,6 +338,7 @@ def main() -> int:
         validate_control_tar(
             ota_bundles[0], public_key, ota_format,
             candidate.get("ota_release", "") if ota_format == "v2" else "",
+            expected_target=args.target,
             feature_plan=feature_plan,
             feature_inventory=feature_inventory,
             feature_asset_dir=feature_asset_dir,
@@ -348,7 +380,7 @@ def main() -> int:
     source_set_id = hashlib.sha256(
         ("\n".join(sources[name] for name in ("product", "platform", "linux", "ui")) + "\n").encode()
     ).hexdigest()[:16]
-    prefix = f"libreecho-radar-puffin-build-{args.product_commit[:7]}-{source_set_id}"
+    prefix = f"libreecho-{load_target(target)['release_slug']}-build-{args.product_commit[:7]}-{source_set_id}"
     release_tag_prefix = "radar-puffin-nightly" if args.release_kind == "nightly" else "radar-puffin-build"
     copied: list[Path] = []
 
@@ -357,9 +389,9 @@ def main() -> int:
         expect_hash(source, expected_hash)
         if expected_size and source.stat().st_size != int(expected_size):
             fail(f"artifact size mismatch: {source.name}")
-        target = output / f"{prefix}-{suffix}"
-        shutil.copyfile(source, target)
-        copied.append(target)
+        destination = output / f"{prefix}-{suffix}"
+        shutil.copyfile(source, destination)
+        copied.append(destination)
 
     copy(run / "boot.img", "boot.img", candidate.get("boot_image_sha256", ""))
     if signed:
@@ -386,10 +418,14 @@ def main() -> int:
             source = feature_asset_dir / str(item["name"])
             regular(source)
             expect_hash(source, str(item["sha256"]))
-            target = output / str(item["name"])
-            shutil.copyfile(source, target)
-            copied.append(target)
-        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets)
+            destination = output / str(item["name"])
+            shutil.copyfile(source, destination)
+            copied.append(destination)
+        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets, args.target)
+    if feature_plan is not None:
+        from release_completeness import ship
+        _, base_paths = ship(run, output, None, feature_plan, target=args.target)
+        copied.extend(base_paths)
     verification_target = output / f"{prefix}-verification.txt"
     shutil.copyfile(verification, verification_target)
     copied.append(verification_target)
@@ -408,7 +444,7 @@ def main() -> int:
         "build_id": f"{source_set_id}-{artifact_set_id}",
         "source_set_id": source_set_id,
         "artifact_set_id": artifact_set_id,
-        "board": "radar_puffin",
+        "board": target,
         "channel": "dev",
         "kind": args.release_kind,
         "ssh_enabled": ssh_enabled == "1",
@@ -445,6 +481,10 @@ def main() -> int:
             for item in feature_assets or []
         ]
         release_manifest.write_text(json.dumps(release_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    release_data = json.loads(release_manifest.read_text())
+    if "board" in candidate:
+        release_data["target_descriptor_sha256"] = descriptor_sha256(target)
+    release_manifest.write_text(json.dumps(release_data, indent=2, sort_keys=True) + "\n")
     copied.append(release_manifest)
 
     sums = output / f"{prefix}-SHA256SUMS"
@@ -460,11 +500,11 @@ def main() -> int:
         release_tag, asset_count = prepare_complete_initial_install(
             run, output, candidate, sources, verification, ota_bundles[0],
             source_set_id, artifact_set_id, args.release_kind,
-            feature_plan, feature_asset_dir, feature_assets,
+            feature_plan, feature_asset_dir, feature_assets, target, args.combined_release_tag,
         )
         print(f"release_dir={output}")
         print(f"release_tag={release_tag}")
-        print(f"release_prefix=libreecho-{release_tag}")
+        print(f"release_prefix={asset_prefix(release_tag, target)}")
         print(f"source_set_id={source_set_id}")
         print(f"artifact_set_id={artifact_set_id}")
         print(f"asset_count={asset_count}")

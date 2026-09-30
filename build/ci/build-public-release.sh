@@ -3,9 +3,12 @@
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
 OUTPUT=image-and-features
+TARGETS="${LIBREECHO_TARGETS:-radar_puffin}"
 while (($#)); do
   case "$1" in
     --release-output) OUTPUT="${2:?missing output mode}"; shift 2 ;;
+    --targets) TARGETS="${2:?missing targets}"; shift 2 ;;
+    --target) TARGETS="${2:?missing target}"; shift 2 ;;
     --no-publish) shift ;;
     *) echo "ERROR: unsupported option: $1" >&2; exit 2 ;;
   esac
@@ -38,4 +41,4 @@ case "$signing_mode" in
   *) echo "ERROR: unsupported OTA signing mode: $signing_mode" >&2; exit 2 ;;
 esac
 export LIBREECHO_OTA_SIGNING_MODE="$signing_mode" LIBREECHO_UPDATE_CHANNEL="$channel" JOBS=2
-exec "$ROOT/build.sh" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish
+exec "$ROOT/build.sh" --targets "$TARGETS" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish

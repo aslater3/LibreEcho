@@ -3,11 +3,18 @@ import argparse
 import json
 import re
 from pathlib import Path
+if __package__:
+    from .target_registry import parse_targets
+else:
+    from target_registry import parse_targets
 
 
 def route(request, branch, event):
     if not isinstance(request, dict) or request.get('schema') != 'libreecho-release-request-v1':
         raise ValueError('invalid release request')
+    targets = parse_targets(request.get('targets', ['radar_puffin']))
+    if 'board' in request and request['board'] not in targets:
+        raise ValueError('release request target mismatch')
     if event not in ('push', 'schedule', 'workflow_dispatch'):
         raise ValueError('unsupported publication event')
     release = re.fullmatch(r'release/(\d+\.\d+\.\d+)', branch)

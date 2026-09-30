@@ -17,6 +17,8 @@ from ota_v2_product import (
     expected_public_key_sha256, load_feature_contract,
 )
 
+from target_registry import DEFAULT, load_target, descriptor_sha256, platform_target_args
+
 SCHEMA = "libreecho-ota-v2-signing-handoff-v1"
 EXPECTED_RELEASE = "0.14.0"
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
@@ -155,6 +157,13 @@ def _product_runtime_identity() -> dict[str, Any]:
     orchestrator_record = _record(orchestrator)
     orchestrator_record["mode"] = orchestrator.stat().st_mode & 0o7777
     product_files.append(orchestrator_record)
+    # Target lookup is signing authority: bind the schema and both descriptors.
+    for path in [product_root / "release/target.schema.json", *sorted((product_root / "release/targets").glob("*.json"))]:
+        if path.is_symlink() or not path.is_file():
+            raise HandoffError("unsafe Product target registry input")
+        record = _record(path)
+        record["mode"] = path.stat().st_mode & 0o7777
+        product_files.append(record)
     product_files.sort(key=lambda item: item["path"])
     return {
         "interpreter": _record(Path(sys.executable).resolve()),
@@ -322,9 +331,13 @@ def validate_handoff(path: Path, expected_release: str = EXPECTED_RELEASE) -> di
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HandoffError(f"signing handoff is malformed: {exc}") from exc
-    required = {"schema", "format", "release", "source_commit", "update_channel", "base_catalog_sha256", "run_dir", "base_catalog", "build_manifest", "boot_image", "feature_plan", "feature_asset_inventory", "assets", "platform_source", "platform_tool", "platform_dependencies", "canonical_parser", "product_runtime"}
+    required = {"board", "target_descriptor_sha256", "schema", "format", "release", "source_commit", "update_channel", "base_catalog_sha256", "run_dir", "base_catalog", "build_manifest", "boot_image", "feature_plan", "feature_asset_inventory", "assets", "platform_source", "platform_tool", "platform_dependencies", "canonical_parser", "product_runtime"}
     if not isinstance(data, dict) or set(data) != required or data.get("schema") != SCHEMA:
         raise HandoffError("signing handoff schema mismatch")
+    target = data["board"]
+    load_target(target)
+    if data["target_descriptor_sha256"] != descriptor_sha256(target):
+        raise HandoffError("signing handoff descriptor identity mismatch")
     if data["format"] != "v2" or data["release"] != expected_release:
         raise HandoffError("signing handoff release or format mismatch")
     if data["update_channel"] not in {"dev", "stable"}:
@@ -336,8 +349,10 @@ def validate_handoff(path: Path, expected_release: str = EXPECTED_RELEASE) -> di
     base_catalog = _check_record(data["base_catalog"], "base catalog")
     from device_baseline import SCHEMA as DEVICE_SCHEMA, parse as parse_device, validate_plan as validate_device_plan
     baseline_data = json.loads(base_catalog.read_text())
+    if not isinstance(baseline_data, dict) or baseline_data.get("board", DEFAULT) != target:
+        raise HandoffError("signing handoff baseline target mismatch")
     if isinstance(baseline_data, dict) and baseline_data.get("schema") == DEVICE_SCHEMA:
-        device = parse_device(base_catalog.read_text(), data["update_channel"])
+        device = parse_device(base_catalog.read_text(), data["update_channel"], target)
         plan_path = _check_record(data["feature_plan"], "feature plan")
         validate_device_plan(device, json.loads(plan_path.read_text()))
     if data["base_catalog"]["sha256"] != data["base_catalog_sha256"]:
@@ -351,6 +366,15 @@ def validate_handoff(path: Path, expected_release: str = EXPECTED_RELEASE) -> di
         record_path = _check_record(data[key], key)
         if record_path.parent != run:
             raise HandoffError(f"{key} is outside the candidate run")
+    image = json.loads((run / "manifest.json").read_text())
+    if image.get("board", image.get("device", DEFAULT)) != target:
+        raise HandoffError("signing handoff image target mismatch")
+    load_feature_contract(run, {
+        "board": target, "ota_format": "v2", "ota_release": data["release"],
+        "ui_commit": data["source_commit"], "feature_plan": data["feature_plan"]["path"],
+        "feature_asset_inventory": data["feature_asset_inventory"]["path"],
+        "feature_asset_dir": str(run / "ota-assets"),
+    })
     assets = data["assets"]
     if not isinstance(assets, list) or not assets:
         raise HandoffError("signing handoff asset list is empty")
@@ -382,7 +406,8 @@ def _trusted_key_digest(public_key: Path, supplied: str | None = None) -> str:
         raise HandoffError(str(exc)) from exc
 
 
-def create_handoff(run: Path, release: str, source_commit: str, update_channel: str, base_catalog: Path, base_catalog_sha256: str, output: Path, platform_source: Path, platform_tool: Path) -> None:
+def create_handoff(run: Path, release: str, source_commit: str, update_channel: str, base_catalog: Path, base_catalog_sha256: str, output: Path, platform_source: Path, platform_tool: Path, target: str = DEFAULT) -> None:
+    load_target(target)
     if release != EXPECTED_RELEASE:
         raise HandoffError(f"signing handoff release must be {EXPECTED_RELEASE}")
     if not base_catalog.is_file() or base_catalog.is_symlink() or digest(base_catalog)[0] != base_catalog_sha256:
@@ -394,7 +419,7 @@ def create_handoff(run: Path, release: str, source_commit: str, update_channel: 
     boot = run / "boot.img"
     _trusted_key_digest(run / "ota-public-key.hex")
     _, _, _, inventory_assets = load_feature_contract(run, {
-        "ota_format": "v2", "ota_release": release, "ui_commit": source_commit,
+        "board": target, "ota_format": "v2", "ota_release": release, "ui_commit": source_commit,
         "feature_plan": str(plan), "feature_asset_inventory": str(inventory),
         "feature_asset_dir": str(asset_dir),
     })
@@ -404,6 +429,7 @@ def create_handoff(run: Path, release: str, source_commit: str, update_channel: 
     for item in inventory_assets:
         assets.append(_record(asset_dir / item["name"]))
     data = {
+        "board": target, "target_descriptor_sha256": descriptor_sha256(target),
         "schema": SCHEMA, "format": "v2", "release": release,
         "source_commit": source_commit, "update_channel": update_channel,
         "base_catalog_sha256": base_catalog_sha256, "run_dir": str(run),
@@ -430,7 +456,7 @@ def create_handoff(run: Path, release: str, source_commit: str, update_channel: 
 def invoke_platform_signer(
     platform_tool: Path, *, boot_image: Path, build_manifest: Path,
     signing_key: Path, public_key: Path, output: Path, plan: Path,
-    release: str, update_channel: str,
+    release: str, update_channel: str, target: str = DEFAULT,
 ) -> list[str]:
     command = [
         sys.executable, str(platform_tool), "--format", "v2",
@@ -440,7 +466,8 @@ def invoke_platform_signer(
         "--feature-policy", "community-noncommercial", "--update-channel", update_channel,
         "--feature-plan", str(plan), "--output", str(output),
     ]
-    subprocess.run(command, check=True)
+    command.extend(platform_target_args(platform_tool, target))
+    subprocess.run(command, check=True, timeout=180)
     return command
 
 
@@ -449,7 +476,7 @@ def sign(handoff_path: Path, platform_tool: Path, signing_key: Path, public_key:
     _trusted_key_digest(public_key, expected_key_sha256)
     run = Path(data["run_dir"])
     feature_plan, feature_inventory, feature_asset_dir, inventory_assets = load_feature_contract(run, {
-        "ota_format": "v2", "ota_release": data["release"], "ui_commit": data["source_commit"],
+        "board": data["board"], "ota_format": "v2", "ota_release": data["release"], "ui_commit": data["source_commit"],
         "feature_plan": data["feature_plan"]["path"],
         "feature_asset_inventory": data["feature_asset_inventory"]["path"],
         "feature_asset_dir": str(run / "ota-assets"),
@@ -469,7 +496,7 @@ def sign(handoff_path: Path, platform_tool: Path, signing_key: Path, public_key:
         platform_tool, boot_image=Path(data["boot_image"]["path"]),
         build_manifest=Path(data["build_manifest"]["path"]), signing_key=signing_key,
         public_key=public_key, output=output, plan=Path(data["feature_plan"]["path"]),
-        release=data["release"], update_channel=data["update_channel"],
+        release=data["release"], update_channel=data["update_channel"], target=data["board"],
     )
     if not output.is_file() or output.is_symlink():
         raise HandoffError("Platform signer did not produce a regular OTA bundle")
@@ -479,6 +506,7 @@ def sign(handoff_path: Path, platform_tool: Path, signing_key: Path, public_key:
         feature_plan=feature_plan,
         feature_inventory=feature_inventory,
         feature_asset_dir=feature_asset_dir,
+        expected_target=data["board"],
         expected_channel=data["update_channel"],
         boot_path=Path(data["boot_image"]["path"]),
         expected_key_sha256=os.environ["LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256"],
@@ -492,6 +520,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="mode", required=True)
     create = sub.add_parser("create-handoff")
+    create.add_argument("--target", default=DEFAULT)
     create.add_argument("--run-dir", type=Path, required=True)
     create.add_argument("--release", required=True)
     create.add_argument("--source-commit", required=True)
@@ -510,7 +539,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.mode == "create-handoff":
-            create_handoff(args.run_dir, args.release, args.source_commit, args.update_channel, args.base_catalog, args.base_catalog_sha256, args.output, args.platform_source, args.platform_tool)
+            create_handoff(args.run_dir, args.release, args.source_commit, args.update_channel, args.base_catalog, args.base_catalog_sha256, args.output, args.platform_source, args.platform_tool, args.target)
         else:
             sign(args.handoff, args.platform_tool, args.signing_key, args.public_key, args.output)
     except (HandoffError, OSError, ValueError) as exc:

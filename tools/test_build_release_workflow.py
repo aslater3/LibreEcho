@@ -53,7 +53,7 @@ class Tests(unittest.TestCase):
     'libreecho-musl-toolchain-v1-',
     'libreecho-neural-deps-v1-',
     'libreecho-components-v6-',
-    'libreecho-kernel-out-v1-',
+    'libreecho-kernel-out-v2-parity-radar_puffin-biscuit-',
   ):
    self.assertIn(key, W)
   # The neural cache key binds the exact compiler bytes and the ARMHF root

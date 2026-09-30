@@ -7,10 +7,14 @@ Device signature verification and protected release signing remain independent.
 import argparse
 import hashlib
 import json
+import os
 import re
 import tempfile
 import urllib.request
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from target_registry import DEFAULT, asset_prefix, load_target
 
 API = 'https://api.github.com/repos/aslater3/LibreEcho'
 DOWNLOAD = 'https://github.com/aslater3/LibreEcho/releases/download/'
@@ -27,7 +31,11 @@ def version(tag):
     return tuple(map(int, match.groups()))
 
 def download(url, dest, limit):
-    req = urllib.request.Request(url, headers={'User-Agent': 'LibreEcho-OTA-baseline', 'Accept': 'application/vnd.github+json'})
+    headers = {'User-Agent': 'LibreEcho-OTA-baseline', 'Accept': 'application/vnd.github+json'}
+    token = os.environ.get('GH_TOKEN')
+    if token and url.startswith(API + '/'):
+        headers['Authorization'] = 'Bearer ' + token
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as response, dest.open('xb') as output:
         if not response.url.startswith('https://'):
             raise ValueError('non-HTTPS redirect')
@@ -96,7 +104,8 @@ def fetch_dev_pointer(releases):
         except (OSError, UnicodeError, ValueError):
             return None
 
-def resolve(tag, root):
+def resolve(tag, root, target_id=DEFAULT):
+    load_target(target_id)
     if STABLE_TAG.fullmatch(tag):
         channel = 'stable'
         prerelease = False
@@ -116,7 +125,7 @@ def resolve(tag, root):
         if asset['name'] in assets:
             raise ValueError('duplicate release asset')
         assets[asset['name']] = asset
-    prefix = 'libreecho-' + tag
+    prefix = asset_prefix(tag, target_id)
     def fetch(name, local, cap):
         asset = assets[name]
         if asset['browser_download_url'] != DOWNLOAD + tag + '/' + name:
@@ -155,13 +164,16 @@ def resolve(tag, root):
         raise ValueError('baseline build release identity missing or invalid')
     if channel == 'stable' and expected_build_release != tag:
         raise ValueError('baseline build identity mismatch')
-    if (build['channel'], build['board']) != (channel, 'radar_puffin'):
+    if (build['channel'], build['board']) != (channel, target_id):
         raise ValueError('baseline build identity mismatch')
     inventory = {r['name']: r for r in build['artifacts']}
     if len(inventory) != len(build['artifacts']):
         raise ValueError('duplicate build artifact')
-    catalog = {'features': {}}
+    catalog = {'features': {}, 'sources': {}}
+    if target_id != DEFAULT:
+        catalog['board'] = target_id
     for feature in FEATURES:
+        catalog['sources'][feature] = {}
         record = {}
         for kind, suffix in [('payload', '.squashfs'), ('manifest', '.manifest.json')]:
             name = prefix + '-' + feature + suffix
@@ -170,6 +182,7 @@ def resolve(tag, root):
             if checksums.get(name) != digest or inventory[name]['sha256'] != digest or inventory[name]['size'] != size:
                 raise ValueError('baseline inventory disagreement')
             record[kind] = {'path': str(path.resolve()), 'sha256': digest, 'size': size}
+            catalog['sources'][feature][kind] = {'release': tag, 'asset': name}
         manifest = json.loads(Path(record['manifest']['path']).read_text())
         expected = {'filename': feature + '.squashfs', 'sha256': record['payload']['sha256'], 'size': record['payload']['size']}
         if (manifest.get('schema_version') != 1 or manifest.get('feature_id') != feature
@@ -182,6 +195,7 @@ def resolve(tag, root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--target', default=DEFAULT)
     parser.add_argument('--release', required=True, help='Candidate numeric version')
     parser.add_argument('--channel', choices=('dev', 'stable'), default='stable')
     parser.add_argument('--output-dir', required=True, type=Path)
@@ -202,9 +216,12 @@ def main():
             break
     else:
         raise ValueError('release listing exceeds pagination bound')
-    pointer = fetch_dev_pointer(releases) if args.channel == 'dev' else None
+    load_target(args.target)
+    if args.target != DEFAULT:
+        releases = [r for r in releases if (STABLE_TAG.fullmatch(r.get('tag_name', '')) or DEV_TAG.fullmatch(r.get('tag_name', ''))) and any(a.get('name') == asset_prefix(r['tag_name'], args.target) + '-build.json' for a in r.get('assets', []))]
+    pointer = fetch_dev_pointer(releases) if args.channel == 'dev' and args.target == DEFAULT else None
     tag = baseline_release(releases, target, args.channel, pointer)
-    catalog = resolve(tag, args.output_dir)
+    catalog = resolve(tag, args.output_dir, args.target)
     values = f'catalog={catalog.resolve()}\nsha256={sha(catalog)}\nbase_release={tag}\n'
     print(values, end='')
     if args.github_output:
