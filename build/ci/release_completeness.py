@@ -499,9 +499,18 @@ def main():
             stage(args.run, args.base_catalog, target=target)
             print(f'release_completeness=PASS target={target}')
             return 0
-        targets = [args.target] if args.target else list(KNOWN_TARGETS)
-        # One combined release: iterate supported targets, not one release per
-        # target. Product-wide tags are untouched and no pointer changes here.
+        if args.target:
+            targets = [args.target]
+        elif args.command == 'check' and args.run and not args.assets:
+            # A build run directory holds exactly one target's candidate (the
+            # workflow gates each run in turn). Derive it like `stage` does;
+            # iterating every known target would demand a biscuit candidate
+            # inside a radar_puffin run and fail every single-target build.
+            targets = [_candidate_target(args.run)]
+        else:
+            # One combined release: iterate supported targets, not one release
+            # per target. Product-wide tags are untouched; no pointer changes.
+            targets = list(KNOWN_TARGETS)
         for target in targets:
             if args.command == 'record-recovery':
                 record_recovery(args.assets, target=target)
