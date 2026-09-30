@@ -145,9 +145,16 @@ def resolve(tag, root):
         raise ValueError('build metadata checksum mismatch')
     build = json.loads(build_path.read_text())
     build_release = build.get('release', build.get('ota_release'))
-    if not isinstance(build_release, str) or not STABLE_TAG.fullmatch(
-            'radar-puffin-v' + build_release):
+    if not isinstance(build_release, str):
         raise ValueError('baseline build release identity missing or invalid')
+    if STABLE_TAG.fullmatch(build_release):
+        expected_build_release = tag
+    elif STABLE_TAG.fullmatch('radar-puffin-v' + build_release):
+        expected_build_release = build_release
+    else:
+        raise ValueError('baseline build release identity missing or invalid')
+    if channel == 'stable' and expected_build_release != tag:
+        raise ValueError('baseline build identity mismatch')
     if (build['channel'], build['board']) != (channel, 'radar_puffin'):
         raise ValueError('baseline build identity mismatch')
     inventory = {r['name']: r for r in build['artifacts']}
