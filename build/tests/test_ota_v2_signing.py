@@ -272,7 +272,7 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
             key = root / "key.hex"
             public = root / "public.hex"
             output = root / "ota.tar"
-            with mock.patch("sign_ota_candidate.subprocess.run") as run:
+            with mock.patch("sign_ota_candidate.subprocess.run") as run, mock.patch("sign_ota_candidate.platform_target_args", return_value=["--target", "radar_puffin"]) as capability:
                 command = invoke_platform_signer(
                     platform_tool=root / "make_ota_bundle.py", boot_image=boot,
                     build_manifest=manifest, signing_key=key, public_key=public,
@@ -284,7 +284,9 @@ class OtaV2SigningHandoffTests(unittest.TestCase):
                 self.assertIn("--feature-plan", command)
                 self.assertIn(str(plan), command)
                 self.assertEqual(command[0], sys.executable)
-                run.assert_called_once_with(command, check=True)
+                capability.assert_called_once_with(root / "make_ota_bundle.py", "radar_puffin")
+                self.assertEqual(command[-2:], ["--target", "radar_puffin"])
+                run.assert_called_once_with(command, check=True, timeout=180)
                 self.assertIs(run.call_args.kwargs.get("shell", False), False)
 
 

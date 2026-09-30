@@ -1,0 +1,32 @@
+{
+  "schema": "libreecho-target-v1",
+  "soc": "mt8163",
+  "arch": "arm32",
+  "kernel": {
+    "defconfig": "mt8163_arm32_defconfig",
+    "dtb": "libreecho-radar-puffin.dtb"
+  },
+  "layout_profiles": [
+    "amonet",
+    "pinned"
+  ],
+  "features": [
+    "airplay2",
+    "assistant",
+    "stt",
+    "tts",
+    "wakeword"
+  ],
+  "hardware_accepted": false,
+  "target_id": "biscuit",
+  "release_slug": "biscuit",
+  "display_name": "Amazon Echo Dot (2nd Gen)",
+  "fastboot_products": [
+    "BISCUIT"
+  ],
+  "platform": {
+    "tools_profile": "mt8163-arm32",
+    "dtb_verifier": "radar_puffin",
+    "hw_profile": "biscuit@0"
+  }
+}

@@ -15,6 +15,11 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
+      targets:
+        description: Comma-separated known targets (radar_puffin or radar_puffin,biscuit)
+        required: true
+        default: radar_puffin
+        type: string
       update_channel:
         description: Release channel for this run
         required: true
@@ -283,6 +288,7 @@ jobs:
             build.tests.test_fetch_ota_base \
             build.tests.test_marker_contract \
             build.tests.test_device_baseline \
+            build.tests.test_multi_target \
             build.tests.test_release_route \
             build.tests.test_publish_dev_pointer \
             build.tests.test_ota_v2_signing \
@@ -1082,16 +1088,20 @@ jobs:
       # --- Layer 5: kernel object tree. Keyed by the exact locked kernel  ---
       # --- SHA plus the compiler and defconfig bytes: identical inputs    ---
       # --- restore the full object tree and make finishes in seconds.     ---
+      - name: Validate selected targets before cache restoration
+        env:
+          LIBREECHO_TARGETS: ${{ inputs.targets || 'radar_puffin' }}
+        run: python3 build/ci/validate-targets.py --targets "$LIBREECHO_TARGETS"
       - name: Compute kernel cache key
         id: kernel-key
         run: |
           set -euo pipefail
           compiler_sha="$(sha256sum "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" | awk '{print $1}')"
-          printf 'kernel_key=libreecho-kernel-out-v1-%s-%s-%s-%s\n' \
+          printf 'kernel_key=libreecho-kernel-out-v2-parity-radar_puffin-biscuit-%s-%s-%s-%s\n' \
             "${{ needs.resolve-and-preflight.outputs.linux_sha }}" \
             "$compiler_sha" \
             "$(sha256sum sources/linux/arch/arm/configs/mt8163_arm32_defconfig | awk '{print $1}')" \
-            "${{ needs.prepare-public-inputs.outputs.armhf_root_digest }}" \
+            "${{ needs.prepare-public-inputs.outputs.armhf_root_digest }}-${{ hashFiles('release/targets/*.json') }}" \
             >> "$GITHUB_OUTPUT"
       - name: Restore kernel object cache
         id: restore-kernel
@@ -1164,14 +1174,16 @@ jobs:
         env:
           OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
+          TARGETS: ${{ inputs.targets || 'radar_puffin' }}
           UPDATE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
           OTA_FORMAT: ${{ inputs.ota_format || 'v1' }}
         run: |
           set -euo pipefail
           if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
+            test "$TARGETS" = radar_puffin || { echo "ERROR: device migration baseline is radar-only in this hosted lane" >&2; exit 1; }
             python3 build/ci/device_baseline.py
           else
-            python3 build/ci/fetch-ota-base.py --release "$OTA_RELEASE" \
+            python3 build/ci/fetch-ota-bases.py --targets "$TARGETS" --release "$OTA_RELEASE" \
               --channel "$UPDATE_CHANNEL" \
               --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
           fi
@@ -1187,6 +1199,7 @@ jobs:
           LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform
           LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
           LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}/sources/product
+          LIBREECHO_TARGETS: ${{ inputs.targets || 'radar_puffin' }}
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
           LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
@@ -1199,6 +1212,7 @@ jobs:
           LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
           LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
           LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}
+          LIBREECHO_OTA_BASE_CATALOGS: ${{ steps.ota_base.outputs.catalogs }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
@@ -1252,7 +1266,7 @@ jobs:
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
           LIBREECHO_FLITE_ROOT: ${{ runner.temp }}/public-deps/neural/flite-root
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
-        run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
+        run: build/ci/build-public-release.sh --targets "$LIBREECHO_TARGETS" --release-output image-and-features --no-publish
 
       - name: Record release source commits
         env:
@@ -1263,13 +1277,16 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
-          test "${#runs[@]}" -eq 1
+          test "${#runs[@]}" -ge 1
+          for run in "${runs[@]}"; do
           printf 'product=%s\nplatform=%s\nlinux=%s\nui=%s\n' \
             "$PRODUCT_SHA" "$PLATFORM_SHA" "$LINUX_SHA" "$UI_SHA" \
-            >"${runs[0]}/release-source-commits.txt"
+            >"$run/release-source-commits.txt"
+          done
 
       - name: Record release request and public OTA key
         env:
+          TARGETS: ${{ inputs.targets || 'radar_puffin' }}
           RELEASE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
           RELEASE_NOTES: ${{ needs.resolve-and-preflight.outputs.release_notes }}
@@ -1280,7 +1297,10 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
-          test "${#runs[@]}" -eq 1
+          test "${#runs[@]}" -ge 1
+          for run in "${runs[@]}"; do
+          install -m 0644 "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/ota/ota-public-key.hex" "$run/ota-public-key.hex"
+          done
           run="${runs[0]}"
           install -m 0644 \
             "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/ota/ota-public-key.hex" \
@@ -1289,6 +1309,7 @@ jobs:
           import json, os, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
               "schema": "libreecho-release-request-v1",
+              "targets": os.environ["TARGETS"].split(","),
               "channel": os.environ["RELEASE_CHANNEL"],
               "version": os.environ["RELEASE_VERSION"],
               "release_tag": (f"radar-puffin-v{os.environ['RELEASE_VERSION']}"
@@ -1309,13 +1330,16 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
-          test "${#runs[@]}" -eq 1
+          test "${#runs[@]}" -ge 1
           src="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/recovery-install"
           test -f "$src/build_install_bundle.py"
           test -f "$src/src/META-INF/com/google/android/update-binary"
           dest="${runs[0]}/twrp-builder"
           mkdir -p "$dest/src"
-          cp "$src/build_install_bundle.py" "$dest/"
+          cp "$src/"*.py "$dest/"
+          # Platform target registry is adjacent to the recovery builder.
+          # Preserve adjacent Python modules at the same relative import path.
+          cp "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/"*.py "${runs[0]}/"
           cp -r "$src/src/." "$dest/src/"
 
       - name: Name build artifact

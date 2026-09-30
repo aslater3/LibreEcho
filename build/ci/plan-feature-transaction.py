@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from target_registry import DEFAULT, load_target
 import json
 import shutil
 import sys
@@ -26,8 +27,10 @@ from ota_v2_product import (  # noqa: E402
 )
 
 
-def strict_catalog(path: Path) -> dict[str, dict[str, Any]]:
+def strict_catalog(path: Path, target: str = DEFAULT) -> dict[str, dict[str, Any]]:
     value = load_json(path, "catalog")
+    if not isinstance(value, dict) or value.get("board", DEFAULT) != target:
+        fail("catalog target mismatch")
     features = value.get("features") if isinstance(value, dict) else None
     if not isinstance(features, dict) or set(features) != set(FEATURES):
         fail("catalog must contain exactly the five features")
@@ -131,6 +134,7 @@ def runtime_record(path: Path, feature: str, base: dict[str, Any], candidate: di
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", default=DEFAULT)
     parser.add_argument("--update-channel", choices=("dev", "stable"), default="stable")
     parser.add_argument("--base-catalog", type=Path, required=True)
     parser.add_argument("--candidate-catalog", type=Path, required=True)
@@ -143,16 +147,17 @@ def main() -> int:
     parser.add_argument("--platform-runtime-verifier", type=Path)
     args = parser.parse_args()
     try:
+        slug = load_target(args.target)["release_slug"]
         if not __import__("re").fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.release):
             fail("release must be numeric SemVer")
         if COMMIT40.fullmatch(args.source_commit) is None:
             fail("source commit is malformed")
         from device_baseline import SCHEMA as DEVICE_SCHEMA, parse as parse_device, validate_plan as validate_device_plan
-        candidate = strict_catalog(args.candidate_catalog)
+        candidate = strict_catalog(args.candidate_catalog, args.target)
         raw_base = load_json(args.base_catalog, "base catalog")
         device = None
         if isinstance(raw_base, dict) and raw_base.get("schema") == DEVICE_SCHEMA:
-            device = parse_device(args.base_catalog.read_text(), args.update_channel)
+            device = parse_device(args.base_catalog.read_text(), args.update_channel, args.target)
             if args.runtime_dir:
                 fail("device migration forbids runtime capsules")
             base = {fid: {
@@ -164,7 +169,7 @@ def main() -> int:
             if device.get("replace_wakeword") is not True:
                 candidate["wakeword"] = base["wakeword"]
         else:
-            base = strict_catalog(args.base_catalog)
+            base = strict_catalog(args.base_catalog, args.target)
         if args.runtime_dir and args.runtime_dir.is_symlink():
             fail("runtime directory must not be a symlink")
         records: list[dict[str, Any]] = []
@@ -190,10 +195,13 @@ def main() -> int:
                     record = runtime_record(args.runtime_dir, feature, old, new, args.release, args.source_commit, args.platform_runtime_verifier)
                 else:
                     record = {**common, "action": "replace"}
-                    record.update({"asset": f"libreecho-radar-puffin-{args.release}-{feature}.payload.squashfs", "size": new["payload"]["size"], "sha256": new["payload"]["sha256"], "manifest_asset": f"libreecho-radar-puffin-{args.release}-{feature}.manifest.json", "manifest_size": new["manifest"]["size"], "manifest_sha256": new["manifest"]["sha256"]})
+                    record.update({"asset": f"libreecho-{slug}-{args.release}-{feature}.payload.squashfs", "size": new["payload"]["size"], "sha256": new["payload"]["sha256"], "manifest_asset": f"libreecho-{slug}-{args.release}-{feature}.manifest.json", "manifest_size": new["manifest"]["size"], "manifest_sha256": new["manifest"]["sha256"]})
             else:
                 record = {**common, "action": "replace"}
-                record.update({"asset": f"libreecho-radar-puffin-{args.release}-{feature}.payload.squashfs", "size": new["payload"]["size"], "sha256": new["payload"]["sha256"], "manifest_asset": f"libreecho-radar-puffin-{args.release}-{feature}.manifest.json", "manifest_size": new["manifest"]["size"], "manifest_sha256": new["manifest"]["sha256"]})
+                record.update({"asset": f"libreecho-{slug}-{args.release}-{feature}.payload.squashfs", "size": new["payload"]["size"], "sha256": new["payload"]["sha256"], "manifest_asset": f"libreecho-{slug}-{args.release}-{feature}.manifest.json", "manifest_size": new["manifest"]["size"], "manifest_sha256": new["manifest"]["sha256"]})
+            if args.target != DEFAULT and record["action"] != "preserve":
+                for field in ("asset", "manifest_asset"):
+                    record[field] = record[field].replace("libreecho-radar-puffin-", "libreecho-" + slug + "-", 1)
             records.append(record)
             if record["action"] != "preserve":
                 inventory.extend([
@@ -201,7 +209,9 @@ def main() -> int:
                     {"feature_id": feature, "action": record["action"], "kind": "manifest", "name": record["manifest_asset"], "size": record["manifest_size"], "sha256": record["manifest_sha256"]},
                 ])
         plan = {"schema": "libreecho-product-feature-plan-v1", "transaction_type": "system", "activation": "reboot", "release": args.release, "source_commit": args.source_commit, "features": records}
-        validate_plan(plan, args.release, args.source_commit)
+        if args.target != DEFAULT:
+            plan["board"] = args.target
+        validate_plan(plan, args.release, args.source_commit, args.target)
         if device is not None:
             validate_device_plan(device, plan)
         if args.asset_output_dir:
@@ -225,7 +235,9 @@ def main() -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(plan, indent=2, sort_keys=False) + "\n", encoding="utf-8")
         inventory_data = {"schema": "libreecho-product-feature-assets-v1", "transaction_type": "system", "activation": "reboot", "release": args.release, "source_commit": args.source_commit, "assets": sorted(inventory, key=lambda item: item["name"])}
-        validate_inventory(inventory_data, records, args.release)
+        if args.target != DEFAULT:
+            inventory_data["board"] = args.target
+        validate_inventory(inventory_data, records, args.release, args.target)
         inventory_path = args.inventory_output or args.output.with_name("feature-assets.json")
         inventory_path.parent.mkdir(parents=True, exist_ok=True)
         inventory_path.write_text(json.dumps(inventory_data, indent=2, sort_keys=False) + "\n", encoding="utf-8")

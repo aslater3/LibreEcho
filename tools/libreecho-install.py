@@ -400,9 +400,9 @@ def _github_repo_parts(repository: str) -> tuple[str, str]:
     return parts[0], parts[1].removesuffix(".git")
 
 
-def download_release(release_tag: str, repository: str, download_root: Path | str) -> Path:
+def download_release(release_tag: str, repository: str, download_root: Path | str, target: str = "radar_puffin") -> Path:
     owner, repo = _github_repo_parts(repository)
-    prefix = f"libreecho-{release_tag}"
+    prefix = target_asset_prefix(release_tag, target)
     destination = Path(download_root) / release_tag
     sums_path = destination / f"{prefix}-SHA256SUMS"
     sums_url = f"https://github.com/{owner}/{repo}/releases/download/{urllib.parse.quote(release_tag)}/{sums_path.name}"
@@ -420,7 +420,7 @@ def download_release(release_tag: str, repository: str, download_root: Path | st
     )
     if not required.issubset(records):
         raise InstallerError(f"release is missing required assets: {sorted(required - set(records))}")
-    alias = "libreecho-radar-puffin-stable.ota.tar"
+    alias = f"libreecho-{TARGET_INDEX[target]['release_slug']}-stable.ota.tar"
     reuse_alias = release_tag.startswith("radar-puffin-v") and alias in records
     if reuse_alias and records[alias] != records[f"{prefix}.ota.tar"]:
         raise InstallerError("stable OTA alias checksum differs from versioned OTA")
@@ -602,11 +602,44 @@ def select_fastboot_serial(fastboot_bin: str, requested: str) -> str:
     return requested
 
 
-def verify_fastboot_product(fastboot_bin: str, serial: str) -> None:
+# Generated from release/targets/*.json; verified by Product target tests.
+TARGET_INDEX = {
+    "radar_puffin": {"release_slug": "radar-puffin", "fastboot_products": ["RADAR"]},
+    "biscuit": {"release_slug": "biscuit", "fastboot_products": ["BISCUIT"]},
+}
+# Intentionally empty: pinned dfefe52f closure has NOT been positively classified
+# as legacy. A reviewed source-closure decision, not a CLI/env override, is needed.
+LEGACY_EXPDB_ERASE_CLOSURES: frozenset[tuple[str, str]] = frozenset()
+
+
+def require_legacy_expdb_erase(amonet):
+    identity = (amonet.get("repository"), amonet.get("commit"))
+    if identity not in LEGACY_EXPDB_ERASE_CLOSURES:
+        raise InstallerError("expdb erase refused: pinned Amonet closure is not positively identified as legacy; v2 Kaeru stores its payload in expdb. Operator decision required before any install writes")
+
+
+def target_asset_prefix(tag, target="radar_puffin"):
+    if target not in TARGET_INDEX:
+        raise InstallerError("unknown target")
+    stem = tag if target == "radar_puffin" else TARGET_INDEX[target]["release_slug"] + "-" + tag.removeprefix("radar-puffin-")
+    return "libreecho-" + stem
+
+
+def verify_fastboot_product(fastboot_bin: str, serial: str, target=None, override=None) -> str:
     result = _run_command([fastboot_bin, "-s", serial, "getvar", "product"], 20, check=False)
     output = f"{result.stdout}\n{result.stderr}"
-    if not re.search(r"product:\s*BISCUIT\b", output, re.IGNORECASE):
-        raise InstallerError("fastboot product is not BISCUIT")
+    match = re.search(r"product:\s*([A-Za-z0-9_-]+)\b", output, re.IGNORECASE)
+    product = match.group(1).upper() if match else ""
+    detected = next((t for t, d in TARGET_INDEX.items() if product in d["fastboot_products"]), None)
+    if override is not None:
+        if override not in TARGET_INDEX or (target is not None and target != override):
+            raise InstallerError("invalid cross-flashed LK target override")
+        if detected != override:
+            print(f"WARNING: boot-chain identity differs from board: product={product or 'unknown'} explicit-target={override}", flush=True)
+        return override
+    if detected is None or (target is not None and detected != target):
+        raise InstallerError("boot-chain product and release target mismatch; explicit --target required for cross-flashed LK")
+    return detected
 
 
 def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
@@ -1329,7 +1362,7 @@ def validate_manifest(value: Any) -> dict[str, Any]:
     )
     if (manifest["schema"] != SCHEMA or not isinstance(manifest["release"], str)
             or not RELEASE.fullmatch(manifest["release"])
-            or manifest["board"] != "radar_puffin" or manifest["soc"] != "mt8163"
+            or manifest["board"] not in TARGET_INDEX or manifest["soc"] != "mt8163"
             or manifest["image_profile"] != "ota" or manifest["service_profile"] != "production"):
         raise InstallerError("unsupported install manifest")
     manifest["boot"] = _asset(manifest["boot"], "boot record")
@@ -1444,7 +1477,7 @@ def _read_state(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as error:
         raise InstallerError("malformed installer state") from error
     if (not isinstance(value, dict) or not {"phase", "release", "bundle_sha256"}.issubset(value)
-            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted", "device_serial", "slots"}
+            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted", "device_serial", "slots", "board"}
             or not isinstance(value["phase"], str)
             or value["phase"] not in ONE_SHOT_PHASES or not isinstance(value["release"], str)
             or not RELEASE.fullmatch(value["release"])
@@ -1455,6 +1488,8 @@ def _read_state(path: Path) -> dict[str, Any]:
             or ("slots" in value and (not isinstance(value["slots"], str)
                 or value["slots"] not in {"a", "b", "both"}))):
         raise InstallerError("malformed installer state")
+    if "board" in value and value["board"] not in TARGET_INDEX:
+        raise InstallerError("malformed installer state target")
     return value
 
 
@@ -1469,7 +1504,7 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
             previous = {}
         if (previous.get("release") == state.get("release")
                 and previous.get("bundle_sha256") == state.get("bundle_sha256")):
-            for key in ("userdata_formatted", "device_serial", "slots"):
+            for key in ("userdata_formatted", "device_serial", "slots", "board"):
                 if key not in state and key in previous:
                     state[key] = previous[key]
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -1533,7 +1568,11 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
     assets = inventory.get("assets")
     if not isinstance(assets, list):
         raise InstallerError("published feature asset inventory is malformed")
-    namespace = f"libreecho-radar-puffin-{version}-"
+    slug = "biscuit" if prefix.startswith("libreecho-biscuit-") else "radar-puffin"
+    target = "biscuit" if slug == "biscuit" else "radar_puffin"
+    if plan.get("board", "radar_puffin") != target or inventory.get("board", "radar_puffin") != target:
+        raise InstallerError("published feature target mismatch")
+    namespace = f"libreecho-{slug}-{version}-"
     names = {plan_path.name, inventory_path.name}
     for item in assets:
         name = item.get("name") if isinstance(item, dict) else None
@@ -1545,12 +1584,12 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
     return names
 
 
-def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dict[str, Any], Path]:
+def _prepare(release_dir: Path, cache_root: Path, release_tag: str, target: str = "radar_puffin") -> tuple[dict[str, Any], Path]:
     if not RELEASE.fullmatch(release_tag):
         raise InstallerError("invalid release tag")
     if not release_dir.is_dir() or release_dir.is_symlink():
         raise InstallerError("unsafe release directory")
-    prefix = f"libreecho-{release_tag}"
+    prefix = target_asset_prefix(release_tag, target)
     bundle = release_dir / f"{prefix}-initial-install.tar"
     checksums = release_dir / f"{prefix}-SHA256SUMS"
     _safe_regular(bundle)
@@ -1564,6 +1603,8 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
             raise InstallerError("manifest cannot be read")
         with stream:
             manifest = validate_manifest(json.load(stream))
+    if manifest["board"] != target:
+        raise InstallerError("install manifest and selected target mismatch")
     if manifest["release"] != release_tag:
         raise InstallerError("release tag does not match bundle manifest")
     expected = {
@@ -1581,14 +1622,14 @@ def _prepare(release_dir: Path, cache_root: Path, release_tag: str) -> tuple[dic
         expected.add(ota_asset.name)
     records = _checksums(checksums, None)
     optional = {
-        "libreecho-radar-puffin-dev.ota.tar",
+        f"libreecho-{TARGET_INDEX[target]['release_slug']}-dev.ota.tar",
         f"{prefix}-build.json",
         f"{prefix}-run-one-shot.sh",
     }
     if release_tag.startswith(("radar-puffin-nightly-", "radar-puffin-build-")):
         optional.update({f"{prefix}-build.json", f"{prefix}-verification.txt", f"{prefix}-run-one-shot.sh"})
     if release_tag.startswith("radar-puffin-v"):
-        optional.add("libreecho-radar-puffin-stable.ota.tar")
+        optional.add(f"libreecho-{TARGET_INDEX[target]['release_slug']}-stable.ota.tar")
     optional |= _v2_metadata_assets(release_dir, prefix, release_tag)
     unexpected = set(records) - expected - optional
     if not expected.issubset(records) or unexpected:
@@ -1659,6 +1700,7 @@ def one_shot(
     emulator_root: Path | str | None = None,
     emulator_kernel: Path | str | None = None,
     emulator_initramfs: Path | str | None = None,
+    target: str | None = None,
 ) -> dict[str, str]:
     """Run Amonet, install logical boot payloads, and open first-boot setup."""
     if not execute_hardware:
@@ -1693,16 +1735,25 @@ def one_shot(
             raise InstallerError("another installer is already running") from error
         if not release_tag:
             raise InstallerError("one-shot requires --release-tag")
+        target_override = target
+        if target is None:
+            devices = fastboot_devices(fastboot_bin)
+            if len(devices) != 1:
+                raise InstallerError("no unambiguous stock fastboot identity available; specify --target for BROM/cross-flashed LK")
+            target = verify_fastboot_product(fastboot_bin, select_fastboot_serial(fastboot_bin, fastboot_serial))
+        if target not in TARGET_INDEX:
+            raise InstallerError("unknown target")
         if release_dir is None:
-            release_dir = download_release(release_tag, release_repository, download_root)
+            release_dir = download_release(release_tag, release_repository, download_root, target)
         else:
             release_dir = Path(release_dir)
-        manifest, bundle = _prepare(release_dir, cache_root, release_tag)
+        manifest, bundle = _prepare(release_dir, cache_root, release_tag, target)
+        require_legacy_expdb_erase(manifest["amonet"])
         boot = cache_root / release_tag / "bundle" / manifest["boot"]["name"]
         validate_public_boot_image(boot, manifest["boot"]["sha256"])
         state_path = _state_path(state_root, install_id)
         bundle_sha = _sha256(bundle)
-        _write_state(state_path, {"phase": "RELEASE_READY", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": False})
+        _write_state(state_path, {"phase": "RELEASE_READY", "board": target, "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": False})
         expected_amonet = manifest["amonet"]["commit"]
         if emulator_root is not None:
             emulator_root = Path(emulator_root)
@@ -1740,6 +1791,7 @@ def one_shot(
         _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag,
                                   "bundle_sha256": bundle_sha, "userdata_formatted": False,
                                   "device_serial": serial, "slots": slots})
+        verify_fastboot_product(fastboot_bin, serial, target, target_override)
         format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
         _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": True})
         print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
@@ -1748,6 +1800,7 @@ def one_shot(
         for slot in selected:
             print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
             _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+        require_legacy_expdb_erase(manifest["amonet"])
         print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
         _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
         _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release_tag, "bundle_sha256": bundle_sha})
@@ -1814,6 +1867,7 @@ def continue_one_shot(
     execute_hardware: bool,
     repair_userdata: bool = False,
     install_host_deps: bool = False,
+    target: str | None = None,
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
@@ -1852,7 +1906,12 @@ def continue_one_shot(
         release_sources = cache_root / "downloads" / release
         if not release_sources.is_dir():
             release_sources = cache_root / release / "downloads"
-        manifest, bundle = _prepare(release_sources, cache_root, release)
+        saved_target = state.get("board", "radar_puffin")
+        if target is not None and target != saved_target:
+            raise InstallerError("continuation target differs from saved installation")
+        manifest, bundle = _prepare(release_sources, cache_root, release, saved_target)
+        if state["phase"] in {"AMONET_HANDOFF", "FASTBOOT_READY"}:
+            require_legacy_expdb_erase(manifest["amonet"])
         if _sha256(bundle) != state["bundle_sha256"]:
             raise InstallerError("cached bundle hash changed since Amonet handoff")
         boot = cache_root / release / "bundle" / manifest["boot"]["name"]
@@ -1912,6 +1971,7 @@ def continue_one_shot(
             print("FASTBOOT STAGE: waiting for the repaired device.", flush=True)
             fastboot = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
             print(f"FASTBOOT STAGE: detected device {fastboot}; formatting userdata.", flush=True)
+            verify_fastboot_product(fastboot_bin, fastboot, saved_target, target)
             format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
             _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
             print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
@@ -1931,6 +1991,7 @@ def continue_one_shot(
             serial = wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout)
             print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
             _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
+            verify_fastboot_product(fastboot_bin, serial, saved_target, target)
             if not userdata_formatted:
                 if phase == "FASTBOOT_READY" and not repair_userdata:
                     raise InstallerError("FASTBOOT_READY lacks userdata-format evidence; explicit --repair-userdata is required")
@@ -1942,6 +2003,7 @@ def continue_one_shot(
             for slot in selected:
                 print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
                 _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
+            require_legacy_expdb_erase(manifest["amonet"])
             print("FASTBOOT STAGE: clearing expdb before reboot.", flush=True)
             _run_command([fastboot_bin, "-s", serial, "erase", "expdb"], fastboot_timeout)
             _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
@@ -2157,7 +2219,7 @@ def resume(
     install_id: str = "default",
 ) -> dict[str, str]:
     state = _read_state(_state_path(Path(state_root), install_id))
-    bundle = Path(cache_root) / state["release"] / "downloads" / f"libreecho-{state['release']}-initial-install.tar"
+    bundle = Path(cache_root) / state["release"] / "downloads" / (target_asset_prefix(state["release"], state.get("board", "radar_puffin")) + "-initial-install.tar")
     _safe_regular(bundle)
     if _sha256(bundle) != state["bundle_sha256"]:
         raise InstallerError("cached bundle hash changed")
@@ -2176,6 +2238,7 @@ def main() -> None:
     parser.add_argument("action", choices=("install", "resume", "status", "one-shot", "continue-one-shot"))
     parser.add_argument("--release-dir", type=Path)
     parser.add_argument("--release-tag")
+    parser.add_argument("--target", choices=tuple(TARGET_INDEX), help="explicit board identity for BROM or cross-flashed LK")
     parser.add_argument("--release-repository", default=RELEASE_REPOSITORY)
     parser.add_argument("--download-root", type=Path, default=Path.home() / ".cache/libreecho-installer/downloads")
     parser.add_argument("--amonet-root", type=Path)
@@ -2251,6 +2314,7 @@ def main() -> None:
                             amonet_timeout=args.amonet_timeout, fastboot_timeout=args.fastboot_timeout,
                             adb_timeout=args.adb_timeout, open_browser=not args.no_open_browser,
                             execute_hardware=args.execute_hardware or args.emulator_root is not None,
+                            target=args.target,
                             install_host_deps=args.install_host_deps,
                             emulator_root=args.emulator_root,
                             emulator_kernel=args.emulator_kernel,
@@ -2267,6 +2331,7 @@ def main() -> None:
                             open_browser=not args.no_open_browser,
                             execute_hardware=args.execute_hardware,
                             repair_userdata=args.repair_userdata,
+                            target=args.target,
                             install_host_deps=args.install_host_deps,
                         )
                     elif args.action == "resume":

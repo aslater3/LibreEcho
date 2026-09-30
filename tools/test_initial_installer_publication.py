@@ -216,7 +216,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "  url=$1; shift\n"
                 "done\n"
                 "case \"$url\" in\n"
-                f"  */releases/latest) printf '%s\\n' '{{\"draft\":false,\"prerelease\":false,\"tag_name\":\"{tag}\"}}' ;;\n"
+                f"  */releases/latest) printf '%s\\n' '{{\"draft\":false,\"prerelease\":false,\"tag_name\":\"{tag}\",\"assets\":[{{\"name\":\"{prefix}-initial-install.tar\"}}]}}' ;;\n"
                 f"  *SHA256SUMS) printf '%s  %s\\n' '{digest}' '{prefix}-installer.py' >\"$out\" ;;\n"
                 "  *-installer.py) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n"
                 "  *) exit 9 ;;\n"
@@ -232,19 +232,19 @@ class InstallerPublicationTests(unittest.TestCase):
             )
             for tool in (bindir / "curl", bindir / "python3"):
                 tool.chmod(0o755)
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), LIBREECHO_TARGET="radar_puffin")
             result = subprocess.run(
                 ["bash", str(ROOT / "tools/run-one-shot.sh"), "latest",
                  "--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
                 text=True, capture_output=True, env=env,
             )
             self.assertEqual(result.returncode, 23, result.stderr)
-            self.assertIn(f"Resolved latest stable release: {tag}", result.stdout)
+            self.assertIn(f"Resolved target-qualified latest stable release: {tag}", result.stdout)
             argv = argv_log.read_text(encoding="utf-8").splitlines()
             self.assertEqual(argv[1:4], ["one-shot", "--release-tag", tag])
             self.assertEqual(
                 argv[4:],
-                ["--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
+                ["--target", "radar_puffin", "--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
             )
             self.assertEqual(list(tmpdir.iterdir()), [])
             result = subprocess.run(
@@ -255,7 +255,7 @@ class InstallerPublicationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 23, result.stderr)
             argv = argv_log.read_text().splitlines()
             self.assertEqual(argv[1:4], ["continue-one-shot", "--release-tag", tag])
-            self.assertEqual(argv[4:], ["--fastboot-serial", "SERIAL", "--execute-hardware"])
+            self.assertEqual(argv[4:], ["--target", "radar_puffin", "--fastboot-serial", "SERIAL", "--execute-hardware"])
             self.assertEqual(list(tmpdir.iterdir()), [])
             argv_log.unlink()
             result = subprocess.run(
@@ -292,7 +292,7 @@ class InstallerPublicationTests(unittest.TestCase):
             (bindir / "python3").write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
             for tool in (bindir / "curl", bindir / "python3"):
                 tool.chmod(0o755)
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), LIBREECHO_TARGET="radar_puffin")
             result = subprocess.run(
                 ["bash", str(ROOT / "tools/run-one-shot.sh"), tag],
                 text=True, capture_output=True, env=env,

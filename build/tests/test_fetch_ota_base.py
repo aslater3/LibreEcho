@@ -15,7 +15,8 @@ class BaselineTests(unittest.TestCase):
         inputs = workflow.split('permissions:', 1)[0]
         self.assertNotIn('      ota_base_catalog_url:', inputs)
         self.assertNotIn('      ota_base_catalog_sha256:', inputs)
-        self.assertIn('python3 build/ci/fetch-ota-base.py --release', workflow)
+        self.assertIn('python3 build/ci/fetch-ota-bases.py --targets', workflow)
+        self.assertIn('LIBREECHO_OTA_BASE_CATALOGS:', workflow)
         self.assertIn('--channel "$UPDATE_CHANNEL"', workflow)
         self.assertIn('LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}', workflow)
         self.assertIn('LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}', workflow)

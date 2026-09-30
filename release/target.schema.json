@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LibreEcho parity target descriptor v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "soc",
+    "arch",
+    "layout_profiles",
+    "features",
+    "target_id",
+    "release_slug",
+    "display_name",
+    "fastboot_products",
+    "hardware_accepted",
+    "kernel",
+    "platform"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "libreecho-target-v1"
+    },
+    "soc": {
+      "const": "mt8163"
+    },
+    "arch": {
+      "const": "arm32"
+    },
+    "layout_profiles": {
+      "const": [
+        "amonet",
+        "pinned"
+      ]
+    },
+    "features": {
+      "const": [
+        "airplay2",
+        "assistant",
+        "stt",
+        "tts",
+        "wakeword"
+      ]
+    },
+    "target_id": {
+      "enum": [
+        "radar_puffin",
+        "biscuit"
+      ]
+    },
+    "release_slug": {
+      "enum": [
+        "radar-puffin",
+        "biscuit"
+      ]
+    },
+    "display_name": {
+      "type": "string",
+      "pattern": ".+"
+    },
+    "fastboot_products": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "RADAR",
+          "BISCUIT"
+        ]
+      }
+    },
+    "hardware_accepted": {
+      "type": "boolean"
+    },
+    "kernel": {
+      "type": "object",
+      "required": [
+        "defconfig",
+        "dtb"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "defconfig": {
+          "const": "mt8163_arm32_defconfig"
+        },
+        "dtb": {
+          "const": "libreecho-radar-puffin.dtb"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": [
+        "tools_profile",
+        "dtb_verifier",
+        "hw_profile"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tools_profile": {
+          "const": "mt8163-arm32"
+        },
+        "dtb_verifier": {
+          "const": "radar_puffin"
+        },
+        "hw_profile": {
+          "enum": [
+            "radar_puffin@1",
+            "biscuit@0"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "target_id": {
+            "const": "radar_puffin"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "release_slug": {
+            "const": "radar-puffin"
+          },
+          "display_name": {
+            "const": "Amazon Echo (2nd Gen)"
+          },
+          "fastboot_products": {
+            "const": [
+              "RADAR"
+            ]
+          },
+          "platform": {
+            "type": "object",
+            "properties": {
+              "hw_profile": {
+                "const": "radar_puffin@1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "target_id": {
+            "const": "biscuit"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "release_slug": {
+            "const": "biscuit"
+          },
+          "display_name": {
+            "const": "Amazon Echo Dot (2nd Gen)"
+          },
+          "fastboot_products": {
+            "const": [
+              "BISCUIT"
+            ]
+          },
+          "platform": {
+            "type": "object",
+            "properties": {
+              "hw_profile": {
+                "const": "biscuit@0"
+              }
+            }
+          },
+          "hardware_accepted": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}
