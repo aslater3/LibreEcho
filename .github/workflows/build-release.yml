@@ -276,6 +276,16 @@ jobs:
             --find-links "$wheelhouse" \
             --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
+      - name: Fetch legacy base branch for parity checks
+        run: |
+          set -euo pipefail
+          # The legacy Radar golden test compares generated metadata/names with
+          # the pre-change generator on release/0.14.0. The default shallow
+          # checkout has no such remote-tracking ref, so fetch it explicitly
+          # rather than weakening the comparison.
+          git fetch --no-tags --depth=1 origin \
+            "+refs/heads/release/0.14.0:refs/remotes/origin/release/0.14.0"
+          git rev-parse --verify origin/release/0.14.0
       - name: Run maintained Product pipeline suites
         env:
           LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source
@@ -286,6 +296,7 @@ jobs:
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
+            build.tests.test_release_completeness \
             build.tests.test_marker_contract \
             build.tests.test_device_baseline \
             build.tests.test_multi_target \
@@ -1172,6 +1183,7 @@ jobs:
         timeout-minutes: 10
         if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
           TARGETS: ${{ inputs.targets || 'radar_puffin' }}
@@ -1341,6 +1353,36 @@ jobs:
           # Preserve adjacent Python modules at the same relative import path.
           cp "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/"*.py "${runs[0]}/"
           cp -r "$src/src/." "$dest/src/"
+
+      - name: Stage every referenced base and gate fresh-install completeness
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
+          BASE_CATALOGS: ${{ steps.ota_base.outputs.catalogs }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
+          LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/sources/platform
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -ge 1
+          if [[ -z "$BASE_CATALOG" ]]; then
+            echo "ERROR: fresh-install completeness requires a verified OTA v2 base catalog" >&2
+            exit 1
+          fi
+          # One run directory per selected target. Each is staged and gated with
+          # its own target's base catalog; the builder is shared and idempotent.
+          for run in "${runs[@]}"; do
+            target="$(sed -n 's/^board=//p' "$run/CURRENT.candidate" | head -n1)"
+            catalog="$BASE_CATALOG"
+            if [[ -n "$BASE_CATALOGS" && -f "$BASE_CATALOGS" && -n "$target" ]]; then
+              catalog="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["catalog"])' "$BASE_CATALOGS" "$target")"
+            fi
+            python3 build/ci/release_completeness.py stage \
+              --run "$run" --base-catalog "$catalog"
+            python3 build/ci/release_completeness.py check \
+              --run "$run" --builder "${runs[0]}/twrp-builder"
+          done
 
       - name: Name build artifact
         id: dev-build-name

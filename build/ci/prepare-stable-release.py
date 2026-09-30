@@ -120,8 +120,8 @@ def write_initial_install_bundle(
     bundle = output / f"{prefix}-initial-install.tar"
     manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
     members = ["manifest.json", f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"]
-    for feature in FEATURES:
-        members.extend((f"{prefix}-{feature}.squashfs", f"{prefix}-{feature}.manifest.json"))
+    for feature in manifest['features']:
+        members.extend((feature['payload']['name'], feature['manifest']['name']))
     with tarfile.open(bundle, "w") as archive:
         manifest_info = tarfile.TarInfo("manifest.json")
         manifest_info.size = len(manifest_bytes)
@@ -344,6 +344,11 @@ def main() -> int:
         )
 
     install_manifest = initial_install_manifest(release_tag, output / f"{prefix}-boot.img", output / f"{prefix}-ota-public-key.hex", output, args.amonet_repository, args.amonet_tag, args.amonet_commit, target)
+    if feature_plan is not None:
+        from release_completeness import install_features, ship
+        completeness, extra_paths = ship(run, output, prefix, feature_plan, target=target)
+        copied.extend(extra_paths)
+        install_manifest['features'] = install_features(feature_plan, completeness, allow_runtime=True, target=target)
     bundle = write_initial_install_bundle(output, release_tag, install_manifest)
     copied.append(bundle)
 

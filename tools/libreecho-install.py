@@ -1581,6 +1581,46 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
                 or not name.startswith(namespace)):
             raise InstallerError("published feature asset inventory is malformed")
         names.add(name)
+    completeness_path = release_dir / f'libreecho-{slug}-release-completeness.json'
+    if completeness_path.exists():
+        _safe_regular(completeness_path)
+        completeness = json.loads(completeness_path.read_text(encoding='utf-8'))
+        if completeness.get('schema') != 'libreecho-release-completeness-v1' or not isinstance(completeness.get('references'), list):
+            raise InstallerError('published release completeness provenance is malformed')
+        wanted = {}
+        for record in plan.get('features', []):
+            fid = record['feature_id']
+            for kind in ('payload', 'manifest'):
+                wanted[(fid, 'base', kind)] = record[f'base_{kind}_sha256']
+                if record['action'] != 'preserve':
+                    wanted[(fid, 'target', kind)] = record['sha256' if kind == 'payload' else 'manifest_sha256']
+        seen = set()
+        for item in completeness['references']:
+            key = (item.get('feature_id'), item.get('role'), item.get('kind'))
+            name = item.get('name')
+            if key not in wanted or key in seen or item.get('sha256') != wanted[key]:
+                raise InstallerError('completeness provenance does not match feature plan')
+            if not isinstance(name, str) or Path(name).name != name or not PUBLIC_NAME.fullmatch(name):
+                raise InstallerError('unsafe completeness asset name')
+            if item['role'] == 'base':
+                suffix = 'payload.squashfs' if item['kind'] == 'payload' else 'manifest.json'
+                expected_name = f"libreecho-{slug}-base-{item['feature_id']}-{item['sha256']}.{suffix}"
+                if name != expected_name:
+                    raise InstallerError('completeness base namespace mismatch')
+            elif name not in names:
+                raise InstallerError('completeness target is absent from OTA inventory')
+            seen.add(key)
+            names.add(name)
+        if seen != set(wanted):
+            raise InstallerError('incomplete release base provenance')
+        names.add(completeness_path.name)
+        if target == 'radar_puffin':
+            # The legacy unqualified aliases exist for Radar only.
+            names.update({'libreecho-install.zip', 'bundle.manifest'})
+        # Candidate assets stay published under their old names even when the
+        # install tar selects the signed preserved base instead of the candidate.
+        names.update(f'{prefix}-{fid}.{suffix}' for fid in ('airplay2', 'tts', 'wakeword', 'stt', 'assistant')
+                     for suffix in ('squashfs', 'manifest.json'))
     return names
 
 

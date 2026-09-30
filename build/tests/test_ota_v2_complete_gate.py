@@ -154,6 +154,28 @@ class CompleteControlGateTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         self.assertTrue(callable(resolved.parse_manifest))
 
+    def test_platform_registry_does_not_collide_with_cached_product_registry(self) -> None:
+        import ota_v2_product
+        import target_registry
+        import sys
+        from unittest.mock import patch
+        original_path = list(sys.path)
+        with tempfile.TemporaryDirectory(prefix="canonical-registry-") as directory:
+            root = Path(directory)
+            tools = root / "tools/mt8163-arm32"
+            (tools / "ota").mkdir(parents=True)
+            (tools / "target_registry.py").write_text("TARGETS = {'biscuit': {}}\n")
+            (tools / "ota/feature_manifest.py").write_text(
+                "import sys\nfrom pathlib import Path\n"
+                "sys.path.insert(0, str(Path(__file__).resolve().parent.parent))\n"
+                "from target_registry import TARGETS\n"
+                "def parse_manifest(raw): return TARGETS\n")
+            with patch.dict(os.environ, {"LIBREECHO_PLATFORM_SOURCE": str(root)}):
+                parser = ota_v2_product._canonical_parser()
+                self.assertEqual(parser.parse_manifest(b''), {'biscuit': {}})
+            self.assertIs(sys.modules['target_registry'], target_registry)
+            self.assertEqual(sys.path, original_path)
+
     def test_signed_all_five_ids_without_records_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ota-v2-malformed-ids-") as directory:
             root = Path(directory)

@@ -288,10 +288,22 @@ def _canonical_parser() -> Any | None:
         if spec is None or spec.loader is None:
             continue
         module = importlib_util.module_from_spec(spec)
+        # Product and Platform both have a target_registry module. Load the
+        # pinned Platform parser with its own registry, then restore Product's
+        # import state; otherwise a cached Product module silently selects an
+        # older fallback parser and rejects Biscuit manifests.
+        import sys
+        prior_path = list(sys.path)
+        prior_registry = sys.modules.pop("target_registry", None)
         try:
             spec.loader.exec_module(module)
         except (OSError, ImportError, ValueError):
             continue
+        finally:
+            sys.path[:] = prior_path
+            sys.modules.pop("target_registry", None)
+            if prior_registry is not None:
+                sys.modules["target_registry"] = prior_registry
         if getattr(module, "parse_manifest", None) is not None:
             return module
     return None
@@ -694,6 +706,19 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         standard.update(str(item.get("name")) for item in feature_assets if isinstance(item, dict))
     elif ota_format != "v1":
         fail("stable build manifest has an unsupported OTA format")
+    if ota_format == 'v2':
+        from release_completeness import provenance_name, validate_completeness
+        provenance = provenance_name(target)
+        completeness = load_json(output / provenance, 'release completeness provenance')
+        checked = validate_completeness(plan, output, completeness, target=target)
+        standard.update({provenance, *(item['name'] for item in checked.values())})
+        # Legacy single-target layout keeps the recovery bundle in the flat
+        # asset set; the combined layout tracks it in the TWRPINSTALL sections.
+        if (output / 'bundle.manifest').exists() or (output / 'libreecho-install.zip').exists():
+            from release_completeness import check_assets
+            check_assets(output, output / 'bundle.manifest', target=target)
+            digest(output / 'libreecho-install.zip')
+            standard.update({'bundle.manifest', 'libreecho-install.zip'})
     if actual | {sums.name} != standard:
         fail(f"stable release has an incomplete or extra asset set: expected={sorted(standard)} actual={sorted(actual | {sums.name})}")
     artifacts = build.get("artifacts")

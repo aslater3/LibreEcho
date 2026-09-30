@@ -119,12 +119,14 @@ def fixture(root: Path) -> tuple[Path, Path]:
     return root / "artifact", product
 
 
-def add_v2_contract(artifact_root: Path, release: str = "0.14.0") -> dict[str, str]:
+def add_v2_contract(artifact_root: Path, release: str = "0.14.0", *, action: str = "runtime") -> dict[str, str]:
     run = artifact_root / "run"
     asset_dir = run / "ota-assets"
     asset_dir.mkdir()
-    payload_name = f"libreecho-radar-puffin-{release}-assistant.runtime.squashfs"
-    manifest_name = f"libreecho-radar-puffin-{release}-assistant.runtime-manifest.json"
+    payload_suffix = "runtime.squashfs" if action == "runtime" else "payload.squashfs"
+    manifest_suffix = "runtime-manifest.json" if action == "runtime" else "manifest.json"
+    payload_name = f"libreecho-radar-puffin-{release}-assistant.{payload_suffix}"
+    manifest_name = f"libreecho-radar-puffin-{release}-assistant.{manifest_suffix}"
     payload = asset_dir / payload_name
     manifest = asset_dir / manifest_name
     payload.write_bytes(b"assistant runtime capsule")
@@ -139,7 +141,7 @@ def add_v2_contract(artifact_root: Path, release: str = "0.14.0") -> dict[str, s
     records = []
     for feature in FEATURES:
         record: dict[str, object] = {
-            "feature_id": feature, "action": "preserve" if feature != "assistant" else "runtime",
+            "feature_id": feature, "action": "preserve" if feature != "assistant" else action,
             "activation": "reboot", "base_payload_sha256": "a" * 64,
             "base_manifest_sha256": "b" * 64, "daemon_path": daemon_paths[feature],
             "daemon_sha256": "c" * 64, "release": release,
@@ -161,8 +163,8 @@ def add_v2_contract(artifact_root: Path, release: str = "0.14.0") -> dict[str, s
         "schema": "libreecho-product-feature-assets-v1", "transaction_type": "system",
         "activation": "reboot", "release": release, "source_commit": "4" * 40,
         "assets": [
-            {"feature_id": "assistant", "action": "runtime", "kind": "manifest", "name": manifest_name, "size": manifest.stat().st_size, "sha256": digest(manifest)},
-            {"feature_id": "assistant", "action": "runtime", "kind": "payload", "name": payload_name, "size": payload.stat().st_size, "sha256": digest(payload)},
+            {"feature_id": "assistant", "action": action, "kind": "manifest", "name": manifest_name, "size": manifest.stat().st_size, "sha256": digest(manifest)},
+            {"feature_id": "assistant", "action": action, "kind": "payload", "name": payload_name, "size": payload.stat().st_size, "sha256": digest(payload)},
         ],
     }) + "\n")
     candidate = run / "CURRENT.candidate"
@@ -173,6 +175,8 @@ def add_v2_contract(artifact_root: Path, release: str = "0.14.0") -> dict[str, s
         f"feature_asset_inventory={run / 'feature-assets.json'}\n"
         f"feature_asset_dir={asset_dir}\n"
     ))
+    from build.tests.test_release_completeness import complete_v2_fixture
+    complete_v2_fixture(run)
     ota = run / "libreecho-run.ota.tar"
     ota.unlink()
     built = subprocess.run([
