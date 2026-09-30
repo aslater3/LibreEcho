@@ -8,16 +8,20 @@ import argparse
 import hashlib
 import json
 import re
+import tempfile
 import urllib.request
 from pathlib import Path
 
 API = 'https://api.github.com/repos/aslater3/LibreEcho'
 DOWNLOAD = 'https://github.com/aslater3/LibreEcho/releases/download/'
 FEATURES = ('airplay2', 'tts', 'wakeword', 'stt', 'assistant')
-TAG = re.compile(r'radar-puffin-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z')
+STABLE_TAG = re.compile(r'radar-puffin-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z')
+DEV_TAG = re.compile(r'radar-puffin-(?:build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}\Z')
+DEV_CHANNEL = 'radar-puffin-dev-channel'
+DEV_POINTER = 'release-pointer.txt'
 
 def version(tag):
-    match = TAG.fullmatch(tag)
+    match = STABLE_TAG.fullmatch(tag)
     if not match:
         raise ValueError('invalid stable release tag')
     return tuple(map(int, match.groups()))
@@ -40,19 +44,73 @@ def sha(path):
 
 def previous_release(releases, target):
     eligible = [r['tag_name'] for r in releases if not r.get('draft') and not r.get('prerelease')
-                and TAG.fullmatch(r.get('tag_name', '')) and version(r['tag_name']) < version(target)]
+                and STABLE_TAG.fullmatch(r.get('tag_name', '')) and version(r['tag_name']) < version(target)]
     if not eligible:
         raise ValueError('no preceding stable release')
     return max(eligible, key=version)
 
+def _valid_dev_pointer(releases, pointer_text):
+    if not pointer_text:
+        return None
+    lines = pointer_text.splitlines()
+    if len(lines) != 2 or pointer_text != '\n'.join(lines) + '\n':
+        return None
+    tag, digest = lines
+    if not DEV_TAG.fullmatch(tag) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+        return None
+    matches = [r for r in releases if r.get('tag_name') == tag and not r.get('draft') and r.get('prerelease')]
+    if len(matches) != 1:
+        return None
+    assets = [a for a in matches[0].get('assets', []) if a.get('name') == 'libreecho-' + tag + '.ota.tar']
+    if len(assets) != 1 or assets[0].get('digest') != 'sha256:' + digest:
+        return None
+    return tag
+
+def baseline_release(releases, target, channel, pointer_text=None):
+    if channel == 'dev':
+        tag = _valid_dev_pointer(releases, pointer_text)
+        if tag is not None:
+            return tag
+    return previous_release(releases, target)
+
+def fetch_dev_pointer(releases):
+    channels = [r for r in releases if r.get('tag_name') == DEV_CHANNEL
+                and not r.get('draft') and r.get('prerelease')]
+    if len(channels) != 1:
+        return None
+    assets = [a for a in channels[0].get('assets', []) if a.get('name') == DEV_POINTER]
+    if len(assets) != 1:
+        return None
+    asset = assets[0]
+    url = asset.get('browser_download_url')
+    size = asset.get('size')
+    if url != DOWNLOAD + DEV_CHANNEL + '/' + DEV_POINTER or type(size) is not int or not 0 < size <= 256:
+        return None
+    with tempfile.TemporaryDirectory(prefix='libreecho-dev-pointer-') as directory:
+        path = Path(directory) / DEV_POINTER
+        try:
+            download(url, path, 256)
+            if path.stat().st_size != size:
+                return None
+            return path.read_text()
+        except (OSError, UnicodeError, ValueError):
+            return None
+
 def resolve(tag, root):
-    version(tag)
+    if STABLE_TAG.fullmatch(tag):
+        channel = 'stable'
+        prerelease = False
+    elif DEV_TAG.fullmatch(tag):
+        channel = 'dev'
+        prerelease = True
+    else:
+        raise ValueError('invalid release tag')
     root.mkdir(parents=True, exist_ok=False)
     metadata = root / 'release.json'
     download(API + '/releases/tags/' + tag, metadata, 4 * 1024 * 1024)
     release = json.loads(metadata.read_text())
-    if release['tag_name'] != tag or release['draft'] or release['prerelease']:
-        raise ValueError('baseline is not the requested published stable release')
+    if release['tag_name'] != tag or release['draft'] or release['prerelease'] != prerelease:
+        raise ValueError('baseline is not the requested published release')
     assets = {}
     for asset in release['assets']:
         if asset['name'] in assets:
@@ -86,7 +144,18 @@ def resolve(tag, root):
     if checksums.get(build_name) != sha(build_path):
         raise ValueError('build metadata checksum mismatch')
     build = json.loads(build_path.read_text())
-    if (build['release'], build['channel'], build['board']) != (tag, 'stable', 'radar_puffin'):
+    build_release = build.get('release', build.get('ota_release'))
+    if not isinstance(build_release, str):
+        raise ValueError('baseline build release identity missing or invalid')
+    if STABLE_TAG.fullmatch(build_release):
+        expected_build_release = tag
+    elif STABLE_TAG.fullmatch('radar-puffin-v' + build_release):
+        expected_build_release = build_release
+    else:
+        raise ValueError('baseline build release identity missing or invalid')
+    if channel == 'stable' and expected_build_release != tag:
+        raise ValueError('baseline build identity mismatch')
+    if (build['channel'], build['board']) != (channel, 'radar_puffin'):
         raise ValueError('baseline build identity mismatch')
     inventory = {r['name']: r for r in build['artifacts']}
     if len(inventory) != len(build['artifacts']):
@@ -114,6 +183,7 @@ def resolve(tag, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--release', required=True, help='Candidate numeric version')
+    parser.add_argument('--channel', choices=('dev', 'stable'), default='stable')
     parser.add_argument('--output-dir', required=True, type=Path)
     parser.add_argument('--github-output', type=Path)
     args = parser.parse_args()
@@ -132,7 +202,8 @@ def main():
             break
     else:
         raise ValueError('release listing exceeds pagination bound')
-    tag = previous_release(releases, target)
+    pointer = fetch_dev_pointer(releases) if args.channel == 'dev' else None
+    tag = baseline_release(releases, target, args.channel, pointer)
     catalog = resolve(tag, args.output_dir)
     values = f'catalog={catalog.resolve()}\nsha256={sha(catalog)}\nbase_release={tag}\n'
     print(values, end='')
