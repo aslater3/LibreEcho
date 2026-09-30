@@ -85,8 +85,18 @@ def references(plan, target=DEFAULT):
 def validate_completeness(plan, assets, provenance, bundle=None, *, target=DEFAULT):
     load_target(target)
     expected = references(plan, target)
-    if not isinstance(provenance, dict) or set(provenance) != {'schema', 'target', 'references'} or provenance['schema'] != SCHEMA or provenance['target'] != target:
+    keys = {'schema', 'target', 'references'}
+    if isinstance(provenance, dict) and 'bootstrap' in provenance:
+        # First release of a never-released, non-default target: every base is
+        # this build's own feature and every action is preserve.
+        keys = keys | {'bootstrap'}
+        if provenance['bootstrap'] is not True or target == DEFAULT:
+            fail('invalid bootstrap provenance')
+        if any(r['action'] != 'preserve' for r in plan['features']):
+            fail('bootstrap release must preserve every feature')
+    if not isinstance(provenance, dict) or set(provenance) != keys or provenance['schema'] != SCHEMA or provenance['target'] != target:
         fail('release completeness provenance schema mismatch')
+    bootstrap = provenance.get('bootstrap') is True
     records = provenance['references']
     if not isinstance(records, list):
         fail('release completeness references missing')
@@ -100,7 +110,8 @@ def validate_completeness(plan, assets, provenance, bundle=None, *, target=DEFAU
         name = safe_name(item['name'])
         safe_name(item['source_asset'])
         tag = item['source_release']
-        if not isinstance(tag, str) or (TAG.fullmatch(tag) is None and not (item['role'] == 'target' and tag == 'current-build')):
+        if not isinstance(tag, str) or (TAG.fullmatch(tag) is None and not (
+                (item['role'] == 'target' or bootstrap) and tag == 'current-build')):
             fail('missing or invalid source release provenance')
         wanted, target_name, target_size = expected[key]
         if (item['sha256'] != wanted or type(item['size']) is not int or item['size'] < 1
@@ -249,10 +260,46 @@ def resolve_digest(wanted, releases, root, fetch):
     fail(f'referenced base not found in published releases: {wanted}')
 
 
+def _bootstrap_run(run, target):
+    path = run / 'CURRENT.candidate'
+    if not path.exists():
+        # Candidate-less staging (unit fixtures) can only be an ordinary,
+        # published-base run; bootstrap always requires the explicit marker.
+        return None
+    candidate = dict(line.split('=', 1) for line in path.read_text().splitlines() if '=' in line)
+    flag = candidate.get('ota_base_bootstrap', '0')
+    if flag not in ('0', '1'):
+        fail('invalid ota_base_bootstrap marker')
+    if flag == '1' and target == DEFAULT:
+        fail(f'{DEFAULT} can never be a bootstrap release')
+    return candidate if flag == '1' else None
+
+
+def _require_own_features(run, plan, candidate):
+    """A bootstrap base must be byte-for-byte this candidate's own features."""
+    for record in plan['features']:
+        fid = record['feature_id']
+        key = 'airplay' if fid == 'airplay2' else fid
+        own = (candidate.get(f'{key}_payload_sha256'), candidate.get(f'{key}_feature_manifest_sha256'))
+        if record['action'] != 'preserve' or (record['base_payload_sha256'], record['base_manifest_sha256']) != own:
+            fail(f'bootstrap base is not this build\'s own feature: {fid}')
+        for kind, suffix in (('payload', '.squashfs'), ('manifest', '.manifest.json')):
+            if digest(run / 'features' / (fid + suffix))[0] != record[f'base_{kind}_sha256']:
+                fail(f'bootstrap feature bytes changed: {fid}')
+
+
 def stage(run, catalog_path, *, target=DEFAULT):
     load_target(target)
     plan = load_json(run / 'feature-plan.json', 'feature plan')
     expected = references(plan, target)
+    bootstrap = _bootstrap_run(run, target)
+    if bootstrap is not None:
+        _require_own_features(run, plan, bootstrap)
+        # The workflow's catalog is empty for a bootstrap target; use the
+        # exact catalog build.sh signed into this run's handoff.
+        catalog_path = run / 'ota-base-catalog.json'
+        if digest(catalog_path)[0] != bootstrap.get('ota_base_catalog_sha256'):
+            fail('bootstrap base catalog differs from the signed handoff')
     catalog = load_json(catalog_path, 'base catalog')
     dest = run / 'release-bases'
     dest.mkdir(exist_ok=False)
@@ -275,6 +322,8 @@ def stage(run, catalog_path, *, target=DEFAULT):
                     source = Path(entry['path'])
                     provenance = catalog.get('sources', {}).get(fid, {}).get(kind, {})
                     tag, original = provenance.get('release'), provenance.get('asset')
+                    if bootstrap is not None:
+                        tag, original = 'current-build', Path(entry['path']).name
                     if entry['sha256'] != sha or digest(source) != (sha, entry['size']):
                         fail('base catalog bytes disagree with plan')
                 suffix = 'payload.squashfs' if kind == 'payload' else 'manifest.json'
@@ -287,6 +336,8 @@ def stage(run, catalog_path, *, target=DEFAULT):
             records.append(dict(feature_id=fid, role=role, kind=kind, name=name,
                                 sha256=sha, size=actual_size, source_release=tag, source_asset=original))
     data = {'schema': SCHEMA, 'target': target, 'references': records}
+    if bootstrap is not None:
+        data['bootstrap'] = True
     (run / provenance_name(target)).write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
     with tempfile.TemporaryDirectory(prefix='libreecho-base-check-') as directory:
         flat = Path(directory)
@@ -312,6 +363,11 @@ def ship(run, output, prefix, plan, *, target=DEFAULT):
                 fail('release base identity changed before assembly')
             shutil.copyfile(source, output / name)
             paths.append(output / name)
+            if item['source_release'] == 'current-build':
+                if data.get('bootstrap') is not True:
+                    fail('only a bootstrap base may come from the current build')
+                if prefix is not None:
+                    item['source_release'] = product_tag(prefix, target)
         elif prefix is not None:
             item['source_release'] = product_tag(prefix, target)
     validate_completeness(plan, output, data, target=target)
@@ -387,6 +443,10 @@ def check_run(run, builder, *, target=DEFAULT):
         fail('fresh-install completeness requires an OTA v2 feature plan; v1 has no recovery feature contract')
     plan, inventory, asset_dir, _ = load_feature_contract(run, candidate)
     data = load_json(run / provenance_name(target), 'release completeness provenance')
+    if (_bootstrap_run(run, target) is not None) != (data.get('bootstrap') is True):
+        fail('bootstrap provenance disagrees with the candidate')
+    if data.get('bootstrap') is True:
+        _require_own_features(run, plan, candidate)
     with tempfile.TemporaryDirectory(prefix='libreecho-recovery-gate-') as directory:
         flat = Path(directory) / 'assets'
         flat.mkdir()

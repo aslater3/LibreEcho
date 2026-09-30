@@ -2299,17 +2299,31 @@ run_id="$SHARED_RUN_ID"
 [[ "$TARGET" == "${selected_targets[0]}" ]] || run_id="$SHARED_RUN_ID-$TARGET"
 RUN="$RUNS/$run_id"
 COMPONENTS_MANIFEST="$RUN/components.json"
+OTA_BASE_BOOTSTRAP=0
 if [[ "$OTA_FORMAT" == v2 && -n "${LIBREECHO_OTA_BASE_CATALOGS:-}" ]]; then
   base_values="$(python3 - "$LIBREECHO_OTA_BASE_CATALOGS" "$TARGET" <<'PY'
 import json, sys
 record = json.load(open(sys.argv[1]))[sys.argv[2]]
-print(record["catalog"])
-print(record["sha256"])
+if record == {"bootstrap": "1"}:
+    # fetch-ota-bases.py admitted this explicitly named, never-released,
+    # non-default target. Its base becomes its own candidate catalog below.
+    print("bootstrap")
+    print("")
+else:
+    print(record["catalog"])
+    print(record["sha256"])
 PY
 )"
   mapfile -t base_record <<< "$base_values"
-  OTA_BASE_CATALOG="${base_record[0]}"
-  OTA_BASE_CATALOG_SHA256="${base_record[1]}"
+  if [[ "${base_record[0]}" == bootstrap ]]; then
+    [[ "$TARGET" != radar_puffin ]] || { echo "ERROR: radar_puffin can never be bootstrapped" >&2; exit 1; }
+    OTA_BASE_BOOTSTRAP=1
+    OTA_BASE_CATALOG=
+    OTA_BASE_CATALOG_SHA256=
+  else
+    OTA_BASE_CATALOG="${base_record[0]}"
+    OTA_BASE_CATALOG_SHA256="${base_record[1]}"
+  fi
 fi
 # Baseline payload bytes are shared at parity; plans/assets/control remain
 # independently target-bound. A device migration input cannot target both.
@@ -2533,6 +2547,16 @@ catalog = {"features": features}
 if target != "radar_puffin": catalog["board"] = target
 output_path.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
+  if [[ "$OTA_BASE_BOOTSTRAP" == 1 ]]; then
+    # First release of a new target: its base is exactly this build's own
+    # verified feature catalog, so every feature plans as "preserve" and no
+    # compatibility field is invented. release_completeness.py re-binds the
+    # bases to the candidate's own payload hashes before publication.
+    OTA_BASE_CATALOG="$RUN/ota-bootstrap-base-catalog.json"
+    cp -- "$feature_candidate_catalog" "$OTA_BASE_CATALOG"
+    OTA_BASE_CATALOG_SHA256="$(sha256sum "$OTA_BASE_CATALOG" | awk '{print $1}')"
+    echo "ota_base_bootstrap=1 target=$TARGET catalog_sha256=$OTA_BASE_CATALOG_SHA256"
+  fi
   planner_args=(
     --target "$TARGET"
     --update-channel "$UPDATE_CHANNEL"
@@ -2723,6 +2747,7 @@ ota_signing_mode=$OTA_SIGNING_MODE
 ota_format=$OTA_FORMAT
 ota_release=$OTA_RELEASE
 ota_base_catalog_sha256=$OTA_BASE_CATALOG_SHA256
+ota_base_bootstrap=$OTA_BASE_BOOTSTRAP
 ota_signing_handoff=$RUN/ota-signing-handoff.json
 feature_candidate_catalog=$feature_candidate_catalog
 feature_plan=$feature_plan
@@ -2857,6 +2882,7 @@ ota_signing_mode=$OTA_SIGNING_MODE
 ota_format=$OTA_FORMAT
 ota_release=$OTA_RELEASE
 ota_base_catalog_sha256=$OTA_BASE_CATALOG_SHA256
+ota_base_bootstrap=$OTA_BASE_BOOTSTRAP
 ota_signing_handoff=$RUN/ota-signing-handoff.json
 feature_candidate_catalog=$feature_candidate_catalog
 feature_plan=$feature_plan

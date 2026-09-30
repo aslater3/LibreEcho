@@ -297,6 +297,7 @@ jobs:
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
             build.tests.test_release_completeness \
+            build.tests.test_bootstrap_release \
             build.tests.test_marker_contract \
             build.tests.test_device_baseline \
             build.tests.test_multi_target \
@@ -1187,6 +1188,12 @@ jobs:
           OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
           TARGETS: ${{ inputs.targets || 'radar_puffin' }}
+          # Operator-set repository variable naming never-released, non-Radar
+          # targets whose first release is fresh-install-only (all features
+          # preserved against this build's own bytes). fetch-ota-bases.py
+          # refuses it for Radar, for unselected targets, when a baseline
+          # exists, and for any lookup failure other than "no prior release".
+          BOOTSTRAP_TARGETS: ${{ vars.LIBREECHO_BOOTSTRAP_TARGETS || '' }}
           UPDATE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
           OTA_FORMAT: ${{ inputs.ota_format || 'v1' }}
         run: |
@@ -1195,7 +1202,13 @@ jobs:
             test "$TARGETS" = radar_puffin || { echo "ERROR: device migration baseline is radar-only in this hosted lane" >&2; exit 1; }
             python3 build/ci/device_baseline.py
           else
+            bootstrap=()
+            # Only targets actually selected in this run are passed through.
+            for t in ${BOOTSTRAP_TARGETS//,/ }; do
+              [[ ",$TARGETS," == *",$t,"* ]] && bootstrap+=("$t")
+            done
             python3 build/ci/fetch-ota-bases.py --targets "$TARGETS" --release "$OTA_RELEASE" \
+              --bootstrap-targets "$(IFS=,; echo "${bootstrap[*]}")" \
               --channel "$UPDATE_CHANNEL" \
               --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
           fi
@@ -1381,7 +1394,9 @@ jobs:
             target="$(sed -n 's/^board=//p' "$run/CURRENT.candidate" | head -n1)"
             catalog="$BASE_CATALOG"
             if [[ -n "$BASE_CATALOGS" && -f "$BASE_CATALOGS" && -n "$target" ]]; then
-              catalog="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["catalog"])' "$BASE_CATALOGS" "$target")"
+              # A bootstrap record has no published catalog; stage then uses
+              # the run's own signed-handoff catalog and verifies it.
+              catalog="$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))[sys.argv[2]]; print(r.get("catalog") or sys.argv[3] + "/ota-base-catalog.json")' "$BASE_CATALOGS" "$target" "$run")"
             fi
             python3 build/ci/release_completeness.py stage \
               --run "$run" --base-catalog "$catalog"
