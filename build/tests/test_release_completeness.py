@@ -324,6 +324,7 @@ class RecoverySurfaceTests(unittest.TestCase):
 
     def test_real_signed_build_and_published_recovery_bundle(self):
         import os
+        import subprocess
         import importlib.util
         import tarfile
         from build.tests.test_prepare_dev_release import fixture as dev_fixture, add_v2_contract, make_signed_ota, digest
@@ -337,6 +338,13 @@ class RecoverySurfaceTests(unittest.TestCase):
             make_signed_ota(run, ota, '0.14.0', 'v2', run / 'feature-plan.json')
             with patch.dict(os.environ, {'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}):
                 gate.check_run(run, builder)
+                # Exercise the exact CLI form the hosted workflow runs (no
+                # --target): it must gate only the run's own target.
+                cli = subprocess.run([sys.executable, str(CI / 'release_completeness.py'), 'check',
+                                      '--run', str(run), '--builder', str(builder)],
+                                     capture_output=True, text=True, timeout=300)
+                self.assertEqual(cli.returncode, 0, cli.stderr)
+                self.assertEqual(cli.stdout.strip().splitlines(), ['release_completeness=PASS target=radar_puffin'])
                 spec = importlib.util.spec_from_file_location('prepare_dev', CI / 'prepare-dev-release.py')
                 prepare = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(prepare)
