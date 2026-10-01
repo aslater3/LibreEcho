@@ -347,9 +347,29 @@ jobs:
             !${{ runner.temp }}/public-deps/neural
             !${{ runner.temp }}/public-deps/airplay-sysroot
           key: libreecho-public-deps-v1-${{ runner.os }}-${{ hashFiles('build/inputs/public-inputs.json') }}
+      - name: Check out pinned Platform patch inventory
+        if: steps.restore-deps.outputs.cache-hit != 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          path: platform-source
+          fetch-depth: 1
+          persist-credentials: false
       - name: Fetch public input inventory
         if: steps.restore-deps.outputs.cache-hit != 'true'
-        run: python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json --allow-generated --output "$RUNNER_TEMP/public-deps"
+        run: |
+          set -euo pipefail
+          # The inventory declares a Platform-owned patch transform, so the
+          # whole-inventory fetch authenticates it from the Platform checkout
+          # pinned to the resolved platform_sha (never a mutable ref).
+          platform_sendspin="$GITHUB_WORKSPACE/platform-source/tools/mt8163-arm32/sendspin"
+          test -f "$platform_sendspin/SOURCE.lock"
+          test -d "$platform_sendspin/patches"
+          python3 build/ci/fetch-public-deps.py build/inputs/public-inputs.json \
+            --allow-generated --output "$RUNNER_TEMP/public-deps" \
+            --source-lock "$platform_sendspin/SOURCE.lock" \
+            --patch-dir "$platform_sendspin/patches"
       - name: Save fetched public inputs cache
         if: success() && steps.restore-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809

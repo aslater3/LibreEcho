@@ -2,6 +2,28 @@
   "schema": "libreecho-public-inputs-v1",
   "status": "partially-cleared",
   "description": "Public dependency inventory for the hosted LibreEcho image-and-features build. Blocked entries are deliberate fail-closed gates, not local fallbacks.",
+  "patch_inventory": {
+    "schema": "libreecho-sendspin-patch-inventory/1",
+    "owner": "LibreEcho-Platform",
+    "patch_dir": "tools/mt8163-arm32/sendspin/patches",
+    "note": "Mirror of the Platform SOURCE.lock patch_inventory (tools/mt8163-arm32/sendspin/SOURCE.lock). The patch bytes are owned and stored by LibreEcho-Platform; the Product staging lane applies them only from an explicit Platform-owned patch directory. The lock, this mirror and docs/architecture/sendspin.md must never diverge, in the same declared order, anchor and digest.",
+    "applied": [
+      {
+        "file": "0001-stream-end-reason.patch",
+        "sha256": "d9273acc1e014ddc1550b5791a41d8ad360b9639b9f8059c3c6cb4f38ebe7090",
+        "target": "identity::sdk",
+        "pristine_archive_sha256": "2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45",
+        "note": "Adds SendspinStreamEndReason (NATURAL/ROLE_REMOVED/DISCONNECTED) to PlayerRoleListener::on_stream_end() through a source-compatible reason overload, and an on_stream_clear() seek notification. Applied to the SDK staged tree after its archive bytes are verified; the pinned archive and its sha256 are unchanged."
+      },
+      {
+        "file": "0002-stream-clear-boundary.patch",
+        "sha256": "b01f3088e52e779070de4f1ef5191aad1c1e9501e320fb25746b1e244c59007b",
+        "target": "identity::sdk",
+        "pristine_archive_sha256": "2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45",
+        "note": "Applied after 0001 (list order), so it diffs the 0001-patched tree. Adds PlayerRoleListener::on_stream_boundary(clear_generation): a synchronous seek boundary fired on the sync task thread inside apply_stream_clear() and its return value is removed from the accepted-minus-played ledger without a notify_audio_played() call. Additive default returns 0 and preserves prior behavior. Pinned archive and its sha256 are unchanged."
+      }
+    ]
+  },
   "inputs": [
     {"name": "curl", "url": "https://curl.se/download/curl-8.21.0.tar.xz", "sha256": "aa1b66a70eace83dc624508745646c08ae561de512ab403adffb93ac87fc72e6", "kind": "source-archive", "license": "curl", "redistribution": "cleared"},
     {"name": "ffmpeg", "url": "https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz", "sha256": "8684f4b00f94b85461884c3719382f1261f0d9eb3d59640a1f4ac0873616f968", "kind": "source-archive", "license": "LGPL-2.1-or-later", "redistribution": "cleared"},
@@ -59,6 +81,13 @@
     {"name": "wakeword-alexa", "url": "https://media.githubusercontent.com/media/dscripka/openWakeWord/v0.5.1/openwakeword/resources/models/alexa_v0.1.onnx", "sha256": "6ff566a01d12670e8d9e3c59da32651db1575d17272a601b7f8a39283dfbae3e", "kind": "model", "license": "CC-BY-NC-SA-4.0", "redistribution": "cleared"},
     {"name": "wakeword-embedding", "url": "https://media.githubusercontent.com/media/dscripka/openWakeWord/v0.5.1/openwakeword/resources/models/embedding_model.onnx", "sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f", "kind": "model", "license": "Apache-2.0", "redistribution": "cleared"},
     {"name": "wakeword-melspectrogram", "url": "https://media.githubusercontent.com/media/dscripka/openWakeWord/v0.5.1/openwakeword/resources/models/melspectrogram.onnx", "sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", "kind": "model", "license": "Apache-2.0", "redistribution": "cleared"},
+    {"name": "sendspin-protocol-spec", "url": "https://github.com/Sendspin/spec.git", "sha256": "", "commit": "671a34d408581fc25ea56b3528a4a3f13e3be901", "archive_url": "https://github.com/Sendspin/spec/archive/671a34d408581fc25ea56b3528a4a3f13e3be901.tar.gz", "archive_sha256": "f0890562729069498cc5da57b63d1eea5f24cd661dc6dfc0c168614a216ffd3e", "kind": "source-git", "license": "Community-Spec-1.0", "redistribution": "source-git-pinned"},
+    {"name": "sendspin-sdk", "url": "https://github.com/Sendspin/sendspin-cpp.git", "sha256": "", "commit": "8cdd4b38d029f3ef754756d494e0b53c42b81d75", "archive_url": "https://github.com/Sendspin/sendspin-cpp/archive/8cdd4b38d029f3ef754756d494e0b53c42b81d75.tar.gz", "archive_sha256": "2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45", "kind": "source-git", "license": "Apache-2.0", "redistribution": "source-git-pinned"},
+    {"name": "sendspin-server-oracle", "url": "https://github.com/Sendspin/aiosendspin.git", "sha256": "", "commit": "83209af414e1950dbbd0ebf60a9c0567b2c5f0c8", "archive_url": "https://github.com/Sendspin/aiosendspin/archive/83209af414e1950dbbd0ebf60a9c0567b2c5f0c8.tar.gz", "archive_sha256": "805dc716dc6bb80115040c476610342f27b68b44462bbcc0dd2713c2e98fba15", "kind": "source-git", "license": "Apache-2.0", "redistribution": "source-git-pinned"},
+    {"name": "sendspin-arduinojson", "url": "https://github.com/bblanchon/ArduinoJson.git", "sha256": "", "commit": "32520135092970120a5ac165cf45f48e658c421d", "archive_url": "https://github.com/bblanchon/ArduinoJson/archive/32520135092970120a5ac165cf45f48e658c421d.tar.gz", "archive_sha256": "9e48d9b1c690eed365e95a690c76f917af104eb74ffe3916568351dc78d45b2e", "kind": "source-git", "license": "MIT", "redistribution": "source-git-pinned"},
+    {"name": "sendspin-ixwebsocket", "url": "https://github.com/machinezone/IXWebSocket.git", "sha256": "", "commit": "c5a02f1066fb0fde48f80f51178429a27f689a39", "archive_url": "https://github.com/machinezone/IXWebSocket/archive/c5a02f1066fb0fde48f80f51178429a27f689a39.tar.gz", "archive_sha256": "ef272693e67daef33275daa8d3685f48e8fe4dbe098338750f9dad3013016d96", "kind": "source-git", "license": "BSD-3-Clause", "redistribution": "source-git-pinned"},
+    {"name": "sendspin-micro-flac", "url": "https://github.com/esphome-libs/micro-flac.git", "sha256": "", "commit": "9f8bfe5c9ee46cea175084b49ae8ac95545705b5", "archive_url": "https://github.com/esphome-libs/micro-flac/archive/9f8bfe5c9ee46cea175084b49ae8ac95545705b5.tar.gz", "archive_sha256": "bab7a0adc5a5a016d32bcb7cb17f38477f2397d4ef2d6f6de2dfecb990388bb7", "kind": "source-git", "license": "Apache-2.0", "redistribution": "source-git-pinned", "submodules": [{"path": "lib/micro-ogg-demuxer", "url": "https://github.com/esphome-libs/micro-ogg-demuxer.git", "commit": "865ad9d831e7dc76bb9c142607bae33fc75648e7", "archive_url": "https://github.com/esphome-libs/micro-ogg-demuxer/archive/865ad9d831e7dc76bb9c142607bae33fc75648e7.tar.gz", "archive_sha256": "bb81cc1b64d1d888e5d5c93d12d07629887d1a197ab699e196fc37698e9f47bd"}]},
+    {"name": "sendspin-noise-c", "url": "https://github.com/esphome-libs/noise-c.git", "sha256": "", "commit": "a1e08809a1b8f65cd91765ba7d68a6d00648ad61", "archive_url": "https://github.com/esphome-libs/noise-c/archive/a1e08809a1b8f65cd91765ba7d68a6d00648ad61.tar.gz", "archive_sha256": "0bfe220508f412c3944a9fe1ed38b741940a5bbcb001cd751f79fb0ee6ec63a8", "kind": "source-git", "license": "MIT", "redistribution": "source-git-pinned"},
     {"name": "owner-local-connectivity-firmware", "url": "https://github.com/aslater3/LibreEcho-Platform", "sha256": "", "kind": "runtime-import-contract", "license": "device-local vendor terms", "redistribution": "generated-from-public-importer;bytes-never-uploaded"}
   ]
 }

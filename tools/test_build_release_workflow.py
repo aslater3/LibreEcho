@@ -383,6 +383,26 @@ class Tests(unittest.TestCase):
   # would silently fall back to the Product adapter.
   self.assertIn('LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source', W)
 
+ def test_prepare_public_inputs_authenticates_patches_from_pinned_platform_checkout(self):
+  # The whole-inventory fetch stages a patched archive tree, so it must
+  # authenticate the Product patch mirror from the Platform checkout pinned to
+  # the resolved platform_sha (never a mutable ref) and pass those exact
+  # lock/patch paths to the fetch step.
+  start = W.index('  prepare-public-inputs:')
+  end = W.index('  build-image:', start)
+  job = W[start:end]
+  checkout = job[job.index('Check out pinned Platform patch inventory'):job.index('Fetch public input inventory')]
+  fetch = job[job.index('Fetch public input inventory'):job.index('Save fetched public inputs cache')]
+  self.assertIn('repository: aslater3/LibreEcho-Platform', checkout)
+  self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', checkout)
+  self.assertNotIn('ref: main', checkout)
+  self.assertIn('path: platform-source', checkout)
+  self.assertIn("if: steps.restore-deps.outputs.cache-hit != 'true'", checkout)
+  self.assertIn('test -f "$platform_sendspin/SOURCE.lock"', fetch)
+  self.assertIn('test -d "$platform_sendspin/patches"', fetch)
+  self.assertIn('--source-lock "$platform_sendspin/SOURCE.lock"', fetch)
+  self.assertIn('--patch-dir "$platform_sendspin/patches"', fetch)
+
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;
   # otherwise a checker or bootstrap change can bypass its own validation.
