@@ -60,6 +60,27 @@ These checks close provenance for these six inputs. The aggregate runtime
 closure is independently bound to the exact candidate source-offer and relink
 object records named in `release/components.json`.
 
+## Opus decoder source closure
+
+The Product fetcher stages these BSD-3-Clause source archives and verifies each
+SHA-256 before the Platform bundle builder independently checks its SOURCE.lock:
+
+- `libogg 1.3.5`: `https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz`, SHA-256
+  `0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664`.
+- `opus 1.4`: `https://downloads.xiph.org/releases/opus/opus-1.4.tar.gz`, SHA-256
+  `c9b32b4253be5ae63d1ff16eea06b94b5f0f2951b7a02aceef58e3a3ce49c51f`.
+- `opusfile 0.12`: `https://github.com/xiph/opusfile/archive/refs/tags/v0.12.tar.gz`, SHA-256
+  `a20a1dff1cdf0719d1e995112915e9966debf1470ee26bb31b2f510ccf00ef40`.
+
+`tools/mt8163-arm32/ui/build_ui_bundle.sh` invokes `build_opus.sh` in the same
+run with the pinned ARM32 UI compiler and archiver. It verifies static ARM32
+archives and actual decoder symbols before stripping the radio daemon, refuses
+HTTP/URL entry points, and checks the complete upstream license hashes. The
+UI bundle cache key includes all three source archives, the builder, and the
+source lock; no untrusted prebuilt Opus prefix is certified by Product CI.
+Complete COPYING notices are included in the corresponding Platform source
+under `tools/mt8163-arm32/ui/opus/licenses/`.
+
 ## Aggregate closure
 
 The exact glibc and GCC runtime source archives, build records, corresponding

@@ -307,6 +307,7 @@ jobs:
             build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
             build.tests.test_ui_mbedtls_pipeline \
+            build.tests.test_ui_opus_pipeline \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
             build.tests.test_generate_release_notes \
@@ -1262,6 +1263,7 @@ jobs:
           # the reviewed source archive and the pinned wheel-closure
           # interpreter are build inputs exactly like the other source-locked
           # components.
+          LIBREECHO_OPUS_ARCHIVES_DIR: ${{ runner.temp }}/public-deps
           LIBREECHO_MBEDTLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/mbedtls-3.6.4.tar.bz2
           LIBREECHO_MBEDTLS_BUILD_PYTHON: ${{ runner.temp }}/mbedtls-build-venv/bin/python
           LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
