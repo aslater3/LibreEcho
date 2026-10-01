@@ -1,0 +1,584 @@
+{
+  "archives": [
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "binutils-arm-linux-gnueabihf_2.42-4ubuntu2.10_amd64.deb",
+      "name": "binutils-arm-linux-gnueabihf",
+      "pool_path": "pool/main/b/binutils/binutils-arm-linux-gnueabihf_2.42-4ubuntu2.10_amd64.deb",
+      "sha256": "698eb4afbb292d5c3e58d2193f0bf5f53682c3ac42dfb8510e3450d992faaec9",
+      "size": 3552010,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-arm-linux-gnueabihf_2.42-4ubuntu2.10_amd64.deb",
+      "version": "2.42-4ubuntu2.10"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "binutils-common_2.42-4ubuntu2.10_amd64.deb",
+      "name": "binutils-common",
+      "pool_path": "pool/main/b/binutils/binutils-common_2.42-4ubuntu2.10_amd64.deb",
+      "sha256": "d136073f5e2153f3df11c1d08d66727b9466b28ff483f50085f14bbe3464b5ee",
+      "size": 240286,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/b/binutils/binutils-common_2.42-4ubuntu2.10_amd64.deb",
+      "version": "2.42-4ubuntu2.10"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "cpp-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "name": "cpp-13-arm-linux-gnueabihf",
+      "pool_path": "pool/main/g/gcc-13-cross/cpp-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "sha256": "397ac4b1644ad1a3b4c6ec30bbcf6af81e4282745f483e4b8fee407ccae7ddab",
+      "size": 10156004,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/cpp-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "cpp-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "name": "cpp-arm-linux-gnueabihf",
+      "pool_path": "pool/main/g/gcc-defaults/cpp-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "sha256": "64c3b896c8cad177c41e540cd8324ac60313371216b17eb78eba69caf19eedce",
+      "size": 5324,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-defaults/cpp-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "version": "4:13.2.0-7ubuntu1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "g++-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "name": "g++-13-arm-linux-gnueabihf",
+      "pool_path": "pool/main/g/gcc-13-cross/g++-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "sha256": "abac553390d300a580534cebe0ad5e50b715130b225235dfcf867724dc16c207",
+      "size": 11499422,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/g++-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "g++-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "name": "g++-arm-linux-gnueabihf",
+      "pool_path": "pool/main/g/gcc-defaults/g++-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "sha256": "057a97635e997e9cf67538a227775dac01d791bcd9d6b56ccd8ac78124d062be",
+      "size": 968,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-defaults/g++-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "version": "4:13.2.0-7ubuntu1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "gcc-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "name": "gcc-13-arm-linux-gnueabihf",
+      "pool_path": "pool/main/g/gcc-13-cross/gcc-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "sha256": "60dbb65b4fbd249eddc2e68482ea9a9f532e66baed878845161132c3cb3a69e9",
+      "size": 19555392,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/gcc-13-arm-linux-gnueabihf_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "gcc-13-arm-linux-gnueabihf-base_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "name": "gcc-13-arm-linux-gnueabihf-base",
+      "pool_path": "pool/main/g/gcc-13-cross/gcc-13-arm-linux-gnueabihf-base_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "sha256": "e632c2b7f2138799a73d8539f664267b7d6cc91567dae4ff71f0a69bce3f0c8f",
+      "size": 51818,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/gcc-13-arm-linux-gnueabihf-base_13.3.0-6ubuntu2~24.04.1cross1_amd64.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "gcc-13-cross-base_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "name": "gcc-13-cross-base",
+      "pool_path": "pool/main/g/gcc-13-cross/gcc-13-cross-base_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "02676468c2f71d57be2fbd6e6f74462ab419a49db15a1b1f031b2460a2954cd3",
+      "size": 46536,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/gcc-13-cross-base_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "ef6f0abbd57a05f0137c20073ae308e2a33a8b735bb765b68c207aac429492d6",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-security"
+      },
+      "filename": "gcc-14-cross-base_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "name": "gcc-14-cross-base",
+      "pool_path": "pool/main/g/gcc-14-cross/gcc-14-cross-base_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "ed29eff7b53f6c6b10c42bb9539487d1867f119e84f5f678c02411a34b5c09f3",
+      "size": 46132,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14-cross/gcc-14-cross-base_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "version": "14.2.0-4ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "gcc-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "name": "gcc-arm-linux-gnueabihf",
+      "pool_path": "pool/main/g/gcc-defaults/gcc-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "sha256": "d8628ea40a408311dd3ecabad1965e1775f47a1889fca888b07f10107381dabb",
+      "size": 1230,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-defaults/gcc-arm-linux-gnueabihf_13.2.0-7ubuntu1_amd64.deb",
+      "version": "4:13.2.0-7ubuntu1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "ef6f0abbd57a05f0137c20073ae308e2a33a8b735bb765b68c207aac429492d6",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-security"
+      },
+      "filename": "libasan8-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "name": "libasan8-armhf-cross",
+      "pool_path": "pool/main/g/gcc-14-cross/libasan8-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "e48604e1bc28072cfb3e041983b59469160e6fd0e67f79d79b300a825ab0b5a5",
+      "size": 2899712,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14-cross/libasan8-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "version": "14.2.0-4ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "ef6f0abbd57a05f0137c20073ae308e2a33a8b735bb765b68c207aac429492d6",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-security"
+      },
+      "filename": "libatomic1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "name": "libatomic1-armhf-cross",
+      "pool_path": "pool/main/g/gcc-14-cross/libatomic1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "b801dc5ce6115c76a118b839dc148f1a9e1d47529fe20323b9dbfe973d770d11",
+      "size": 7612,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14-cross/libatomic1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "version": "14.2.0-4ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "libc6-armhf-cross_2.39-0ubuntu8cross1_all.deb",
+      "name": "libc6-armhf-cross",
+      "pool_path": "pool/main/c/cross-toolchain-base/libc6-armhf-cross_2.39-0ubuntu8cross1_all.deb",
+      "sha256": "4c61c413e2cc45ce2c5703a1564d1886f45c98ddbbd33d9f8b05736dee045ce1",
+      "size": 1319680,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/c/cross-toolchain-base/libc6-armhf-cross_2.39-0ubuntu8cross1_all.deb",
+      "version": "2.39-0ubuntu8cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "libc6-dev-armhf-cross_2.39-0ubuntu8cross1_all.deb",
+      "name": "libc6-dev-armhf-cross",
+      "pool_path": "pool/main/c/cross-toolchain-base/libc6-dev-armhf-cross_2.39-0ubuntu8cross1_all.deb",
+      "sha256": "31bb0a43b89d9e6e9d4f2b81d53376ad01e397653e6a834e00ac4129e0e48c44",
+      "size": 1386934,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/c/cross-toolchain-base/libc6-dev-armhf-cross_2.39-0ubuntu8cross1_all.deb",
+      "version": "2.39-0ubuntu8cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libgcc-13-dev-armhf-cross_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "name": "libgcc-13-dev-armhf-cross",
+      "pool_path": "pool/main/g/gcc-13-cross/libgcc-13-dev-armhf-cross_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "930c595a54ba1f1096463a9f8ab4757b5d1f12f267a99521aa4505ca302e7988",
+      "size": 899314,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/libgcc-13-dev-armhf-cross_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "ef6f0abbd57a05f0137c20073ae308e2a33a8b735bb765b68c207aac429492d6",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-security"
+      },
+      "filename": "libgcc-s1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "name": "libgcc-s1-armhf-cross",
+      "pool_path": "pool/main/g/gcc-14-cross/libgcc-s1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "1fdbacca10af62652762869a21f07b545d5211257b5b78f245aceefd611e3ce7",
+      "size": 41594,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14-cross/libgcc-s1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "version": "14.2.0-4ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libgmp10_6.3.0+dfsg-2ubuntu6.1_amd64.deb",
+      "name": "libgmp10",
+      "pool_path": "pool/main/g/gmp/libgmp10_6.3.0+dfsg-2ubuntu6.1_amd64.deb",
+      "sha256": "285f8a505dfa8e1b33f357a9d8d3477ad35bf18c0b34771a6df4c25923f3ae0d",
+      "size": 253460,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gmp/libgmp10_6.3.0+dfsg-2ubuntu6.1_amd64.deb",
+      "version": "2:6.3.0+dfsg-2ubuntu6.1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "ef6f0abbd57a05f0137c20073ae308e2a33a8b735bb765b68c207aac429492d6",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-security"
+      },
+      "filename": "libgomp1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "name": "libgomp1-armhf-cross",
+      "pool_path": "pool/main/g/gcc-14-cross/libgomp1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "c38abffe07d06f39294c91ff24189f525c7096d7388b426cfb442f017d2169ce",
+      "size": 122740,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14-cross/libgomp1-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "version": "14.2.0-4ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libisl23_0.26-3build1.1_amd64.deb",
+      "name": "libisl23",
+      "pool_path": "pool/main/i/isl/libisl23_0.26-3build1.1_amd64.deb",
+      "sha256": "4e040926e50fb961fae9bf95660189d468336a4a17bc321872c434fc8f777e7f",
+      "size": 679812,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/i/isl/libisl23_0.26-3build1.1_amd64.deb",
+      "version": "0.26-3build1.1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "libjansson4_2.14-2build2_amd64.deb",
+      "name": "libjansson4",
+      "pool_path": "pool/main/j/jansson/libjansson4_2.14-2build2_amd64.deb",
+      "sha256": "0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+      "size": 32830,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/j/jansson/libjansson4_2.14-2build2_amd64.deb",
+      "version": "2.14-2build2"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libmpc3_1.3.1-1build1.1_amd64.deb",
+      "name": "libmpc3",
+      "pool_path": "pool/main/m/mpclib3/libmpc3_1.3.1-1build1.1_amd64.deb",
+      "sha256": "cebe6098bb3d66fdacac9dc6fe406a651216d9c00f27c3f9c159d15d96cdf864",
+      "size": 54636,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/m/mpclib3/libmpc3_1.3.1-1build1.1_amd64.deb",
+      "version": "1.3.1-1build1.1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libmpfr6_4.2.1-1build1.1_amd64.deb",
+      "name": "libmpfr6",
+      "pool_path": "pool/main/m/mpfr4/libmpfr6_4.2.1-1build1.1_amd64.deb",
+      "sha256": "aebc1c8b69a1f98bb43dfc268daecd181116dbf40b13ee4e822eb4bdd52b493a",
+      "size": 353020,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/m/mpfr4/libmpfr6_4.2.1-1build1.1_amd64.deb",
+      "version": "4.2.1-1build1.1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libsframe1_2.42-4ubuntu2.10_amd64.deb",
+      "name": "libsframe1",
+      "pool_path": "pool/main/b/binutils/libsframe1_2.42-4ubuntu2.10_amd64.deb",
+      "sha256": "72093fb456864db55f1352bfa5e952a94f7abaff64e71dff1fbf001db1984564",
+      "size": 15724,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/b/binutils/libsframe1_2.42-4ubuntu2.10_amd64.deb",
+      "version": "2.42-4ubuntu2.10"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libstdc++-13-dev-armhf-cross_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "name": "libstdc++-13-dev-armhf-cross",
+      "pool_path": "pool/main/g/gcc-13-cross/libstdc++-13-dev-armhf-cross_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "4d96ce9ffee19ca696e1ba7ba01629babe9055113ee4ef972256fd8eceaaa732",
+      "size": 2460230,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-13-cross/libstdc++-13-dev-armhf-cross_13.3.0-6ubuntu2~24.04.1cross1_all.deb",
+      "version": "13.3.0-6ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "ef6f0abbd57a05f0137c20073ae308e2a33a8b735bb765b68c207aac429492d6",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-security"
+      },
+      "filename": "libstdc++6-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "name": "libstdc++6-armhf-cross",
+      "pool_path": "pool/main/g/gcc-14-cross/libstdc++6-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "sha256": "e70ac5c5b20361838346e76e255fe297a654ec96803eec4289b25474b702d915",
+      "size": 664066,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14-cross/libstdc++6-armhf-cross_14.2.0-4ubuntu2~24.04.1cross1_all.deb",
+      "version": "14.2.0-4ubuntu2~24.04.1cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "universe/binary-amd64/Packages.xz",
+        "index_sha256": "ba9057fa1b91438cc8a1d26808d00c85389fe101d0c1496254df97236405599a",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "libtbb-dev_2021.11.0-2ubuntu2_amd64.deb",
+      "name": "libtbb-dev",
+      "pool_path": "pool/universe/o/onetbb/libtbb-dev_2021.11.0-2ubuntu2_amd64.deb",
+      "sha256": "c57e2ffc96ced3f918f7695fa75ff827e0e83d1a306d3de9cb930414013b55b8",
+      "size": 253278,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/o/onetbb/libtbb-dev_2021.11.0-2ubuntu2_amd64.deb",
+      "version": "2021.11.0-2ubuntu2"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble-updates"
+      },
+      "filename": "libzstd1_1.5.5+dfsg2-2build1.1_amd64.deb",
+      "name": "libzstd1",
+      "pool_path": "pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1.1_amd64.deb",
+      "sha256": "dfcf25061e07aad7efd3f4f880ba5ad4d4d09ebe7fc8cc77ab6b8a161d6d4727",
+      "size": 299472,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1.1_amd64.deb",
+      "version": "1.5.5+dfsg2-2build1.1"
+    },
+    {
+      "architecture": "all",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "live",
+        "suite": "noble"
+      },
+      "filename": "linux-libc-dev-armhf-cross_6.8.0-25.25cross1_all.deb",
+      "name": "linux-libc-dev-armhf-cross",
+      "pool_path": "pool/main/c/cross-toolchain-base/linux-libc-dev-armhf-cross_6.8.0-25.25cross1_all.deb",
+      "sha256": "1f83b9a486063b2daef0f21baf856b0cbb0b64eecf83b180434ab9190f6be8d8",
+      "size": 1359284,
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/c/cross-toolchain-base/linux-libc-dev-armhf-cross_6.8.0-25.25cross1_all.deb",
+      "version": "6.8.0-25.25cross1"
+    },
+    {
+      "architecture": "amd64",
+      "authentication": {
+        "index": "main/binary-amd64/Packages.xz",
+        "index_sha256": "0215dcdafeba39083005dd5982ca3ddea2ebfa3e0861ac7deb086170da2d0637",
+        "signing_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+        "source": "snapshot",
+        "suite": "snapshot:20241115T000000Z:noble-updates"
+      },
+      "filename": "zlib1g_1.3.dfsg-3.1ubuntu2.1_amd64.deb",
+      "name": "zlib1g",
+      "pool_path": "pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.1_amd64.deb",
+      "sha256": "7074b6a2f6367a10d280c00a1cb02e74277709180bab4f2491a2f355ab2d6c20",
+      "size": 62850,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20241115T000000Z/pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.1_amd64.deb",
+      "version": "1:1.3.dfsg-3.1ubuntu2.1"
+    }
+  ],
+  "host_requirements": {
+    "amd64_glibc": {
+      "role": "host runtime for the staged amd64 toolchain-support libraries and the compiler driver processes",
+      "status": "not pinned - informational floor only; host independence is NOT claimed"
+    },
+    "host_tools": [
+      "bash",
+      "cmake",
+      "make",
+      "python3",
+      "tar",
+      "dpkg-deb",
+      "readelf",
+      "file"
+    ],
+    "note": "The materialized prefix intentionally contains no amd64 libc.so.6, so the toolchain processes run against the build host's libc. This is a declared host dependency, not a claimed-pinned archive.",
+    "pkgs_are_host_side": "The pinned archives install the amd64 cross compiler/binutils and the arch-independent armhf glibc-2.39 development sysroot; the armhf runtime libraries are part of the sysroot, not the host.",
+    "target": "arm-linux-gnueabihf",
+    "zstd_backend": {
+      "alternatives": [
+        "python>=3.14 stdlib compression.zstd",
+        "the zstandard python module",
+        "the zstd command-line tool on PATH"
+      ],
+      "reason": "all 30 locked archives carry a data.tar.zst member",
+      "requirement": "at least one zstd decompressor"
+    }
+  },
+  "pockets": {
+    "noble": {
+      "good_signature": true,
+      "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "signature_made": "Thu 25 Apr 2024 04:11:21 PM BST",
+      "signed_date": "Thu, 25 Apr 2024 15:10:33 UTC"
+    },
+    "noble-security": {
+      "good_signature": true,
+      "inrelease_sha256": "15e060b23470663563fc5a1dafc7797a71e4446ab587656ba7937be89564cca8",
+      "signature_made": "Wed 30 Sep 2026 05:41:18 PM BST",
+      "signed_date": "Wed, 30 Sep 2026 16:40:42 UTC"
+    },
+    "noble-updates": {
+      "good_signature": true,
+      "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+      "signature_made": "Wed 30 Sep 2026 11:16:16 PM BST",
+      "signed_date": "Wed, 30 Sep 2026 22:15:24 UTC"
+    },
+    "snapshot:20241115T000000Z:noble-updates": {
+      "good_signature": true,
+      "inrelease_sha256": "ecc64ce03c23caf7d651632f03ecf420f1ae120465671b8e9b1cb4df3331a4c9",
+      "signature_made": "Thu 14 Nov 2024 11:12:26 PM GMT",
+      "signed_date": "Thu, 14 Nov 2024 23:12:04 UTC",
+      "url": "https://snapshot.ubuntu.com/ubuntu/20241115T000000Z"
+    }
+  },
+  "provenance": {
+    "compile_sysroot_pinned": false,
+    "note": "Compile-input provenance only. Authenticated against the installed Ubuntu 2018 archive keyring (fingerprint above). Does not set the Platform SOURCE.lock compile_sysroot.pinned flag and makes no C++20/runtime/hardware claim.",
+    "qemu_execution": "not performed"
+  },
+  "role": "host-side compile-input closure (cross toolchain + armhf glibc-2.39 dev sysroot)",
+  "schema": "libreecho-armhf-cross-toolchain-lock/1",
+  "target": "arm-linux-gnueabihf-glibc-dynamic",
+  "trust_anchor": {
+    "fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+    "key": "Ubuntu Archive Automatic Signing Key (2018)",
+    "keyring": "ubuntu-keyring-2018-archive.gpg",
+    "keyring_sha256": "5ebbeeb474034b1fa7e50abbe6f136e177fc826219e01f314b3623f7b3097e96",
+    "vendor": "Ubuntu"
+  }
+}
