@@ -275,7 +275,12 @@ class BootstrapReleaseTests(unittest.TestCase):
                 c = kv(runs[target] / 'CURRENT.candidate')
                 c['ota_base_catalog_sha256'] = sha(runs[target] / 'ota-base-catalog.json')
                 (runs[target] / 'CURRENT.candidate').write_text(''.join(f'{k}={v}\n' for k, v in c.items()))
-            (art / 'release-request.json').write_text(json.dumps({'targets': ['radar_puffin', 'biscuit']}))
+            # build-release.yml writes the product-wide request into the first
+            # run directory (runs[0]), not the artifact root.
+            (runs['radar_puffin'] / 'release-request.json').write_text(json.dumps({
+                'schema': 'libreecho-release-request-v1', 'targets': ['radar_puffin', 'biscuit'],
+                'channel': 'dev', 'version': '', 'release_tag': '', 'release_notes': '',
+                'amonet_repository': '', 'amonet_tag': '', 'amonet_commit': '', 'ssh_enabled': 'enabled'}))
             env = {**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': key, 'LIBREECHO_PLATFORM_SOURCE': str(PLATFORM)}
             dest = builder(runs['radar_puffin'])
             # build-release.yml gate loop. Radar's published bases are faked at
@@ -292,6 +297,7 @@ class BootstrapReleaseTests(unittest.TestCase):
             radar_prov = json.loads((runs['radar_puffin'] / 'libreecho-radar-puffin-release-completeness.json').read_text())
             self.assertNotIn('bootstrap', radar_prov)
             self.assertEqual({r['source_release'] for r in radar_prov['references']}, {PRIOR})
+            request_before = (runs['radar_puffin'] / 'release-request.json').read_bytes()
             # publish-release.yml dev lane.
             out = tmp / 'release-assets'
             r = subprocess.run([sys.executable, str(CI / 'prepare-dev-release.py'), '--artifact-root', str(art),
@@ -301,6 +307,9 @@ class BootstrapReleaseTests(unittest.TestCase):
             values = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
             self.assertEqual(values['targets'], 'radar_puffin,biscuit')
             self.assertTrue(values['release_tag'].startswith('radar-puffin-build-'))
+            # Children never write through hard links into the verified artifact.
+            self.assertEqual((runs['radar_puffin'] / 'release-request.json').read_bytes(), request_before)
+            self.assertFalse((runs['biscuit'] / 'release-request.json').exists())
             meta = subprocess.run([sys.executable, str(ROOT / 'tools/check-public-metadata.py'), str(out)],
                                   capture_output=True, text=True, env=env, timeout=120)
             self.assertEqual(meta.returncode, 0, meta.stdout + meta.stderr)

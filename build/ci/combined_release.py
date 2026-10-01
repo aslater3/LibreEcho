@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import shutil
 import subprocess
@@ -29,6 +30,15 @@ def discover_runs(root):
             raise ValueError("duplicate target candidate")
         result[target] = run
     return result
+
+
+def _link_or_copy(source, destination):
+    # Hard links keep multi-hundred-MiB runs cheap; children only read them.
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+    return destination
 
 
 def assert_parity(runs):
@@ -77,14 +87,18 @@ def prepare_if_combined(args, script):
         stage = Path(tmp)
         for target in ordered:
             run = runs[target]
-            if script.name == "prepare-stable-release.py":
-                child_run = stage / (target + "-run")
-                shutil.copytree(run, child_run)
-                # The isolated verifier sees one target; the original artifact
-                # and product-wide request remain unchanged and are checked above.
-                child_request = {**request, "targets": [target]}
-                (child_run / "release-request.json").write_text(json.dumps(child_request))
-                run = child_run
+            # Both lanes: the hosted build stores the product-wide request
+            # inside one run, so each per-target child gets an isolated copy
+            # carrying a single-target request. The original artifact and
+            # product-wide request remain unchanged and are checked above.
+            child_run = stage / (target + "-run")
+            shutil.copytree(run, child_run, copy_function=_link_or_copy)
+            child_request_path = child_run / "release-request.json"
+            # Never write through a hard link into the original artifact.
+            child_request_path.unlink(missing_ok=True)
+            child_request = {**request, "targets": [target]}
+            child_request_path.write_text(json.dumps(child_request))
+            run = child_run
             child_out = stage / (target + "-assets")
             command = [sys.executable, str(script), "--artifact-root", str(run),
                        "--output-dir", str(child_out), "--product-commit", args.product_commit,
