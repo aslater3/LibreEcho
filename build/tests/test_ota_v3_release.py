@@ -61,6 +61,36 @@ class V3ReleaseIntegrationTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             v3.sign(self.run_dir, self.secret, self.public, self.ota, '0'*64)
 
+    def test_platform_target_manifest_checker_accepts_unmodified_signed_manifest(self):
+        """Cross-repository contract: the device-side checker must accept Product output byte-for-byte."""
+        platform = os.environ.get('LIBREECHO_PLATFORM_SRC') or os.environ.get('LIBREECHO_PLATFORM_SOURCE')
+        checker = Path(platform or '/nonexistent') / 'tools/mt8163-arm32/initramfs/libreecho-target-manifest'
+        if not checker.is_file():
+            self.skipTest('Platform source with libreecho-target-manifest not supplied')
+        if shutil.which('busybox') is None:
+            self.skipTest('busybox not available')
+        self.sign()
+        work = self.root / 'xrepo'
+        work.mkdir()
+        with tarfile.open(self.ota) as archive:
+            (work / 'manifest').write_bytes(archive.extractfile('manifest').read())
+            (work / 'manifest.sig').write_bytes(archive.extractfile('manifest.sig').read())
+        verify = work / 'verify'
+        verify.write_text('#!' + sys.executable + '\nimport sys\nfrom pathlib import Path\nfrom nacl.signing import VerifyKey\n'
+                          'VerifyKey(bytes.fromhex(Path(sys.argv[1]).read_text().strip())).verify('
+                          'Path(sys.argv[2]).read_bytes(), bytes.fromhex(Path(sys.argv[3]).read_text().strip()))\n')
+        verify.chmod(0o755)
+        for board, expected in (('radar_puffin', 0), ('biscuit', 1)):
+            target = work / ('target-' + board)
+            target.write_text('target_id=' + board + '\n')
+            env = dict(os.environ, VERIFY=str(verify), PUBLIC_KEY=str(self.public), TARGET_FILE=str(target))
+            result = subprocess.run(['busybox', 'sh', str(checker), 'check', str(work / 'manifest'), str(work / 'manifest.sig')],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            with self.subTest(board=board):
+                self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
+                if expected:
+                    self.assertIn('manifest-board', result.stderr)
+
     def test_parser_rejects_forbidden_unknown_missing_reordered_and_noncanonical(self):
         self.assertTrue(callable(getattr(v3, 'parse_manifest', None)), 'self-contained v3 parser missing')
         raw = (self.run_dir / 'target.manifest').read_bytes()

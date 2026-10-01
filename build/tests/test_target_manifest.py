@@ -15,7 +15,7 @@ import release_completeness as gate
 
 TAG = 'radar-puffin-build-' + 'a'*7 + '-' + 'b'*16 + '-' + 'c'*16
 FIELDS = ('asset', 'size', 'sha256', 'manifest_asset', 'manifest_size', 'manifest_sha256', 'daemon_path', 'daemon_sha256')
-TOP = ('format', 'manifest_version', 'board', 'soc', 'architecture', 'image_profile', 'transaction_type', 'transaction_id', 'release', 'version', 'update_channel', 'service_profile', 'commit_policy', 'minimum_updater_schema', 'boot_filename', 'boot_size', 'boot_sha256', 'feature_ids')
+TOP = ('format', 'manifest_version', 'board', 'soc', 'architecture', 'image_profile', 'transaction_type', 'transaction_id', 'release', 'version', 'update_channel', 'service_profile', 'minimum_updater_schema', 'commit_policy', 'boot_filename', 'boot_size', 'boot_sha256', 'feature_ids')
 
 
 def fixture(root, target='radar_puffin'):
