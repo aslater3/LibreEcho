@@ -17,7 +17,7 @@
     "tts",
     "wakeword"
   ],
-  "hardware_accepted": false,
+  "hardware_accepted": true,
   "target_id": "radar_puffin",
   "release_slug": "radar-puffin",
   "display_name": "Amazon Echo (2nd Gen)",

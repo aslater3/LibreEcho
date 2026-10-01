@@ -14,7 +14,7 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, load_target
+from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, hardware_accepted, load_target
 from ota_v2_product import (  # noqa: E402
     load_feature_contract,
     validate_control_tar,
@@ -367,7 +367,7 @@ def main() -> int:
             "dropbearkey_sha256": candidate.get("dropbearkey_sha256", ""),
         },
         "ota_bundle": True,
-        "hardware_accepted": False,
+        "hardware_accepted": hardware_accepted(args.target),
         "feature_policy": "community-noncommercial",
         "sources": sources,
         "artifacts": records,

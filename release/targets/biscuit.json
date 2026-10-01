@@ -17,7 +17,7 @@
     "tts",
     "wakeword"
   ],
-  "hardware_accepted": false,
+  "hardware_accepted": true,
   "target_id": "biscuit",
   "release_slug": "biscuit",
   "display_name": "Amazon Echo Dot (2nd Gen)",

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, load_target
+from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, hardware_accepted, load_target
 from ota_v2_product import (  # noqa: E402
     load_feature_contract,
     validate_control_tar,
@@ -222,7 +222,7 @@ def prepare_complete_initial_install(
         "status": "PREPARED_NOT_FLASHED",
         "signed": True,
         "ota_bundle": True,
-        "hardware_accepted": False,
+        "hardware_accepted": hardware_accepted(target),
         "feature_policy": "community-noncommercial",
         "sources": sources,
         "artifacts": [records[name] for name, _ in files],
@@ -455,7 +455,7 @@ def main() -> int:
         "status": "PREPARED_NOT_FLASHED",
         "signed": signed,
         "ota_bundle": signed,
-        "hardware_accepted": False,
+        "hardware_accepted": hardware_accepted(target),
         "feature_policy": "community-noncommercial",
         "sources": {
             name: {
