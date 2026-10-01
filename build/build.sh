@@ -165,10 +165,8 @@ OTA_SIGNING_MODE="${LIBREECHO_OTA_SIGNING_MODE:-github}"
 # release catalog; no Product-side compatibility fields are invented here.
 OTA_FORMAT="${LIBREECHO_OTA_FORMAT:-v1}"
 OTA_RELEASE="${LIBREECHO_OTA_RELEASE:-}"
-OTA_BASE_CATALOG="${LIBREECHO_OTA_BASE_CATALOG:-}"
-OTA_BASE_CATALOG_SHA256="${LIBREECHO_OTA_BASE_CATALOG_SHA256:-}"
+OTA_TARGET_RELEASE_TAG="${LIBREECHO_TARGET_RELEASE_TAG:-}"
 OTA_EXPECTED_PUBLIC_KEY_SHA256="${LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256:-}"
-OTA_RUNTIME_DIR="${LIBREECHO_OTA_RUNTIME_DIR:-}"
 OTA_SODIUM_ROOT="$LIBSODIUM_OUTPUT"
 OTA_SODIUM_A="$OTA_SODIUM_ROOT/lib/libsodium.a"
 OTA_MUSL_NATIVE_ROOT="${LIBREECHO_OTA_MUSL_NATIVE_ROOT:?ERROR: set LIBREECHO_OTA_MUSL_NATIVE_ROOT explicitly}"
@@ -479,39 +477,14 @@ fi
 case "$OTA_SIGNING_MODE" in github|local) ;; *) echo "ERROR: invalid OTA signing mode: $OTA_SIGNING_MODE" >&2; exit 1 ;; esac
 case "$OTA_FORMAT" in
   v1) ;;
-  v2)
-    [[ "$OTA_RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-      echo "ERROR: OTA v2 requires LIBREECHO_OTA_RELEASE as X.Y.Z" >&2; exit 1;
-    }
-    [[ "$OTA_EXPECTED_PUBLIC_KEY_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
-      echo "ERROR: OTA v2 requires the protected LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 anchor" >&2; exit 1;
-    }
-    [[ -f "$OTA_PUBLIC_KEY" && ! -L "$OTA_PUBLIC_KEY" ]] || {
-      echo "ERROR: OTA v2 public key is missing or unsafe" >&2; exit 1;
-    }
-    [[ "$(sha256sum "$OTA_PUBLIC_KEY" | awk '{print $1}')" == "$OTA_EXPECTED_PUBLIC_KEY_SHA256" ]] || {
-      echo "ERROR: OTA v2 image key does not match the protected expected-key anchor" >&2; exit 1;
-    }
-    [[ -f "$OTA_BASE_CATALOG" && ! -L "$OTA_BASE_CATALOG" ]] || {
-      echo "ERROR: OTA v2 requires an exact prior-release LIBREECHO_OTA_BASE_CATALOG; refusing to invent compatibility fields" >&2; exit 1;
-    }
-    [[ "$OTA_BASE_CATALOG_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
-      echo "ERROR: OTA v2 requires LIBREECHO_OTA_BASE_CATALOG_SHA256 as lowercase hex" >&2; exit 1;
-    }
-    [[ "$(sha256sum "$OTA_BASE_CATALOG" | awk '{print $1}')" == "$OTA_BASE_CATALOG_SHA256" ]] || {
-      echo "ERROR: OTA v2 base catalog hash mismatch" >&2; exit 1;
-    }
-    [[ "$OTA_SIGNING_MODE" == local ]] || {
-      echo "ERROR: OTA v2 requires the protected local signing command" >&2; exit 1;
-    }
-    [[ "$IMAGE_PROFILE" == ota ]] || {
-      echo "ERROR: OTA v2 requires the OTA image profile" >&2; exit 1;
-    }
-    [[ -z "$OTA_RUNTIME_DIR" || (-d "$OTA_RUNTIME_DIR" && ! -L "$OTA_RUNTIME_DIR") ]] || {
-      echo "ERROR: OTA v2 runtime directory is unavailable or unsafe: $OTA_RUNTIME_DIR" >&2; exit 1;
-    }
+  v3)
+    [[ "$OTA_RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: v3 requires version X.Y.Z" >&2; exit 1; }
+    [[ "$OTA_TARGET_RELEASE_TAG" =~ ^radar-puffin-(v[0-9]+\.[0-9]+\.[0-9]+|(build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16})$ ]] || { echo "ERROR: v3 requires immutable LIBREECHO_TARGET_RELEASE_TAG" >&2; exit 1; }
+    [[ "$OTA_EXPECTED_PUBLIC_KEY_SHA256" =~ ^[0-9a-f]{64}$ && -f "$OTA_PUBLIC_KEY" && ! -L "$OTA_PUBLIC_KEY" ]] || { echo "ERROR: v3 requires trusted image key anchor" >&2; exit 1; }
+    [[ "$(sha256sum "$OTA_PUBLIC_KEY" | awk '{print $1}')" == "$OTA_EXPECTED_PUBLIC_KEY_SHA256" ]] || { echo "ERROR: v3 image key anchor mismatch" >&2; exit 1; }
+    [[ "$IMAGE_PROFILE" == ota ]] || { echo "ERROR: v3 requires OTA image profile" >&2; exit 1; }
     ;;
-  *) echo "ERROR: invalid OTA format: $OTA_FORMAT (expected v1 bridge or v2)" >&2; exit 1 ;;
+  *) echo "ERROR: invalid OTA format: $OTA_FORMAT (expected v1 or v3)" >&2; exit 1 ;;
 esac
 
 [[ -x "${CROSS}gcc" ]] || { echo "ERROR: ARM32 compiler not found: ${CROSS}gcc" >&2; exit 1; }
@@ -2309,37 +2282,6 @@ run_id="$SHARED_RUN_ID"
 [[ "$TARGET" == "${selected_targets[0]}" ]] || run_id="$SHARED_RUN_ID-$TARGET"
 RUN="$RUNS/$run_id"
 COMPONENTS_MANIFEST="$RUN/components.json"
-OTA_BASE_BOOTSTRAP=0
-if [[ "$OTA_FORMAT" == v2 && -n "${LIBREECHO_OTA_BASE_CATALOGS:-}" ]]; then
-  base_values="$(python3 - "$LIBREECHO_OTA_BASE_CATALOGS" "$TARGET" <<'PY'
-import json, sys
-record = json.load(open(sys.argv[1]))[sys.argv[2]]
-if record == {"bootstrap": "1"}:
-    # fetch-ota-bases.py admitted this explicitly named, never-released,
-    # non-default target. Its base becomes its own candidate catalog below.
-    print("bootstrap")
-    print("")
-else:
-    print(record["catalog"])
-    print(record["sha256"])
-PY
-)"
-  mapfile -t base_record <<< "$base_values"
-  if [[ "${base_record[0]}" == bootstrap ]]; then
-    [[ "$TARGET" != radar_puffin ]] || { echo "ERROR: radar_puffin can never be bootstrapped" >&2; exit 1; }
-    OTA_BASE_BOOTSTRAP=1
-    OTA_BASE_CATALOG=
-    OTA_BASE_CATALOG_SHA256=
-  else
-    OTA_BASE_CATALOG="${base_record[0]}"
-    OTA_BASE_CATALOG_SHA256="${base_record[1]}"
-  fi
-fi
-# Baseline payload bytes are shared at parity; plans/assets/control remain
-# independently target-bound. A device migration input cannot target both.
-[[ "${#selected_targets[@]}" == 1 || -z "${LIBREECHO_DEVICE_BASELINE_JSON:-}" ]] || {
-  echo "ERROR: a device baseline cannot be reused across targets" >&2; exit 1;
-}
 BUILDER="$TOOLS_DIR/build_recovery_image.py"
 VERIFIER="$TOOLS_DIR/verify_recovery_image.py"
 IMAGE_DTB="$RUN/$KERNEL_DTB_NAME"
@@ -2513,9 +2455,9 @@ fi
 feature_plan=
 feature_asset_inventory=
 feature_candidate_catalog=
-if [[ "$OTA_FORMAT" == v2 ]]; then
+if [[ "$OTA_FORMAT" == v3 ]]; then
   [[ "$FEATURES_ENABLED" == 1 && "$WAKEWORD_ENABLED" == 1 && "$SERVICE_PROFILE" == production ]] || {
-    echo "ERROR: OTA v2 requires the complete five-feature production catalog; feature-only builds are rejected" >&2
+    echo "ERROR: OTA v3 requires the complete five-feature production catalog; feature-only builds are rejected" >&2
     exit 1
   }
   feature_candidate_catalog="$RUN/feature-candidate-catalog.json"
@@ -2557,58 +2499,26 @@ catalog = {"features": features}
 if target != "radar_puffin": catalog["board"] = target
 output_path.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
-  if [[ "$OTA_BASE_BOOTSTRAP" == 1 ]]; then
-    # First release of a new target: its base is exactly this build's own
-    # verified feature catalog, so every feature plans as "preserve" and no
-    # compatibility field is invented. release_completeness.py re-binds the
-    # bases to the candidate's own payload hashes before publication.
-    OTA_BASE_CATALOG="$RUN/ota-bootstrap-base-catalog.json"
-    cp -- "$feature_candidate_catalog" "$OTA_BASE_CATALOG"
-    OTA_BASE_CATALOG_SHA256="$(sha256sum "$OTA_BASE_CATALOG" | awk '{print $1}')"
-    echo "ota_base_bootstrap=1 target=$TARGET catalog_sha256=$OTA_BASE_CATALOG_SHA256"
-  fi
-  planner_args=(
-    --target "$TARGET"
-    --update-channel "$UPDATE_CHANNEL"
-    --base-catalog "$OTA_BASE_CATALOG"
-    --candidate-catalog "$feature_candidate_catalog"
-    --release "$OTA_RELEASE"
-    --source-commit "$ui_commit"
-    --output "$feature_plan"
-    --inventory-output "$feature_asset_inventory"
-    --asset-output-dir "$RUN/ota-assets"
-    --platform-runtime-verifier "$PLATFORM_RUNTIME_VERIFIER"
-  )
-  [[ -z "$OTA_RUNTIME_DIR" ]] || planner_args+=(--runtime-dir "$OTA_RUNTIME_DIR")
-  python3 -B "$PIPELINE/ci/plan-feature-transaction.py" "${planner_args[@]}" | tee "$RUN/feature-plan.log"
+  python3 -B "$PIPELINE/ci/plan-target-manifest.py" \
+    --target "$TARGET" --candidate-catalog "$feature_candidate_catalog" \
+    --boot-image "$RUN/boot.img" --release "$OTA_TARGET_RELEASE_TAG" \
+    --version "$OTA_RELEASE" --update-channel "$UPDATE_CHANNEL" --config-schema 1 \
+    --output "$RUN/target.manifest" --asset-output-dir "$RUN/ota-assets" \
+    | tee "$RUN/feature-plan.log"
 fi
 
+if [[ "$OTA_FORMAT" == v3 ]]; then install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"; fi
 ota_bundle=
 ota_bundle_sha=
-if [[ "$OTA_FORMAT" == v2 ]]; then
-  ota_base_catalog_copy="$RUN/ota-base-catalog.json"
-  cp -- "$OTA_BASE_CATALOG" "$ota_base_catalog_copy"
-  # The v2 handoff validates and records the run-local public key before the
-  # protected signer runs.  The workflow also copies this key after the build
-  # for artifact publication, but that is too late for create-handoff.
-  install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"
-  python3 -B "$PIPELINE/ci/sign_ota_candidate.py" create-handoff \
-    --target "$TARGET" --run-dir "$RUN" --release "$OTA_RELEASE" --source-commit "$ui_commit" \
-    --update-channel "$UPDATE_CHANNEL" --base-catalog "$ota_base_catalog_copy" \
-    --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256" \
-    --platform-source "$TOOLING_SRC" --platform-tool "$OTA_DIR/make_ota_bundle.py" \
-    --output "$RUN/ota-signing-handoff.json"
-fi
 if [[ "$IMAGE_PROFILE" == ota && "$OTA_SIGNING_MODE" == local ]]; then
   echo "=== creating signed LibreEcho OTA bundle ==="
   ota_bundle="$RUN/libreecho-${run_id}.ota.tar"
-  if [[ "$OTA_FORMAT" == v2 ]]; then
-    # The protected signer binds --feature-plan "$feature_plan" from the immutable handoff.
-    python3 -B "$PIPELINE/ci/sign_ota_candidate.py" sign \
-      --handoff "$RUN/ota-signing-handoff.json" \
-      --platform-tool "$OTA_DIR/make_ota_bundle.py" \
+  if [[ "$OTA_FORMAT" == v3 ]]; then
+    install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"
+    python3 -B "$PIPELINE/ci/ota_v3_product.py" --run "$RUN" \
       --signing-key "$OTA_SIGNING_KEY" --public-key "$OTA_PUBLIC_KEY" \
-      --output "$ota_bundle" | tee "$RUN/ota-bundle.log"
+      --expected-key-sha256 "$OTA_EXPECTED_PUBLIC_KEY_SHA256" --output "$ota_bundle" \
+      | tee "$RUN/ota-bundle.log"
   else
     ota_args=(
       --format "$OTA_FORMAT"
@@ -2756,9 +2666,6 @@ ota_expected_public_key_sha256=$OTA_EXPECTED_PUBLIC_KEY_SHA256
 ota_signing_mode=$OTA_SIGNING_MODE
 ota_format=$OTA_FORMAT
 ota_release=$OTA_RELEASE
-ota_base_catalog_sha256=$OTA_BASE_CATALOG_SHA256
-ota_base_bootstrap=$OTA_BASE_BOOTSTRAP
-ota_signing_handoff=$RUN/ota-signing-handoff.json
 feature_candidate_catalog=$feature_candidate_catalog
 feature_plan=$feature_plan
 feature_asset_inventory=$feature_asset_inventory
@@ -2891,9 +2798,6 @@ ota_expected_public_key_sha256=$OTA_EXPECTED_PUBLIC_KEY_SHA256
 ota_signing_mode=$OTA_SIGNING_MODE
 ota_format=$OTA_FORMAT
 ota_release=$OTA_RELEASE
-ota_base_catalog_sha256=$OTA_BASE_CATALOG_SHA256
-ota_base_bootstrap=$OTA_BASE_BOOTSTRAP
-ota_signing_handoff=$RUN/ota-signing-handoff.json
 feature_candidate_catalog=$feature_candidate_catalog
 feature_plan=$feature_plan
 feature_asset_inventory=$feature_asset_inventory
