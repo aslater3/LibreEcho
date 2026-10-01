@@ -13,6 +13,22 @@ B=(ROOT/'build/build.sh').read_text()
 NEURAL=(ROOT/'build/ci/build-public-neural-deps.sh').read_text()
 CACHE_PIN='0400d5f644dc74513175e3cd8d07132dd4860809'
 class Tests(unittest.TestCase):
+ def test_twrp_output_filters_human_logs_and_preserves_failures(self):
+  import os, subprocess, tempfile, textwrap
+  # Execute the workflow branch, not a copy of the output filter. The builder
+  # is stubbed here; separate artifact rehearsals exercise the real builder.
+  fragment=PUBLISH.split('if [[ -f build/ci/prepare-twrp-installs.py ]]; then',1)[1].split('          else',1)[0]
+  for count_lines, status in [('asset_count=80',0), ('',0), ('asset_count=80\nasset_count=81',0), ('asset_count=80',1)]:
+   with self.subTest(count_lines=count_lines,status=status), tempfile.TemporaryDirectory() as tmp:
+    output=Path(tmp)/'output'
+    env={**os.environ,'GITHUB_OUTPUT':str(output),'TEST_LINES':count_lines,'TEST_STATUS':str(status)}
+    script='set -euo pipefail\npython3() { printf "release human log\\ndevice biscuit\\n%s\\n" "$TEST_LINES"; return "$TEST_STATUS"; }\n'+textwrap.dedent(fragment)
+    result=subprocess.run(['bash','-c',script],cwd=tmp,env=env,capture_output=True,text=True)
+    if count_lines=='asset_count=80' and status==0:
+     self.assertEqual(result.returncode,0,result.stderr)
+     self.assertEqual(output.read_text(),'asset_count=80\n')
+    else:
+     self.assertNotEqual(result.returncode,0)
  def test_hosted_only(self):
   self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W)
   self.assertIn('ports.ubuntu.com/ubuntu-ports', W)

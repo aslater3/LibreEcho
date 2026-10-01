@@ -123,7 +123,11 @@ jobs:
           # keep the original single-target path unchanged.
           if [[ -f build/ci/prepare-twrp-installs.py ]]; then
             python3 build/ci/prepare-twrp-installs.py \
-              --assets release-assets --artifact-root verified-build >>"$GITHUB_OUTPUT"
+              --assets release-assets --artifact-root verified-build | tee prepare-twrp.out
+            # The builder also prints human-readable summaries. Only its one
+            # validated machine output belongs in GitHub's output command file.
+            test "$(grep -Ec '^asset_count=[0-9]+$' prepare-twrp.out)" -eq 1
+            grep -E '^asset_count=[0-9]+$' prepare-twrp.out >>"$GITHUB_OUTPUT"
           else
             # Build the recovery (TWRP) install bundle from the assembled asset set.
             # Both the install manifest and the signed OTA manifest live inside the
