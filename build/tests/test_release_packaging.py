@@ -213,6 +213,7 @@ class StableReleasePackagingTests(unittest.TestCase):
             self.assertTrue((output / names["manifest"]).is_file())
             release_manifest = json.loads(next(output.glob("*-build.json")).read_text())
             self.assertEqual({item["name"] for item in release_manifest["feature_assets"]}, set(names.values()))
+            self.assertIs(release_manifest["hardware_accepted"], True)
 
     def test_stable_packager_rejects_tampered_v2_external_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

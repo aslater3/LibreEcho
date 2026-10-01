@@ -63,8 +63,8 @@ def validate_descriptor(value, target=None):
                 "biscuit": ("biscuit", ["BISCUIT"], "biscuit@0")}[identity]
     if (value["release_slug"], value["fastboot_products"], value["platform"]["hw_profile"]) != expected:
         raise ValueError("target profile identity mismatch")
-    if identity == "biscuit" and value["hardware_accepted"] is not False:
-        raise ValueError("biscuit hardware acceptance is not established")
+    if not isinstance(value["hardware_accepted"], bool):
+        raise ValueError("hardware_accepted must be a boolean")
     return value
 
 
@@ -75,6 +75,11 @@ def load_target(target=DEFAULT):
     if path.is_symlink() or not path.is_file():
         raise ValueError("target descriptor is unavailable or unsafe")
     return validate_descriptor(json.loads(path.read_text()), target)
+
+
+def hardware_accepted(target=DEFAULT):
+    """The target descriptor's hardware-acceptance decision; builds copy it."""
+    return load_target(target)["hardware_accepted"] is True
 
 
 def descriptor_sha256(target=DEFAULT):

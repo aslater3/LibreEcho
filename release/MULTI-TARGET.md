@@ -1,9 +1,14 @@
 # Multi-target release scaffolding
 
 This cycle packages `radar_puffin` (Echo 2nd Gen) and `biscuit` (Echo Dot 2nd
-Gen) at **code parity**, not hardware acceptance. Both use the same ARM32
-kernel defconfig, Radar DTB, userspace, feature payloads, and audio. Biscuit's
-`hardware_accepted` is false. No Biscuit DTS or tuning is introduced here.
+Gen) at **code parity**. Both use the same ARM32 kernel defconfig, Radar DTB,
+userspace, feature payloads, and audio. No Biscuit DTS or tuning is introduced
+here.
+
+Each target descriptor's `hardware_accepted` boolean is the maintainer's
+acceptance decision for that board. Build metadata (`*-build.json`) copies it
+verbatim, and the browser installer installs only builds whose metadata says
+`true`. As of 0.14.0 both targets are set to `true` by maintainer decision.
 
 ## Target authority and build selection
 

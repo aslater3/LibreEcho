@@ -309,6 +309,8 @@ class Tests(unittest.TestCase):
             self.assertIn(names["payload"], (next(output.glob("*-SHA256SUMS"))).read_text())
             release_manifest = json.loads(next(output.glob("*-build.json")).read_text())
             self.assertEqual({item["name"] for item in release_manifest["feature_assets"]}, set(names.values()))
+            # Build metadata copies the target descriptor's acceptance decision.
+            self.assertIs(release_manifest["hardware_accepted"], True)
 
     def test_rejects_invalid_v2_feature_asset_inventory(self) -> None:
         mutations = ("missing", "tampered", "mismatched", "duplicate", "unsafe", "partial")
@@ -363,6 +365,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(manifest["ssh"]["dropbear_sha256"], "")
             self.assertEqual(manifest["ssh"]["dropbearkey_sha256"], "")
             self.assertEqual(manifest["status"], "PREPARED_NOT_FLASHED")
+            self.assertIs(manifest["hardware_accepted"], True)
             self.assertRegex(manifest["source_set_id"], r"^[0-9a-f]{16}$")
             self.assertRegex(manifest["artifact_set_id"], r"^[0-9a-f]{16}$")
             self.assertIn(manifest["source_set_id"], result.stdout)

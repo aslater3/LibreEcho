@@ -94,7 +94,9 @@ class DescriptorTests(unittest.TestCase):
         radar, biscuit = map(load_target, KNOWN_TARGETS)
         for field in ('kernel', 'soc', 'arch', 'features', 'layout_profiles'):
             self.assertEqual(radar[field], biscuit[field])
-        self.assertFalse(biscuit['hardware_accepted'])
+        # Operator decision (0.14.0): both targets are hardware-accepted.
+        self.assertIs(radar['hardware_accepted'], True)
+        self.assertIs(biscuit['hardware_accepted'], True)
 
     def test_unknown_or_duplicate_targets_refused(self):
         for value in ('unknown', '', 'radar_puffin,radar_puffin', 'radar_puffin, biscuit', 'radar_puffin,../biscuit'):
@@ -107,8 +109,12 @@ class DescriptorTests(unittest.TestCase):
                        lambda d: d['platform'].update(hw_profile='biscuit@0'), lambda d: d.update(features=[])):
             changed = copy.deepcopy(radar); mutate(changed)
             with self.assertRaises(ValueError): validate_descriptor(changed)
-        changed = load_target('biscuit'); changed['hardware_accepted'] = True
-        with self.assertRaises(ValueError): validate_descriptor(changed)
+        # The acceptance field must be a real boolean, never a truthy string.
+        for target in KNOWN_TARGETS:
+            for bad in ('true', 1, None):
+                changed = load_target(target); changed['hardware_accepted'] = bad
+                with self.subTest(target=target, value=bad), self.assertRaises(ValueError):
+                    validate_descriptor(changed)
 
     def test_candidate_image_and_descriptor_are_bound(self):
         for target in KNOWN_TARGETS:
@@ -260,7 +266,24 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(before.returncode, 0, before.stderr)
             self.assertEqual(after.returncode, 0, after.stderr)
             self.assertEqual({p.name for p in (root / 'before').iterdir()}, {p.name for p in (root / 'after').iterdir()})
-            for path in (root / 'before').iterdir(): self.assertEqual(path.read_bytes(), (root / 'after' / path.name).read_bytes(), path.name)
+            # The only intended change is build.json's hardware_accepted, which the
+            # target descriptor now sets; SHA256SUMS follows from that file's hash.
+            build_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-build.json'))
+            prior = json.loads((root / 'before' / build_name).read_text())
+            current = json.loads((root / 'after' / build_name).read_text())
+            self.assertIs(prior.pop('hardware_accepted'), False)
+            self.assertIs(current.pop('hardware_accepted'), True)
+            self.assertEqual(prior, current)
+            sums_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-SHA256SUMS'))
+            prior_sums = (root / 'before' / sums_name).read_text().splitlines()
+            current_sums = (root / 'after' / sums_name).read_text().splitlines()
+            self.assertEqual([l for l in prior_sums if not l.endswith(build_name)],
+                             [l for l in current_sums if not l.endswith(build_name)])
+            self.assertIn(hashlib.sha256((root / 'after' / build_name).read_bytes()).hexdigest() + '  ' + build_name, current_sums)
+            for path in (root / 'before').iterdir():
+                if path.name in (build_name, sums_name):
+                    continue
+                self.assertEqual(path.read_bytes(), (root / 'after' / path.name).read_bytes(), path.name)
 
     def test_twrp_calls_both_targets_and_keeps_radar_byte_copy_aliases(self):
         with tempfile.TemporaryDirectory() as tmp:

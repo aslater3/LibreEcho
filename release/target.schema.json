@@ -177,9 +177,6 @@
                 "const": "biscuit@0"
               }
             }
-          },
-          "hardware_accepted": {
-            "const": false
           }
         }
       }
