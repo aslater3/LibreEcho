@@ -120,6 +120,8 @@ MBEDTLS_SOURCE_ARCHIVE="${LIBREECHO_MBEDTLS_SOURCE_ARCHIVE:?ERROR: set LIBREECHO
 MBEDTLS_BUILD_PYTHON="${LIBREECHO_MBEDTLS_BUILD_PYTHON:?ERROR: set LIBREECHO_MBEDTLS_BUILD_PYTHON explicitly}"
 MBEDTLS_BUILDER="$TOOLS_DIR/mbedtls/build_mbedtls.sh"
 MBEDTLS_SOURCE_LOCK="$TOOLS_DIR/mbedtls/SOURCE.lock"
+# The bundle builds its own source-locked Opus stack, not a caller-certified prefix.
+OPUS_ARCHIVES_DIR="${LIBREECHO_OPUS_ARCHIVES_DIR:?ERROR: set LIBREECHO_OPUS_ARCHIVES_DIR explicitly}"
 SHERPA_SOURCE=
 SHERPA_PREFIX=
 ORT_BUILD=
@@ -1444,6 +1446,11 @@ ui_bundle_cache_key="$(component_cache_key ui-bundle \
   --file "builder=$UI_BUILDER" \
   --file "ui-musl-gcc=$AUDIO_CC" \
   --value "ui_mbedtls=$mbedtls_cache_key" \
+  --file "opus-builder=$TOOLS_DIR/ui/build_opus.sh" \
+  --file "opus-lock=$TOOLS_DIR/ui/opus/SOURCE.lock" \
+  --file "ogg-source=$OPUS_ARCHIVES_DIR/libogg-1.3.5.tar.gz" \
+  --file "opus-source=$OPUS_ARCHIVES_DIR/opus-1.4.tar.gz" \
+  --file "opusfile-source=$OPUS_ARCHIVES_DIR/opusfile-0.12.tar.gz" \
   --value "cross_target=armhf" --value "musl_cc_target=armhf" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --value "service_profile=$SERVICE_PROFILE")"
 UI_BUNDLE_STAGE="$RUN/ui-bundle-stage"
@@ -1453,6 +1460,9 @@ if ! component_cache_restore ui-bundle "$ui_bundle_cache_key" "$UI_BUNDLE_STAGE"
   mkdir -p "$UI_BUNDLE_STAGE"
   LIBREECHO_UI_CROSS_COMPILE="$UI_CROSS" \
   LIBREECHO_UI_MBEDTLS_ROOT="$MBEDTLS_OUTPUT" \
+  LIBREECHO_OPUS_ARCHIVES_DIR="$OPUS_ARCHIVES_DIR" \
+  LIBREECHO_OPUS_CC="${UI_CROSS}gcc" \
+  LIBREECHO_OPUS_AR="${UI_CROSS}ar" \
   LIBREECHO_UI_MUSL_NATIVE_ROOT="$OTA_MUSL_NATIVE_ROOT" \
   LIBREECHO_UI_MUSL_SYSROOT="$OTA_MUSL_SYSROOT" \
   LIBREECHO_UI_MUSL_CC="$AUDIO_CC" \

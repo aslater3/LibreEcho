@@ -3,6 +3,10 @@
   "status": "partially-cleared",
   "description": "Public dependency inventory for the hosted LibreEcho image-and-features build. Blocked entries are deliberate fail-closed gates, not local fallbacks.",
   "inputs": [
+    {"name": "libogg", "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz", "sha256": "0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664", "kind": "source-archive", "license": "BSD-3-Clause", "redistribution": "cleared"},
+    {"name": "opus", "url": "https://downloads.xiph.org/releases/opus/opus-1.4.tar.gz", "sha256": "c9b32b4253be5ae63d1ff16eea06b94b5f0f2951b7a02aceef58e3a3ce49c51f", "kind": "source-archive", "license": "BSD-3-Clause", "redistribution": "cleared"},
+    {"name": "opusfile", "url": "https://github.com/xiph/opusfile/archive/refs/tags/v0.12.tar.gz", "sha256": "a20a1dff1cdf0719d1e995112915e9966debf1470ee26bb31b2f510ccf00ef40", "kind": "source-archive", "license": "BSD-3-Clause", "redistribution": "cleared"},
+
     {"name": "curl", "url": "https://curl.se/download/curl-8.21.0.tar.xz", "sha256": "aa1b66a70eace83dc624508745646c08ae561de512ab403adffb93ac87fc72e6", "kind": "source-archive", "license": "curl", "redistribution": "cleared"},
     {"name": "ffmpeg", "url": "https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz", "sha256": "8684f4b00f94b85461884c3719382f1261f0d9eb3d59640a1f4ac0873616f968", "kind": "source-archive", "license": "LGPL-2.1-or-later", "redistribution": "cleared"},
     {"name": "shairport-sync", "url": "https://github.com/mikebrady/shairport-sync/archive/refs/tags/5.1.tar.gz", "sha256": "d85b5ad26449f3777518c4bfafeff0e4a6ebfb8333187df0ef462c199a4aba83", "kind": "source-archive", "license": "MIT/X derivative", "redistribution": "cleared"},

@@ -11,6 +11,13 @@ complete notices and component inventory.
 
 ## Core boot image and OTA
 
+- **libogg 1.3.5, opus 1.4, and opusfile 0.12** — BSD-3-Clause; the radio
+  daemon links a static ARM32 Opus decoder rebuilt from source-locked archives.
+  The Platform source includes each complete upstream COPYING notice in
+  `tools/mt8163-arm32/ui/opus/licenses/`; exact source pins and build instructions
+  are recorded in `release/CORE-RUNTIME-SOURCE-OFFER.md`. libopusfile is built
+  without HTTP/URL or TLS entry points.
+
 - **Linux 6.1 and MT8163 product drivers** — GPL-2.0-only. Exact corresponding
   source is released from
   <https://github.com/aslater3/LibreEcho-Linux-6.1>.

@@ -86,6 +86,9 @@ def fetch(record: dict, destination: Path) -> Path:
 
 
 NAMES = {
+    "libogg": "libogg-1.3.5.tar.gz",
+    "opus": "opus-1.4.tar.gz",
+    "opusfile": "opusfile-0.12.tar.gz",
     "tts-northern-upstream": "piper-en_GB-northern_english_male-medium.onnx",
     "tts-female-upstream": "piper-en_GB-southern_english_female-low.onnx",
     "tts-tokens": "tts-tokens.txt",
