@@ -1523,7 +1523,7 @@ def _target_metadata_assets(release_dir: Path, prefix: str, release_tag: str, pl
     """Standalone host-side v3 closure; distribution has no Product modules."""
     features = ('airplay2', 'tts', 'wakeword', 'stt', 'assistant')
     fields = ('asset', 'size', 'sha256', 'manifest_asset', 'manifest_size', 'manifest_sha256', 'daemon_path', 'daemon_sha256')
-    top = ('format', 'manifest_version', 'board', 'soc', 'architecture', 'image_profile', 'transaction_type', 'transaction_id', 'release', 'version', 'update_channel', 'service_profile', 'commit_policy', 'minimum_updater_schema', 'boot_filename', 'boot_size', 'boot_sha256', 'feature_ids')
+    top = ('format', 'manifest_version', 'board', 'soc', 'architecture', 'image_profile', 'transaction_type', 'transaction_id', 'release', 'version', 'update_channel', 'service_profile', 'minimum_updater_schema', 'commit_policy', 'boot_filename', 'boot_size', 'boot_sha256', 'feature_ids')
     expected_keys = set(top) - {'feature_ids'} | {'schema', 'features', 'config_schema'}
     target = 'biscuit' if prefix.startswith('libreecho-biscuit-') else 'radar_puffin'
     slug = TARGET_INDEX[target]['release_slug']
