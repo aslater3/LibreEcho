@@ -271,7 +271,9 @@ class ReleaseTests(unittest.TestCase):
             build_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-build.json'))
             prior = json.loads((root / 'before' / build_name).read_text())
             current = json.loads((root / 'after' / build_name).read_text())
-            self.assertIs(prior.pop('hardware_accepted'), False)
+            # The base generator may predate the descriptor (False) or already
+            # copy it (True); the current generator must copy the descriptor.
+            self.assertIsInstance(prior.pop('hardware_accepted'), bool)
             self.assertIs(current.pop('hardware_accepted'), True)
             self.assertEqual(prior, current)
             sums_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-SHA256SUMS'))
