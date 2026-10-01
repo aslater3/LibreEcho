@@ -21,14 +21,30 @@ class Tests(unittest.TestCase):
   for count_lines, status in [('asset_count=80',0), ('',0), ('asset_count=80\nasset_count=81',0), ('asset_count=80',1)]:
    with self.subTest(count_lines=count_lines,status=status), tempfile.TemporaryDirectory() as tmp:
     output=Path(tmp)/'output'
+    entry=Path(tmp)/'verified-build/run/twrp-builder/src/META-INF/com/google/android/update-binary'
+    entry.parent.mkdir(parents=True); entry.write_text('#!/sbin/sh\n'); entry.chmod(0o644)
     env={**os.environ,'GITHUB_OUTPUT':str(output),'TEST_LINES':count_lines,'TEST_STATUS':str(status)}
-    script='set -euo pipefail\npython3() { printf "release human log\\ndevice biscuit\\n%s\\n" "$TEST_LINES"; return "$TEST_STATUS"; }\n'+textwrap.dedent(fragment)
+    script='set -euo pipefail\npython3() { test -x verified-build/run/twrp-builder/src/META-INF/com/google/android/update-binary || return 97; printf "release human log\\ndevice biscuit\\n%s\\n" "$TEST_LINES"; return "$TEST_STATUS"; }\n'+textwrap.dedent(fragment)
     result=subprocess.run(['bash','-c',script],cwd=tmp,env=env,capture_output=True,text=True)
     if count_lines=='asset_count=80' and status==0:
      self.assertEqual(result.returncode,0,result.stderr)
      self.assertEqual(output.read_text(),'asset_count=80\n')
     else:
      self.assertNotEqual(result.returncode,0)
+ def test_both_twrp_lanes_restore_exactly_one_artifact_entry(self):
+  import os, subprocess, tempfile, textwrap
+  fragments=re.findall(r'if \[\[ -f build/ci/prepare-twrp-installs.py \]\]; then\n(.*?)(?:          else|          fi)',PUBLISH,re.S)
+  self.assertEqual(len(fragments),2)
+  for lane, fragment in enumerate(fragments):
+   for count in (0,1,2):
+    with self.subTest(lane=lane,count=count), tempfile.TemporaryDirectory() as tmp:
+     for index in range(count):
+      entry=Path(tmp)/f'verified-build/run{index}/twrp-builder/src/META-INF/com/google/android/update-binary'
+      entry.parent.mkdir(parents=True); entry.write_text('#!/sbin/sh\n'); entry.chmod(0o644)
+     env={**os.environ,'GITHUB_OUTPUT':str(Path(tmp)/'output')}
+     stub='python3() { test -x verified-build/run0/twrp-builder/src/META-INF/com/google/android/update-binary || return 97; printf "asset_count=80\\n"; }\n'
+     result=subprocess.run(['bash','-c','set -euo pipefail\n'+stub+textwrap.dedent(fragment)],cwd=tmp,env=env,capture_output=True,text=True)
+     self.assertEqual(result.returncode==0,count==1,result.stderr)
  def test_hosted_only(self):
   self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W)
   self.assertIn('ports.ubuntu.com/ubuntu-ports', W)

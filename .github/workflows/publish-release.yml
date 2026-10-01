@@ -122,6 +122,11 @@ jobs:
           # Platform --target builder call per prepared target. Older commits
           # keep the original single-target path unchanged.
           if [[ -f build/ci/prepare-twrp-installs.py ]]; then
+            # Artifact downloads normalize files to 0644. Restore the single
+            # reviewed recovery entry point before either target is packaged.
+            mapfile -t entries < <(find verified-build -path '*/twrp-builder/src/META-INF/com/google/android/update-binary' -type f)
+            test "${#entries[@]}" -eq 1
+            chmod 0755 "${entries[0]}"
             python3 build/ci/prepare-twrp-installs.py \
               --assets release-assets --artifact-root verified-build | tee prepare-twrp.out
             # The builder also prints human-readable summaries. Only its one
@@ -377,6 +382,11 @@ jobs:
             --output-dir release-assets
           python3 tools/check-public-metadata.py release-assets
           if [[ -f build/ci/prepare-twrp-installs.py ]]; then
+            # Artifact downloads normalize files to 0644. Restore the single
+            # reviewed recovery entry point before either target is packaged.
+            mapfile -t entries < <(find verified-build -path '*/twrp-builder/src/META-INF/com/google/android/update-binary' -type f)
+            test "${#entries[@]}" -eq 1
+            chmod 0755 "${entries[0]}"
             python3 build/ci/prepare-twrp-installs.py --assets release-assets --artifact-root verified-build
           fi
           (cd release-assets && sha256sum -c *-SHA256SUMS)
