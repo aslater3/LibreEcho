@@ -27,7 +27,7 @@ class PointerV3Tests(unittest.TestCase):
             if 'publish_dev_pointer.py' in json.dumps(job):
                 self.assertIn("github.event_name == 'workflow_dispatch'", job['if'])
                 self.assertIn('inputs.advance_pointer == true', job['if'])
-        self.assertNotIn('publish_dev_pointer.py', json.dumps(jobs['publish-dev']))
+        self.assertNotIn('publish_dev_pointer.py', json.dumps(jobs['publish-hosted-dev']))
 
     def test_cli_defaults_to_no_side_effect(self):
         with patch.object(sys, 'argv', ['publish_dev_pointer.py', '--repository', 'aslater3/LibreEcho', '--tag', 'unused', '--head', 'a'*40, '--assets', '/missing']), patch.object(publisher, 'gh') as gh, patch.object(publisher.subprocess, 'run') as run:

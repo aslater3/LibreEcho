@@ -12,7 +12,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from nacl.signing import SigningKey
-from build.tests.test_target_manifest import CI, TAG, fixture, TargetManifestTests
+from build.tests.test_target_manifest import CI, TAG, fixture
+from build.tests import test_target_manifest as target_tests
 import ota_v3_product as v3
 import release_completeness as gate
 from ota_v2_product import ContractError, digest, load_feature_contract, validate_control_tar
@@ -27,7 +28,7 @@ class V3ReleaseIntegrationTests(unittest.TestCase):
         with boot.open('r+b') as stream:
             stream.write(b'ANDROID!')
         self.run_dir = self.root / 'run'
-        helper = TargetManifestTests()
+        helper = target_tests.TargetManifestTests()
         result = subprocess.run(helper.command(catalog, boot, self.run_dir), capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         shutil.copyfile(boot, self.run_dir / 'boot.img')
@@ -108,6 +109,23 @@ class V3ReleaseIntegrationTests(unittest.TestCase):
         with tarfile.open(next(out.glob('*initial-install.tar'))) as archive:
             manifest = json.load(archive.extractfile('manifest.json'))
         self.assertEqual(manifest['features'], gate.install_features(plan, provenance))
+
+    def test_stable_cli_prepares_and_independently_validates_whole_target(self):
+        helper_path = CI.parent / 'tests/target_release_fixture.py'
+        self.assertTrue(helper_path.is_file(), 'v3 release fixture migration helper missing')
+        from build.tests.target_release_fixture import add_target_contract
+        from build.tests.test_release_packaging import fixture as stable_fixture, WORKING_AMONET_COMMIT
+        from ota_v2_product import validate_stable_publisher
+        artifacts, product = stable_fixture(self.root / 'stable')
+        run = artifacts / 'run'
+        add_target_contract(run, channel='stable', tag='radar-puffin-v0.14.0')
+        out = self.root / 'stable-release'
+        anchor = digest(run / 'ota-public-key.hex')[0]
+        result = subprocess.run([sys.executable, '-B', str(CI / 'prepare-stable-release.py'), '--artifact-root', str(artifacts), '--product-root', str(product), '--product-commit', '1'*40, '--release-version', '0.14.0', '--release-notes', 'release/radar-puffin-v0.14.0.md', '--amonet-repository', 'https://github.com/aslater3/amonet-k32', '--amonet-tag', 'v1.0.0', '--amonet-commit', WORKING_AMONET_COMMIT, '--output-dir', str(out)], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': anchor}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with patch.dict(os.environ, {'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': anchor}):
+            validate_stable_publisher(out, 'radar-puffin-v0.14.0', anchor)
+            gate.check_assets(out)
 
     def test_build_entrypoint_uses_whole_state_planner_and_signer(self):
         source = (CI.parent / 'build.sh').read_text()

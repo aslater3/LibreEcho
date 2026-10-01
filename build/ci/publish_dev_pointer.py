@@ -17,7 +17,7 @@ if __package__:
 else:
     from target_registry import DEFAULT, asset_prefix, load_target
 
-CHANNEL = 'radar-puffin-dev-channel'
+POINTER_ASSET = 'release-pointer-v3.txt'
 TAG = re.compile(r'radar-puffin-(?:build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}')
 
 
@@ -58,17 +58,30 @@ def gh(*args):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--target', default=DEFAULT)
+    p.add_argument('--advance-pointer', choices=('false', 'true'), default='false')
     p.add_argument('--repository', required=True)
     p.add_argument('--tag', required=True)
     p.add_argument('--head', required=True)
     p.add_argument('--assets', required=True, type=Path)
     a = p.parse_args()
+    if a.advance_pointer != 'true':
+        print('dev_pointer=NOT_ADVANCED')
+        return
     if a.repository != 'aslater3/LibreEcho' or not re.fullmatch('[a-f0-9]{40}', a.head):
         raise SystemExit('invalid publication scope')
     api = 'repos/' + a.repository + '/releases/tags/'
     source = json.loads(gh('api', api + a.tag))
     channel = load_target(a.target)["release_slug"] + "-dev-channel"
+    manifest = json.loads((a.assets / (asset_prefix(a.tag, a.target) + '-build.json')).read_text())
+    if manifest.get('ota_format') != 'v3':
+        raise ValueError('pointer advancement requires v3 package')
     data = pointer_bytes(a.assets, a.tag, source, a.target)
+    # Verify signed target closure before the first possible channel mutation.
+    if __package__:
+        from .release_completeness import check_assets
+    else:
+        from release_completeness import check_assets
+    check_assets(a.assets, target=a.target)
     lookup = subprocess.run(['gh', 'api', api + channel], capture_output=True, text=True)
     if lookup.returncode:
         if '(HTTP 404)' not in lookup.stderr:
@@ -79,15 +92,17 @@ def main():
     current = json.loads(gh('api', api + channel))
     if current.get('draft') is not False or current.get('prerelease') is not True or current.get('tag_name') != channel:
         raise SystemExit('invalid channel release')
-    if any(x['name'] != 'release-pointer.txt' for x in current.get('assets', [])):
-        raise SystemExit('unexpected channel assets; refusing mutation')
+    frozen_assets = [x for x in current.get('assets', []) if x['name'] != POINTER_ASSET]
     with tempfile.TemporaryDirectory() as tmp:
-        file = Path(tmp) / 'release-pointer.txt'
+        file = Path(tmp) / POINTER_ASSET
         file.write_bytes(data)
         gh('release', 'upload', channel, str(file), '--repo', a.repository, '--clobber')
     current = json.loads(gh('api', api + channel))
-    assets = current.get('assets', [])
-    if len(assets) != 1 or assets[0].get('name') != 'release-pointer.txt' or assets[0].get('size') != len(data) or assets[0].get('digest') != 'sha256:' + hashlib.sha256(data).hexdigest():
+    all_assets = current.get('assets', [])
+    if [x for x in all_assets if x['name'] != POINTER_ASSET] != frozen_assets:
+        raise SystemExit('frozen channel assets changed')
+    assets = [x for x in all_assets if x['name'] == POINTER_ASSET]
+    if len(assets) != 1 or assets[0].get('size') != len(data) or assets[0].get('digest') != 'sha256:' + hashlib.sha256(data).hexdigest():
         raise SystemExit('published pointer readback mismatch')
     print('dev_pointer_verified=' + a.tag)
 

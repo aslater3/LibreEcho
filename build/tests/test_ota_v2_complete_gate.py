@@ -237,9 +237,10 @@ class CompleteControlGateTests(unittest.TestCase):
 
 class StablePublisherPreMutationTests(unittest.TestCase):
     def _prepared_release(self, root: Path) -> Path:
-        from build.tests.test_release_packaging import add_v2_contract, fixture
+        from build.tests.test_release_packaging import fixture
+        from build.tests.target_release_fixture import add_target_contract
         artifact, product = fixture(root)
-        add_v2_contract(artifact)
+        add_target_contract(artifact / 'run', channel='stable')
         output = root / "release"
         result = subprocess.run([
             sys.executable, str(ROOT / "build/ci/prepare-stable-release.py"),
@@ -297,9 +298,9 @@ class StablePublisherPreMutationTests(unittest.TestCase):
             self.assertIn("PREPARED_NOT_PUBLISHED", result.stdout)
             self.assertFalse((root / "valid-run" / "gh.log").exists())
             for name, mutate in (
-                ("missing", lambda out: (out / "libreecho-radar-puffin-0.14.0-assistant.runtime.squashfs").unlink()),
+                ("missing", lambda out: next(out.glob('libreecho-radar-puffin-base-assistant-*.payload.squashfs')).unlink()),
                 ("extra", lambda out: (out / "unexpected.bin").write_bytes(b"extra")),
-                ("tampered", lambda out: (out / "libreecho-radar-puffin-0.14.0-assistant.runtime.squashfs").write_bytes(b"tampered")),
+                ("tampered", lambda out: next(out.glob('libreecho-radar-puffin-base-assistant-*.payload.squashfs')).write_bytes(b"tampered")),
                 ("partial", lambda out: json_dump_remove_asset(out)),
             ):
                 case_root = root / name

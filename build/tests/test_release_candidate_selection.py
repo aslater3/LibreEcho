@@ -55,29 +55,30 @@ class CandidateSelectionTests(unittest.TestCase):
                                         GITHUB_REF_NAME='main'), ['main'] * 3)
 
     def derivation(self, **overrides):
-        block = shell_block('          # Release dispatches default to v2;',
-                            '          python3 build/ci/ota_v2_inputs.py')
-        return self.run_shell(block + '\nprintf "%s\\n" "$OTA_RELEASE_INPUT"', **overrides)
+        import tempfile
+        block = shell_block('          # Resolve the target version', '          case "$SSH_ENABLED_INPUT"')
+        with tempfile.TemporaryDirectory() as directory:
+            return self.run_shell(block + '\nprintf "%s\n" "$OTA_RELEASE_INPUT"', GITHUB_OUTPUT=str(Path(directory) / 'outputs'), OTA_FORMAT_INPUT='v3', **overrides)
 
-    def test_v2_derives_branch_version_and_preserves_explicit_input(self):
-        r = self.derivation(GITHUB_REF='refs/heads/release/0.14.0',
-                            GITHUB_REF_NAME='release/0.14.0')
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, '0.14.0'))
+    def test_v3_derives_branch_version_and_preserves_explicit_input(self):
+        r = self.derivation(GITHUB_BASE_REF='release/0.15.0')
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, '0.15.0'))
         r = self.derivation(OTA_RELEASE_INPUT='0.14.0')
         self.assertEqual((r.returncode, r.stdout.strip()), (0, '0.14.0'))
 
-    def test_main_v2_without_candidate_is_rejected_and_v1_is_unchanged(self):
-        r = self.derivation(GITHUB_REF='refs/heads/main', GITHUB_REF_NAME='main')
+    def test_v3_main_default_and_invalid_version_refusal(self):
+        r = self.derivation(GITHUB_BASE_REF='', GITHUB_REF_NAME='main')
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, '0.14.0'))
+        r = self.derivation(OTA_RELEASE_INPUT='invalid')
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn('select v1 for main builds', r.stderr)
-        r = self.derivation(OTA_FORMAT_INPUT='v1')
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, ''))
+        self.assertIn('invalid target version', r.stderr)
 
     def test_dispatch_default_and_resolved_contract_identity(self):
-        inputs = WORKFLOW.split('      ota_format:', 1)[1].split('      device_baseline_json:', 1)[0]
-        self.assertIn('default: v2', inputs)
-        self.assertIn("OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}", WORKFLOW)
-        contracts = WORKFLOW.split('  contract-checks:', 1)[1].split('  public-inputs:', 1)[0]
+        inputs = WORKFLOW.split('      ota_format:', 1)[1].split('      ota_release:', 1)[0]
+        self.assertIn('default: v3', inputs)
+        self.assertIn('options: [v3]', inputs)
+        self.assertIn("OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v3' }}", WORKFLOW)
+        contracts = WORKFLOW.split('  contract-checks:', 1)[1].split('  prepare-public-inputs:', 1)[0]
         self.assertIn('needs: resolve-and-preflight', contracts)
         self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', contracts)
 

@@ -1519,6 +1519,74 @@ def _write_state(path: Path, state: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def _target_metadata_assets(release_dir: Path, prefix: str, release_tag: str, plan: dict, inventory: dict) -> set[str]:
+    """Standalone host-side v3 closure; distribution has no Product modules."""
+    features = ('airplay2', 'tts', 'wakeword', 'stt', 'assistant')
+    fields = ('asset', 'size', 'sha256', 'manifest_asset', 'manifest_size', 'manifest_sha256', 'daemon_path', 'daemon_sha256')
+    top = ('format', 'manifest_version', 'board', 'soc', 'architecture', 'image_profile', 'transaction_type', 'transaction_id', 'release', 'version', 'update_channel', 'service_profile', 'commit_policy', 'minimum_updater_schema', 'boot_filename', 'boot_size', 'boot_sha256', 'feature_ids')
+    expected_keys = set(top) - {'feature_ids'} | {'schema', 'features', 'config_schema'}
+    target = 'biscuit' if prefix.startswith('libreecho-biscuit-') else 'radar_puffin'
+    slug = TARGET_INDEX[target]['release_slug']
+    fixed = {'schema': 'libreecho-product-target-plan-v3', 'format': 'libreecho-ota-v3', 'manifest_version': 1, 'board': target, 'soc': 'mt8163', 'architecture': 'armv7', 'image_profile': 'ota', 'transaction_type': 'system', 'release': release_tag, 'service_profile': 'production', 'commit_policy': 'after-slot-confirm', 'minimum_updater_schema': 3, 'boot_filename': 'boot.img', 'boot_size': 16777216}
+    if set(plan) != expected_keys or any(type(plan.get(k)) is not type(v) or plan.get(k) != v for k, v in fixed.items()):
+        raise InstallerError('invalid immutable v3 target plan')
+    if (not VERSION.fullmatch(str(plan['version'])) or plan['update_channel'] not in ('dev', 'stable')
+            or type(plan['config_schema']) is not int or not 1 <= plan['config_schema'] < 2**31
+            or not re.fullmatch(r'[0-9a-f]{64}', str(plan['boot_sha256']))):
+        raise InstallerError('invalid v3 version, boot or config schema')
+    records = plan['features']
+    if not isinstance(records, list) or [r.get('feature_id') for r in records if isinstance(r, dict)] != list(features):
+        raise InstallerError('v3 target must contain all five features')
+    material = {k: v for k, v in plan.items() if k != 'transaction_id'}
+    if plan['transaction_id'] != 'txn-' + hashlib.sha256(json.dumps(material, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:24]:
+        raise InstallerError('v3 transaction identity mismatch')
+    assets = []
+    daemon_names = ('libreecho-audio-engine', 'libreecho-ttsd', 'libreecho-waked', 'libreecho-sttd', 'libreecho-agentd')
+    for record, daemon in zip(records, daemon_names):
+        if (set(record) != set(fields) | {'feature_id'} or record['daemon_path'] != 'usr/local/sbin/' + daemon
+                or not re.fullmatch(r'[0-9a-f]{64}', str(record['daemon_sha256']))):
+            raise InstallerError('invalid v3 feature fields or daemon')
+        fid = record['feature_id']
+        for kind, stem, suffix in (('payload', '', 'payload.squashfs'), ('manifest', 'manifest_', 'manifest.json')):
+            name, sha, size = (record[stem + key] for key in ('asset', 'sha256', 'size'))
+            if (not re.fullmatch(r'[0-9a-f]{64}', str(sha)) or type(size) is not int or not 0 < size < 2**63
+                    or name != f'libreecho-{slug}-base-{fid}-{sha}.{suffix}'):
+                raise InstallerError('v3 asset is not content-addressed')
+            path = release_dir / name
+            _safe_regular(path)
+            if path.stat().st_size != size or hashlib.sha256(path.read_bytes()).hexdigest() != sha:
+                raise InstallerError('v3 target asset identity mismatch')
+            assets.append(dict(feature_id=fid, kind=kind, name=name, size=size, sha256=sha))
+    assets.sort(key=lambda r: r['name'])
+    if inventory != dict(schema='libreecho-product-target-assets-v3', board=target, release=release_tag, assets=assets):
+        raise InstallerError('v3 inventory differs from target')
+    completeness_path = release_dir / f'libreecho-{slug}-release-completeness.json'
+    _safe_regular(completeness_path)
+    completeness = json.loads(completeness_path.read_text())
+    refs = [{**a, 'role': 'target', 'source_release': release_tag, 'source_asset': a['name']} for a in assets]
+    if completeness != dict(schema='libreecho-release-completeness-v1', target=target, references=refs):
+        raise InstallerError('v3 completeness is not owned by this release')
+    # Pin the OTA and recovery route to the same exact manifest serialization.
+    ordered = [(k, ','.join(features) if k == 'feature_ids' else plan[k]) for k in top]
+    for record in records:
+        ordered.extend((f'feature_{record["feature_id"]}_{k}', record[k]) for k in fields)
+    ordered.append(('config_schema', plan['config_schema']))
+    raw = ''.join(f'{k}={v}\n' for k, v in ordered).encode('ascii')
+    ota = release_dir / f'{prefix}.ota.tar'
+    _safe_regular(ota)
+    with tarfile.open(ota, 'r:') as archive:
+        members = archive.getmembers()
+        if [m.name for m in members] != ['manifest', 'manifest.sig', 'boot.img'] or any(not m.isfile() for m in members) or members[0].size > 65536:
+            raise InstallerError('invalid v3 OTA control member set')
+        if archive.extractfile('manifest').read() != raw:
+            raise InstallerError('v3 OTA differs from recovery target')
+    names = {f'{prefix}-feature-plan.json', f'{prefix}-feature-assets.json', completeness_path.name, *(a['name'] for a in assets)}
+    names.update(f'{prefix}-{fid}.{suffix}' for fid in features for suffix in ('squashfs', 'manifest.json'))
+    if target == 'radar_puffin':
+        names.update({'libreecho-install.zip', 'bundle.manifest'})
+    return names
+
+
 def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set[str]:
     """Checksum-covered OTA v2 metadata and signed replacement asset names.
 
@@ -1546,6 +1614,8 @@ def _v2_metadata_assets(release_dir: Path, prefix: str, release_tag: str) -> set
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise InstallerError("published feature asset inventory is unreadable") from error
+    if isinstance(inventory, dict) and inventory.get('schema') == 'libreecho-product-target-assets-v3':
+        return _target_metadata_assets(release_dir, prefix, release_tag, plan, inventory)
     if (not isinstance(inventory, dict)
             or inventory.get("schema") != "libreecho-product-feature-assets-v1"
             or inventory.get("transaction_type") != "system"

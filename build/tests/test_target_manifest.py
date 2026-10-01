@@ -76,7 +76,7 @@ class TargetManifestTests(unittest.TestCase):
                 self.assertEqual(values['minimum_updater_schema'], '3')
                 self.assertEqual(values['boot_size'], '16777216')
                 self.assertEqual(values['boot_sha256'], hashlib.sha256(boot.read_bytes()).hexdigest())
-                self.assertFalse(any('action' in k or '_base_' in k or 'activation' in k or 'runtime' in k or k == 'feature_policy' for k in values))
+                self.assertFalse(any(k.endswith('_action') or '_base_' in k or 'activation' in k or 'runtime' in k or k == 'feature_policy' for k in values))
                 provenance = json.loads((out / gate.provenance_name(target)).read_text())
                 refs = {(r['feature_id'], r['kind']): r for r in provenance['references']}
                 plan = json.loads((out / 'feature-plan.json').read_text())
@@ -118,9 +118,21 @@ class TargetManifestTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('identity', result.stderr)
 
+    def test_completeness_gate_rejects_legacy_action_plans(self):
+        from build.tests.test_release_completeness import fixture as legacy_fixture
+        plan, provenance, bundle = legacy_fixture(self.root)
+        with self.assertRaisesRegex(ContractError, 'forbidden'):
+            gate.validate_completeness(plan, self.root, provenance, bundle)
+
     def test_device_baseline_removed(self):
         self.assertFalse((CI / 'device_baseline.py').exists())
         self.assertFalse((CI.parent / 'tests/test_device_baseline.py').exists())
+
+    def test_build_entrypoint_has_no_baseline_or_runtime_inputs(self):
+        script = (CI.parent / 'build.sh').read_text()
+        for token in ('OTA_BASE_CATALOG', 'OTA_BASE_BOOTSTRAP', 'DEVICE_BASELINE', 'OTA_RUNTIME_DIR', 'plan-feature-transaction.py'):
+            self.assertNotIn(token, script)
+        self.assertIn('plan-target-manifest.py', script)
 
     def test_build_workflow_only_selects_v3_and_no_prior_catalog(self):
         workflow = (CI.parents[1] / '.github/workflows/build-release.yml').read_text()

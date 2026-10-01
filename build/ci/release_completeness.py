@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Fail-closed release/base closure without changing signed OTA plan semantics.
+"""Fail-closed immutable OTA v3 and recovery release closure.
 
-Bases have a separate inventory: ota-assets/ remains exactly the changed-only
-asset set enforced by Platform and Product. No manifest bytes are rewritten.
-
-Every entry point is target-aware. A combined release stages, ships and gates
-each selected target independently: the base namespace, the provenance
-document, the published feature plan/inventory/OTA prefix and the recovery
-bundle all carry the target's release slug, so a Radar artifact can never
-satisfy a Biscuit plan (or the reverse).
+Every target owns and publishes its complete content-addressed feature set.
+OTA and recovery must select the same bytes; neither prior releases nor device
+baselines participate in staging, shipping or validation.
 """
 from __future__ import annotations
 
@@ -68,98 +63,57 @@ def safe_name(value):
 
 
 def references(plan, target=DEFAULT):
-    records = validate_plan(plan, plan.get('release', ''), plan.get('source_commit', ''), target)
-    result = {}
-    for record in records:
-        fid = record['feature_id']
-        for kind in ('payload', 'manifest'):
-            result[fid, 'base', kind] = (record[f'base_{kind}_sha256'], None, None)
-            if record['action'] != 'preserve':
-                result[fid, 'target', kind] = (
-                    record['sha256' if kind == 'payload' else 'manifest_sha256'],
-                    record['asset' if kind == 'payload' else 'manifest_asset'],
-                    record['size' if kind == 'payload' else 'manifest_size'])
-    return result
+    from ota_v3_product import validate_plan as validate_target
+    return {(r['feature_id'], 'target', kind):
+            (r['sha256' if kind == 'payload' else 'manifest_sha256'],
+             r['asset' if kind == 'payload' else 'manifest_asset'],
+             r['size' if kind == 'payload' else 'manifest_size'])
+            for r in validate_target(plan, target) for kind in ('payload', 'manifest')}
 
 
 def validate_completeness(plan, assets, provenance, bundle=None, *, target=DEFAULT):
+    from ota_v3_product import validate_assets
     load_target(target)
     expected = references(plan, target)
-    keys = {'schema', 'target', 'references'}
-    if isinstance(provenance, dict) and 'bootstrap' in provenance:
-        # First release of a never-released, non-default target: every base is
-        # this build's own feature and every action is preserve.
-        keys = keys | {'bootstrap'}
-        if provenance['bootstrap'] is not True or target == DEFAULT:
-            fail('invalid bootstrap provenance')
-        if any(r['action'] != 'preserve' for r in plan['features']):
-            fail('bootstrap release must preserve every feature')
-    if not isinstance(provenance, dict) or set(provenance) != keys or provenance['schema'] != SCHEMA or provenance['target'] != target:
+    if (not isinstance(provenance, dict) or set(provenance) != {'schema', 'target', 'references'}
+            or provenance['schema'] != SCHEMA or provenance['target'] != target
+            or not isinstance(provenance['references'], list)):
         fail('release completeness provenance schema mismatch')
-    bootstrap = provenance.get('bootstrap') is True
-    records = provenance['references']
-    if not isinstance(records, list):
-        fail('release completeness references missing')
     checked = {}
-    for item in records:
+    for item in provenance['references']:
         if not isinstance(item, dict) or set(item) != {'feature_id', 'role', 'kind', 'name', 'sha256', 'size', 'source_release', 'source_asset'}:
             fail('malformed release completeness reference')
+        if item['source_release'] != plan['release']:
+            fail('completeness source release differs from target release')
         key = (item['feature_id'], item['role'], item['kind'])
         if key not in expected or key in checked:
             fail('unexpected or duplicate completeness reference')
-        name = safe_name(item['name'])
-        safe_name(item['source_asset'])
-        tag = item['source_release']
-        if not isinstance(tag, str) or (TAG.fullmatch(tag) is None and not (
-                (item['role'] == 'target' or bootstrap) and tag == 'current-build')):
-            fail('missing or invalid source release provenance')
-        wanted, target_name, target_size = expected[key]
-        if (item['sha256'] != wanted or type(item['size']) is not int or item['size'] < 1
-                or (target_name is not None and (name != target_name or item['size'] != target_size))):
-            fail('completeness reference disagrees with feature plan')
-        if item['role'] == 'base':
-            suffix = 'payload.squashfs' if item['kind'] == 'payload' else 'manifest.json'
-            if name != f"libreecho-{TARGETS[target]}-base-{item['feature_id']}-{wanted}.{suffix}":
-                fail('completeness base namespace mismatch')
-        if digest(assets / name) != (wanted, item['size']):
-            fail(f'completeness asset identity mismatch: {name}')
+        safe_name(item['name'])
+        if (item['source_asset'] != item['name'] or type(item['size']) is not int
+                or (item['sha256'], item['name'], item['size']) != expected[key]):
+            fail('completeness reference disagrees with target')
         checked[key] = item
     if set(checked) != set(expected):
-        fail(f'missing completeness references: {sorted(set(expected) - set(checked))}')
-    # Bind every full base manifest to its feature/payload/daemon; filenames are
-    # intentionally NOT changed when an original manifest is shipped as -base-.
-    for record in plan['features']:
-        fid = record['feature_id']
-        payload = checked[fid, 'base', 'payload']
-        manifest = load_json(assets / checked[fid, 'base', 'manifest']['name'], 'base feature manifest')
-        if (manifest.get('schema_version') != 1 or manifest.get('feature_id') != fid
-                or manifest.get('format') != 'squashfs-lz4'
-                or manifest.get('payload', {}).get('sha256') != payload['sha256']
-                or manifest.get('payload', {}).get('size') != payload['size']):
-            fail(f'base feature manifest/payload disagreement: {fid}')
-        if record['action'] == 'preserve' and manifest.get('files', {}).get(DAEMONS[fid], {}).get('sha256') != record['daemon_sha256']:
-            fail(f'preserved daemon identity mismatch: {fid}')
+        fail('missing completeness references')
+    validate_assets(plan, assets)
     if bundle is not None:
         validate_bundle(plan, assets, checked, bundle, target=target)
     return checked
 
 
 def install_features(plan, provenance, *, allow_runtime=False, target=DEFAULT):
-    """Select fresh-install bytes; never change the signed OTA actions."""
+    """Recovery always selects the exact same published target as OTA."""
     references(plan, target)
     indexed = {(p['feature_id'], p['role'], p['kind']): p for p in provenance['references']}
     result = []
     for record in plan['features']:
         fid = record['feature_id']
-        if record['action'] == 'runtime' and not allow_runtime:
-            fail(f'fresh-install recovery does not support runtime action: {fid}; Platform follow-up required')
-        role = 'target' if record['action'] == 'replace' else 'base'
         item = {'name': fid}
         for kind in ('payload', 'manifest'):
-            p = indexed.get((fid, role, kind))
-            if p is None:
-                fail(f'missing install-time {role} {kind}: {fid}')
-            item[kind] = {key: p[key] for key in ('name', 'sha256', 'size')}
+            ref = indexed.get((fid, 'target', kind))
+            if ref is None or ref['source_release'] != plan['release']:
+                fail(f'missing release-owned install-time {kind}: {fid}')
+            item[kind] = {key: ref[key] for key in ('name', 'sha256', 'size')}
         result.append(item)
     return result
 
@@ -219,162 +173,23 @@ def validate_bundle(plan, assets, checked, bundle, *, target=DEFAULT):
             fail(f'bundle pinned asset missing or digest mismatch: {name}')
 
 
-def _fetch_module():
-    spec = importlib.util.spec_from_file_location('fetch_base', Path(__file__).with_name('fetch-ota-base.py'))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def published_releases(root, fetch):
-    releases = []
-    for page in range(1, 101):
-        listing = root / f'releases-{page}.json'
-        fetch(API + f'/releases?per_page=100&page={page}', listing, 16 * 1024 * 1024)
-        batch = load_json(listing, 'GitHub release listing')
-        if not isinstance(batch, list):
-            fail('GitHub releases response is not a list')
-        releases.extend(r for r in batch if not r.get('draft') and TAG.fullmatch(r.get('tag_name', '')))
-        if len(batch) < 100:
-            return releases
-    fail('release listing exceeds pagination bound')
-
-
-def resolve_digest(wanted, releases, root, fetch):
-    for release in releases:
-        tag = release['tag_name']
-        for asset in release.get('assets', []):
-            if asset.get('digest') != 'sha256:' + wanted:
-                continue
-            name = safe_name(asset['name'])
-            url = DOWNLOAD + tag + '/' + name
-            size = asset.get('size')
-            if asset.get('browser_download_url') != url or type(size) is not int or not 0 < size <= 512 * 1024 * 1024:
-                fail('invalid published base asset URL/size')
-            path = root / wanted
-            if not path.exists():
-                fetch(url, path, size)
-            if digest(path) != (wanted, size):
-                fail('published base asset digest/size mismatch')
-            return path, tag, name
-    fail(f'referenced base not found in published releases: {wanted}')
-
-
-def _bootstrap_run(run, target):
-    path = run / 'CURRENT.candidate'
-    if not path.exists():
-        # Candidate-less staging (unit fixtures) can only be an ordinary,
-        # published-base run; bootstrap always requires the explicit marker.
-        return None
-    candidate = dict(line.split('=', 1) for line in path.read_text().splitlines() if '=' in line)
-    flag = candidate.get('ota_base_bootstrap', '0')
-    if flag not in ('0', '1'):
-        fail('invalid ota_base_bootstrap marker')
-    if flag == '1' and target == DEFAULT:
-        fail(f'{DEFAULT} can never be a bootstrap release')
-    return candidate if flag == '1' else None
-
-
-def _require_own_features(run, plan, candidate):
-    """A bootstrap base must be byte-for-byte this candidate's own features."""
-    for record in plan['features']:
-        fid = record['feature_id']
-        key = 'airplay' if fid == 'airplay2' else fid
-        own = (candidate.get(f'{key}_payload_sha256'), candidate.get(f'{key}_feature_manifest_sha256'))
-        if record['action'] != 'preserve' or (record['base_payload_sha256'], record['base_manifest_sha256']) != own:
-            fail(f'bootstrap base is not this build\'s own feature: {fid}')
-        for kind, suffix in (('payload', '.squashfs'), ('manifest', '.manifest.json')):
-            if digest(run / 'features' / (fid + suffix))[0] != record[f'base_{kind}_sha256']:
-                fail(f'bootstrap feature bytes changed: {fid}')
-
-
-def stage(run, catalog_path, *, target=DEFAULT):
-    load_target(target)
-    plan = load_json(run / 'feature-plan.json', 'feature plan')
-    expected = references(plan, target)
-    bootstrap = _bootstrap_run(run, target)
-    if bootstrap is not None:
-        _require_own_features(run, plan, bootstrap)
-        # The workflow's catalog is empty for a bootstrap target; use the
-        # exact catalog build.sh signed into this run's handoff.
-        catalog_path = run / 'ota-base-catalog.json'
-        if digest(catalog_path)[0] != bootstrap.get('ota_base_catalog_sha256'):
-            fail('bootstrap base catalog differs from the signed handoff')
-    catalog = load_json(catalog_path, 'base catalog')
-    dest = run / 'release-bases'
-    dest.mkdir(exist_ok=False)
-    records = []
-    fetch = _fetch_module().download
-    with tempfile.TemporaryDirectory(prefix='libreecho-base-resolve-') as directory:
-        scratch = Path(directory)
-        releases = None
-        for (fid, role, kind), (sha, target_name, size) in expected.items():
-            if role == 'target':
-                source = run / 'ota-assets' / target_name
-                tag, original, name = 'current-build', target_name, target_name
-            else:
-                if catalog.get('schema') == 'libreecho-dev-device-baseline-v1':
-                    if releases is None:
-                        releases = published_releases(scratch, fetch)
-                    source, tag, original = resolve_digest(sha, releases, scratch, fetch)
-                else:
-                    entry = catalog['features'][fid][kind]
-                    source = Path(entry['path'])
-                    provenance = catalog.get('sources', {}).get(fid, {}).get(kind, {})
-                    tag, original = provenance.get('release'), provenance.get('asset')
-                    if bootstrap is not None:
-                        tag, original = 'current-build', Path(entry['path']).name
-                    if entry['sha256'] != sha or digest(source) != (sha, entry['size']):
-                        fail('base catalog bytes disagree with plan')
-                suffix = 'payload.squashfs' if kind == 'payload' else 'manifest.json'
-                name = f'libreecho-{TARGETS[target]}-base-{fid}-{sha}.{suffix}'
-                shutil.copyfile(source, dest / name)
-                source = dest / name
-            actual, actual_size = digest(source)
-            if actual != sha or (size is not None and size != actual_size):
-                fail('staged release reference digest/size mismatch')
-            records.append(dict(feature_id=fid, role=role, kind=kind, name=name,
-                                sha256=sha, size=actual_size, source_release=tag, source_asset=original))
-    data = {'schema': SCHEMA, 'target': target, 'references': records}
-    if bootstrap is not None:
-        data['bootstrap'] = True
-    (run / provenance_name(target)).write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
-    with tempfile.TemporaryDirectory(prefix='libreecho-base-check-') as directory:
-        flat = Path(directory)
-        for item in records:
-            source = (dest if item['role'] == 'base' else run / 'ota-assets') / item['name']
-            shutil.copyfile(source, flat / item['name'])
-        validate_completeness(plan, flat, data, target=target)
-        install_features(plan, data, target=target)
+def stage(run, *, target=DEFAULT):
+    """Revalidate this run's complete target, never resolve another release."""
+    plan = load_json(run / 'feature-plan.json', 'target plan')
+    data = load_json(run / provenance_name(target), 'target completeness')
+    validate_completeness(plan, run / 'ota-assets', data, target=target)
     return data
 
 
 def ship(run, output, prefix, plan, *, target=DEFAULT):
-    """Copy verified bases plus portable provenance into a prepared release."""
-    load_target(target)
+    """Ship only release-owned provenance; assets were copied from ota-assets."""
     data = load_json(run / provenance_name(target), 'release completeness provenance')
-    data = json.loads(json.dumps(data))
-    paths = []
-    for item in data['references']:
-        if item['role'] == 'base':
-            name = safe_name(item['name'])
-            source = run / 'release-bases' / name
-            if digest(source) != (item['sha256'], item['size']):
-                fail('release base identity changed before assembly')
-            shutil.copyfile(source, output / name)
-            paths.append(output / name)
-            if item['source_release'] == 'current-build':
-                if data.get('bootstrap') is not True:
-                    fail('only a bootstrap base may come from the current build')
-                if prefix is not None:
-                    item['source_release'] = product_tag(prefix, target)
-        elif prefix is not None:
-            item['source_release'] = product_tag(prefix, target)
+    if prefix is not None and product_tag(prefix, target) != plan['release']:
+        fail('publication tag differs from signed target release')
     validate_completeness(plan, output, data, target=target)
     path = output / provenance_name(target)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
-    paths.append(path)
-    return data, paths
+    return data, [path]
 
 
 def _one(root, glob):
@@ -420,7 +235,10 @@ def check_assets(assets, bundle=None, *, target=DEFAULT):
     fields = dict(line.split('=', 1) for line in raw.splitlines())
     if fields.get('board') != target:
         fail('signed manifest target does not match selected completeness target')
-    validate_control_tar(ota, assets / f'{prefix}-ota-public-key.hex', 'v2', plan['release'],
+    references(plan, target)
+    if product_tag(prefix, target) != plan['release']:
+        fail('published tag differs from signed target release')
+    validate_control_tar(ota, assets / f'{prefix}-ota-public-key.hex', 'v3', plan['version'],
         feature_plan=plan, feature_inventory=inventory, feature_asset_dir=assets,
         expected_channel=fields['update_channel'], boot_path=assets / f'{prefix}-boot.img',
         expected_key_sha256=os.environ.get('LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256'),
@@ -439,26 +257,22 @@ def check_run(run, builder, *, target=DEFAULT):
     candidate = dict(line.split('=', 1) for line in (run / 'CURRENT.candidate').read_text().splitlines() if '=' in line)
     if candidate.get('board', DEFAULT) != target:
         fail('fresh-install completeness run target mismatch')
-    if candidate.get('ota_format', 'v1') != 'v2':
-        fail('fresh-install completeness requires an OTA v2 feature plan; v1 has no recovery feature contract')
+    if candidate.get('ota_format') != 'v3':
+        fail('fresh-install completeness requires an immutable OTA v3 target')
     plan, inventory, asset_dir, _ = load_feature_contract(run, candidate)
     data = load_json(run / provenance_name(target), 'release completeness provenance')
-    if (_bootstrap_run(run, target) is not None) != (data.get('bootstrap') is True):
-        fail('bootstrap provenance disagrees with the candidate')
-    if data.get('bootstrap') is True:
-        _require_own_features(run, plan, candidate)
     with tempfile.TemporaryDirectory(prefix='libreecho-recovery-gate-') as directory:
         flat = Path(directory) / 'assets'
         flat.mkdir()
         for item in data['references']:
-            source = (run / 'release-bases' if item['role'] == 'base' else asset_dir) / safe_name(item['name'])
+            source = asset_dir / safe_name(item['name'])
             shutil.copyfile(source, flat / item['name'])
         validate_completeness(plan, flat, data, target=target)
         ota = _one(run, '*.ota.tar')
         with tarfile.open(ota, 'r:') as tar:
             for name in ('manifest', 'manifest.sig'):
                 (flat / name).write_bytes(tar.extractfile(name).read())
-        validate_control_tar(ota, run / 'ota-public-key.hex', 'v2', plan['release'],
+        validate_control_tar(ota, run / 'ota-public-key.hex', candidate['ota_format'], plan.get('version', plan['release']),
             feature_plan=plan, feature_inventory=inventory, feature_asset_dir=asset_dir,
             expected_channel=candidate['update_channel'], boot_path=run / 'boot.img',
             expected_key_sha256=os.environ.get('LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256'),
@@ -539,7 +353,6 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     staging = sub.add_parser('stage')
     staging.add_argument('--run', type=Path, required=True)
-    staging.add_argument('--base-catalog', type=Path, required=True)
     staging.add_argument('--target', choices=list(KNOWN_TARGETS))
     recovery = sub.add_parser('record-recovery')
     recovery.add_argument('--assets', type=Path, required=True)
@@ -556,7 +369,7 @@ def main():
             # Derive the target from the run's own candidate board; a combined
             # build stages one run directory per selected target.
             target = args.target or _candidate_target(args.run)
-            stage(args.run, args.base_catalog, target=target)
+            stage(args.run, target=target)
             print(f'release_completeness=PASS target={target}')
             return 0
         if args.target:

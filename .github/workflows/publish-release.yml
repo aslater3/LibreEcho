@@ -5,11 +5,60 @@ on:
     workflows: ['Hosted LibreEcho build and release']
     types: [completed]
 
+  workflow_dispatch:
+    inputs:
+      advance_pointer:
+        description: Advance v3 only AFTER operator hardware validation (fresh install, no-op OTA, rollback, both boards)
+        type: boolean
+        required: true
+        default: false
+      release_tag:
+        description: Already published immutable v3 development release
+        type: string
+        required: true
+      target:
+        description: Validated board
+        type: choice
+        options: [radar_puffin, biscuit]
+        default: radar_puffin
+        required: true
+
 permissions:
   actions: read
   contents: write
 
 jobs:
+  advance-v3-pointer:
+    if: github.event_name == 'workflow_dispatch' && inputs.advance_pointer == true
+    runs-on: ubuntu-24.04
+    environment: ota-signing
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {fetch-depth: 1, persist-credentials: false}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with: {python-version: '3.11'}
+      - name: Install reviewed verification closure
+        run: |
+          python -m pip install --no-index --require-hashes \
+            --find-links build/inputs/reviewed/python-wheels \
+            -r build/inputs/reviewed/python-wheels/requirements.txt
+      - name: Verify immutable release and advance v3 only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ inputs.target }}
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^radar-puffin-(build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}$ ]] || exit 1
+          mkdir release-assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
+          python3 build/ci/publish_dev_pointer.py --advance-pointer true \
+            --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+            --head "$head" --assets release-assets --target "$TARGET"
+
   route-publication:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
@@ -201,26 +250,6 @@ jobs:
                 LC_ALL=C sort -r | tail -n +4
             )
           fi
-
-      - name: Advance verified dev discovery pointer
-        if: steps.prepare.outputs.signed == '1'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: >-
-          python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
-          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets
-
-      - name: Advance verified Biscuit dev discovery pointer (opt-in)
-        if: steps.prepare.outputs.signed == '1' && vars.LIBREECHO_PUBLISH_BISCUIT_DEV_POINTER == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: >-
-          python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
-          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets --target biscuit
 
   publish-stable:
     needs: route-publication

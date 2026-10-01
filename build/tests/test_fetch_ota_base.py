@@ -9,27 +9,12 @@ from unittest.mock import patch
 SCRIPT = Path(__file__).resolve().parents[1] / 'ci' / 'fetch-ota-base.py'
 
 class BaselineTests(unittest.TestCase):
-    def test_workflow_automatically_resolves_baseline(self):
+    def test_workflow_never_resolves_a_prior_baseline(self):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / '.github/workflows/build-release.yml').read_text()
-        inputs = workflow.split('permissions:', 1)[0]
-        self.assertNotIn('      ota_base_catalog_url:', inputs)
-        self.assertNotIn('      ota_base_catalog_sha256:', inputs)
-        self.assertIn('python3 build/ci/fetch-ota-bases.py --targets', workflow)
-        self.assertIn('LIBREECHO_OTA_BASE_CATALOGS:', workflow)
-        self.assertIn('--channel "$UPDATE_CHANNEL"', workflow)
-        self.assertIn('LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}', workflow)
-        self.assertIn('LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}', workflow)
-        self.assertIn('build.tests.test_fetch_ota_base', workflow)
-        spec = importlib.util.spec_from_file_location('inputs', root / 'build/ci/ota_v2_inputs.py')
-        assert spec is not None and spec.loader is not None
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        for release in ('0.13.11', '0.14.1'):
-            result = mod.validate_inputs('v2', release, '', '', 'workflow_dispatch', 'refs/heads/release/' + release)
-            self.assertEqual(result['ota_release'], release)
-        with self.assertRaises(mod.InputError):
-            mod.validate_inputs('v2', '0.14.1', '', '', 'workflow_dispatch', 'refs/heads/main')
+        for token in ('fetch-ota-bases.py', 'LIBREECHO_OTA_BASE_CATALOG', 'device_baseline'):
+            self.assertNotIn(token, workflow)
+        self.assertIn('options: [v3]', workflow)
 
     def test_release_assets_generate_local_catalog_and_reject_tampering(self):
         spec = importlib.util.spec_from_file_location('fetch_base', SCRIPT)
