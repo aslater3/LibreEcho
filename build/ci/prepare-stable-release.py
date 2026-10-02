@@ -190,9 +190,9 @@ def main() -> int:
     provenance = read_kv(run / "provenance.txt")
     sources = read_kv(run / "release-source-commits.txt")
     ota_format = candidate.get("ota_format", "v1")
-    if ota_format not in {"v1", "v2"}:
+    if ota_format not in {"v1", "v2", "v3"}:
         fail("candidate has an unsupported OTA format")
-    feature_contract = load_feature_contract(run, candidate) if ota_format == "v2" else None
+    feature_contract = load_feature_contract(run, candidate) if ota_format in {"v2", "v3"} else None
     feature_plan = feature_contract[0] if feature_contract else None
     feature_inventory = feature_contract[1] if feature_contract else None
     feature_asset_dir = feature_contract[2] if feature_contract else None
@@ -281,15 +281,15 @@ def main() -> int:
     public_key = run / "ota-public-key.hex"
     regular(public_key)
     validate_control_tar(
-        ota[0], public_key, ota_format, ota_format == "v2" and args.release_version or "",
+        ota[0], public_key, ota_format, ota_format in {"v2", "v3"} and args.release_version or "",
         expected_target=args.target,
         feature_plan=feature_plan,
         feature_inventory=feature_inventory,
         feature_asset_dir=feature_asset_dir,
-        expected_channel=candidate.get("update_channel") if ota_format == "v2" else None,
-        boot_path=run / "boot.img" if ota_format == "v2" else None,
+        expected_channel=candidate.get("update_channel") if ota_format in {"v2", "v3"} else None,
+        boot_path=run / "boot.img" if ota_format in {"v2", "v3"} else None,
         expected_key_sha256=(os.environ.get("LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256")
-                             if ota_format == "v2" else None),
+                             if ota_format in {"v2", "v3"} else None),
     )
 
     output = args.output_dir.resolve()
@@ -333,7 +333,8 @@ def main() -> int:
             destination = output / str(item["name"])
             shutil.copyfile(source, destination)
             copied.append(destination)
-        validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets, args.target)
+        if candidate['ota_format'] != 'v3':
+            validate_v2_publisher_asset_set(output, candidate["ota_release"], feature_assets, args.target)
         copy(
             run / "feature-plan.json", "feature-plan.json",
             sha256(run / "feature-plan.json"),
@@ -374,7 +375,7 @@ def main() -> int:
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if feature_plan is not None:
         release_data = json.loads(build_manifest.read_text(encoding="utf-8"))
-        release_data["ota_format"] = "v2"
+        release_data["ota_format"] = candidate["ota_format"]
         release_data["ota_release"] = candidate["ota_release"]
         release_data["feature_plan"] = feature_plan
         release_data["feature_assets"] = [

@@ -218,6 +218,9 @@ def validate_inventory(inventory: Any, records: list[dict[str, Any]], release: s
 
 def load_feature_contract(run: Path, candidate: dict[str, str]) -> tuple[dict[str, Any], dict[str, Any], Path, list[dict[str, Any]]]:
     """Load and verify the immutable v2 plan, inventory, and staged assets."""
+    if candidate.get("ota_format") == "v3":
+        from ota_v3_product import load_contract
+        return load_contract(run, candidate)
     if candidate.get("ota_format") != "v2":
         fail("candidate is not an OTA v2 build")
     release = candidate.get("ota_release", "")
@@ -479,6 +482,12 @@ def validate_control_tar(
     expected_target: str = DEFAULT,
 ) -> None:
     load_target(expected_target)
+    if expected_format == 'v3':
+        from ota_v3_product import validate_control
+        return validate_control(path, public_key, release, feature_plan=feature_plan,
+            feature_inventory=feature_inventory, feature_asset_dir=feature_asset_dir,
+            expected_channel=expected_channel, boot_path=boot_path,
+            expected_key_sha256=expected_key_sha256, expected_target=expected_target)
     raw = b""
     if path.is_symlink() or not path.is_file():
         fail("OTA control bundle is unavailable")
@@ -692,7 +701,7 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         for suffix in ("squashfs", "manifest.json")
     )
     ota_format = build.get("ota_format", "v1")
-    if ota_format == "v2":
+    if ota_format in {"v2", "v3"}:
         plan_path = output / f"{prefix}-feature-plan.json"
         inventory_path = output / f"{prefix}-feature-assets.json"
         standard.update({plan_path.name, inventory_path.name})
@@ -706,7 +715,7 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
         standard.update(str(item.get("name")) for item in feature_assets if isinstance(item, dict))
     elif ota_format != "v1":
         fail("stable build manifest has an unsupported OTA format")
-    if ota_format == 'v2':
+    if ota_format in {'v2', 'v3'}:
         from release_completeness import provenance_name, validate_completeness
         provenance = provenance_name(target)
         completeness = load_json(output / provenance, 'release completeness provenance')
@@ -727,9 +736,9 @@ def validate_stable_publisher(output: Path, release_tag: str, expected_key_sha25
 
     public_key = output / f"{prefix}-ota-public-key.hex"
     ota = output / f"{prefix}.ota.tar"
-    if ota_format == "v2":
+    if ota_format in {"v2", "v3"}:
         validate_control_tar(
-            ota, public_key, "v2", version, expected_target=target,
+            ota, public_key, ota_format, version, expected_target=target,
             feature_plan=plan, feature_inventory=inventory,
             feature_asset_dir=output, expected_channel="stable",
             boot_path=output / f"{prefix}-boot.img",

@@ -191,31 +191,23 @@ def add_v2_contract(run: Path, commits: dict[str, str], release: str = "0.14.0",
 
 
 class Tests(unittest.TestCase):
-    def test_signed_replacement_publishes_payload_and_manifest(self):
+    def test_signed_target_publishes_every_payload_and_manifest(self):
+        from build.tests.target_release_fixture import add_target_contract
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run, commits = fixture(root)
-            names = add_v2_contract(run, commits, action="replace")
-            ota = run / "development.ota.tar"
-            make_signed_ota(run, ota, "0.14.0", "v2", run / "feature-plan.json")
-            candidate = run / "CURRENT.candidate"
-            text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
-            text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
-            text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
-            candidate.write_text(text)
-            output = root / "release"
-            result = subprocess.run([
-                sys.executable, str(SCRIPT), "--artifact-root", str(root),
-                "--output-dir", str(output), "--product-commit", commits["product"],
-            ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(run / "ota-public-key.hex")},
-                text=True, capture_output=True, timeout=30)
+            plan = add_target_contract(run)
+            names = {r[k] for r in plan['features'] for k in ('asset', 'manifest_asset')}
+            output = root / 'release'
+            result = subprocess.run([sys.executable, str(SCRIPT), '--artifact-root', str(root), '--output-dir', str(output), '--product-commit', commits['product']], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}, text=True, capture_output=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
-            sums = next(output.glob("*-SHA256SUMS")).read_text()
-            published = json.loads(next(output.glob("*-build.json")).read_text())
-            self.assertEqual({item["name"] for item in published["feature_assets"]}, set(names.values()))
-            for name in names.values():
-                self.assertEqual((output / name).read_bytes(), (run / "ota-assets" / name).read_bytes())
-                self.assertIn(digest(output / name) + "  " + name, sums)
+            sums = next(output.glob('*-SHA256SUMS')).read_text()
+            published = json.loads(next(output.glob('*-build.json')).read_text())
+            self.assertEqual(published['ota_format'], 'v3')
+            self.assertEqual({item['name'] for item in published['feature_assets']}, names)
+            for name in names:
+                self.assertEqual((output / name).read_bytes(), (run / 'ota-assets' / name).read_bytes())
+                self.assertIn(digest(output / name) + '  ' + name, sums)
 
     def test_v2_asset_namespace_rejects_missing_extra_and_unsafe_members(self):
         sys.path.insert(0, str(ROOT / "build/ci"))
@@ -244,73 +236,34 @@ class Tests(unittest.TestCase):
                     with self.assertRaises(ContractError):
                         validate_v2_publisher_asset_set(out, "0.14.0", [{"name": name} for name in names])
 
-    def test_signed_all_preserve_publication_without_empty_asset_directory(self):
+    def test_target_publication_requires_all_assets_even_when_device_might_match(self):
         import shutil
+        from build.tests.target_release_fixture import add_target_contract
         for shape in ('missing', 'symlink', 'file'):
             with self.subTest(shape=shape), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 run, commits = fixture(root)
-                add_v2_contract(run, commits)
-                plan_path = run / 'feature-plan.json'
-                plan = json.loads(plan_path.read_text())
-                for record in plan['features']:
-                    record['action'] = 'preserve'
-                    for key in ('asset', 'size', 'sha256', 'manifest_asset', 'manifest_size', 'manifest_sha256'):
-                        record.pop(key, None)
-                plan_path.write_text(json.dumps(plan))
-                from build.tests.test_release_completeness import complete_v2_fixture
-                complete_v2_fixture(run)
-                inventory_path = run / 'feature-assets.json'
-                inventory = json.loads(inventory_path.read_text())
-                inventory['assets'] = []
-                inventory_path.write_text(json.dumps(inventory))
-                ota = run / 'development.ota.tar'
-                make_signed_ota(run, ota, '0.14.0', 'v2', plan_path)
-                candidate = run / 'CURRENT.candidate'
-                text = candidate.read_text().replace('ota_signing_mode=github\n', 'ota_signing_mode=local\n')
-                text = text.replace('ota_bundle=\n', 'ota_bundle=' + str(ota) + '\n')
-                text = text.replace('ota_bundle_sha256=\n', 'ota_bundle_sha256=' + digest(ota) + '\n')
-                candidate.write_text(text)
+                add_target_contract(run)
                 shutil.rmtree(run / 'ota-assets')
-                if shape == 'symlink':
-                    (run / 'ota-assets').symlink_to(root / 'absent')
-                elif shape == 'file':
-                    (run / 'ota-assets').write_text('not a directory')
-                result = subprocess.run([
-                    sys.executable, str(SCRIPT), '--artifact-root', str(root),
-                    '--output-dir', str(root / 'release'), '--product-commit', commits['product'],
-                ], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}, capture_output=True, text=True, timeout=30)
-                if shape == 'missing':
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertTrue(list((root / 'release').glob('*.ota.tar')))
-                else:
-                    self.assertNotEqual(result.returncode, 0)
+                if shape == 'symlink': (run / 'ota-assets').symlink_to(root / 'absent')
+                elif shape == 'file': (run / 'ota-assets').write_text('not a directory')
+                result = subprocess.run([sys.executable, str(SCRIPT), '--artifact-root', str(root), '--output-dir', str(root / 'release'), '--product-commit', commits['product']], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
 
-    def test_prepares_v2_external_assets_without_renaming_them(self) -> None:
+    def test_prepares_v3_content_addressed_assets_without_rewriting_bytes(self):
+        from build.tests.target_release_fixture import add_target_contract
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run, commits = fixture(root)
-            names = add_v2_contract(run, commits)
-            ota = run / "development.ota.tar"
-            make_signed_ota(run, ota, "0.14.0", "v2", run / "feature-plan.json")
-            candidate = run / "CURRENT.candidate"
-            text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
-            text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
-            text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
-            candidate.write_text(text)
-            output = root / "release"
-            result = subprocess.run([
-                sys.executable, str(SCRIPT), "--artifact-root", str(root),
-                "--output-dir", str(output), "--product-commit", commits["product"],
-            ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(run / "ota-public-key.hex")}, text=True, capture_output=True)
+            plan = add_target_contract(run)
+            output = root / 'release'
+            result = subprocess.run([sys.executable, str(SCRIPT), '--artifact-root', str(root), '--output-dir', str(output), '--product-commit', commits['product']], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue((output / names["payload"]).is_file())
-            self.assertTrue((output / names["manifest"]).is_file())
-            self.assertIn(names["payload"], (next(output.glob("*-SHA256SUMS"))).read_text())
-            release_manifest = json.loads(next(output.glob("*-build.json")).read_text())
-            self.assertEqual({item["name"] for item in release_manifest["feature_assets"]}, set(names.values()))
-            # Build metadata copies the target descriptor's acceptance decision.
-            self.assertIs(release_manifest["hardware_accepted"], True)
+            for record in plan['features']:
+                for name in (record['asset'], record['manifest_asset']):
+                    self.assertEqual((output / name).read_bytes(), (run / 'ota-assets' / name).read_bytes())
+            release = json.loads(next(output.glob('*-build.json')).read_text())
+            self.assertIs(release['hardware_accepted'], True)
 
     def test_rejects_invalid_v2_feature_asset_inventory(self) -> None:
         mutations = ("missing", "tampered", "mismatched", "duplicate", "unsafe", "partial")
@@ -506,52 +459,20 @@ class Tests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("does not match triggering workflow", result.stderr)
 
-    def test_packaged_dev_v2_release_passes_the_installer_prepare(self) -> None:
-        """The signed dev/nightly packager and the one-shot installer agree.
-
-        A v2 candidate with a replacement action publishes the plan and
-        inventory that name its replacement assets, and the installer's
-        ``_prepare`` accepts the exact produced directory end to end.
-        """
-        installer_path = ROOT / "tools" / "libreecho-install.py"
-        spec = importlib.util.spec_from_file_location("installer_e2e", installer_path)
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
+    def test_packaged_dev_v3_release_passes_installer_and_recovery_preparation(self):
+        from build.tests.target_release_fixture import add_target_contract
+        spec = importlib.util.spec_from_file_location('installer_v3_e2e', ROOT / 'tools/libreecho-install.py')
         installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(installer)
-
-        for action in ("runtime", "replace"):
-            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                run, commits = fixture(root)
-                names = add_v2_contract(run, commits, action=action)
-                ota = run / "development.ota.tar"
-                make_signed_ota(run, ota, "0.14.0", "v2", run / "feature-plan.json")
-                candidate = run / "CURRENT.candidate"
-                text = candidate.read_text().replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
-                text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
-                text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
-                candidate.write_text(text)
-                output = root / "release"
-                result = subprocess.run([
-                    sys.executable, str(SCRIPT), "--artifact-root", str(root),
-                    "--output-dir", str(output), "--product-commit", commits["product"],
-                ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(run / "ota-public-key.hex")},
-                    text=True, capture_output=True, timeout=60)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                bundle = next(output.glob("*-initial-install.tar")).name
-                prefix = bundle.removesuffix("-initial-install.tar")
-                release_tag = prefix.removeprefix("libreecho-")
-                sums = next(output.glob("*-SHA256SUMS")).read_text()
-                # The published plan/inventory and replacement assets are all
-                # checksum-covered, and the installer accepts the exact set.
-                for basename in ("feature-plan.json", "feature-assets.json"):
-                    self.assertTrue((output / f"{prefix}-{basename}").is_file())
-                    self.assertIn(f"{prefix}-{basename}", sums)
-                for name in names.values():
-                    self.assertIn(name, sums)
-                prepared, _ = installer._prepare(output, root / "cache", release_tag)
-                self.assertEqual(prepared["release"], release_tag)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run, commits = fixture(root)
+            plan = add_target_contract(run)
+            output = root / 'release'
+            result = subprocess.run([sys.executable, str(SCRIPT), '--artifact-root', str(root), '--output-dir', str(output), '--product-commit', commits['product']], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': digest(run / 'ota-public-key.hex')}, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            prepared, _ = installer._prepare(output, root / 'cache', plan['release'])
+            self.assertEqual(prepared['release'], plan['release'])
 
 
 if __name__ == "__main__":

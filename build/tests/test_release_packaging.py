@@ -195,11 +195,13 @@ def add_v2_contract(artifact_root: Path, release: str = "0.14.0", *, action: str
 
 
 class StableReleasePackagingTests(unittest.TestCase):
-    def test_stable_packager_stages_v2_external_assets_verbatim(self) -> None:
+    def test_stable_packager_stages_v3_owned_assets_verbatim(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifact_root, product = fixture(root)
-            names = add_v2_contract(artifact_root)
+            from build.tests.target_release_fixture import add_target_contract
+            plan = add_target_contract(artifact_root / 'run', channel='stable')
+            names = {r[k] for r in plan['features'] for k in ('asset', 'manifest_asset')}
             result = subprocess.run([
                 sys.executable, str(SCRIPT), "--artifact-root", str(artifact_root),
                 "--product-root", str(product), "--product-commit", "1" * 40,
@@ -209,10 +211,9 @@ class StableReleasePackagingTests(unittest.TestCase):
             ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(artifact_root / "run" / "ota-public-key.hex")}, text=True, capture_output=True)
             output = root / "release"
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue((output / names["payload"]).is_file())
-            self.assertTrue((output / names["manifest"]).is_file())
+            self.assertTrue(all((output / name).is_file() for name in names))
             release_manifest = json.loads(next(output.glob("*-build.json")).read_text())
-            self.assertEqual({item["name"] for item in release_manifest["feature_assets"]}, set(names.values()))
+            self.assertEqual({item["name"] for item in release_manifest["feature_assets"]}, names)
             self.assertIs(release_manifest["hardware_accepted"], True)
 
     def test_stable_packager_rejects_tampered_v2_external_asset(self) -> None:

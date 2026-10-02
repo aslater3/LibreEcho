@@ -69,15 +69,20 @@ class PointerTests(unittest.TestCase):
             gh.assert_not_called()
             run.assert_not_called()
 
-    def test_request_cli_is_required(self):
+    def test_sandbox_request_fails_before_github_even_when_advancing(self):
         from unittest.mock import patch
-        argv = ['pointer', '--repository', 'aslater3/LibreEcho', '--tag', self.tag,
-                '--head', 'a'*40, '--assets', str(self.root)]
-        with patch('sys.argv', argv), patch('build.ci.publish_dev_pointer.gh') as gh:
-            with self.assertRaises(SystemExit) as caught:
+        request = self.root/'release-request.json'
+        request.write_text(json.dumps(dict(schema='libreecho-release-request-v1',
+                                          purpose='sandbox', publish=False, channel='dev')))
+        argv = ['pointer', '--advance-pointer', 'true', '--repository', 'aslater3/LibreEcho',
+                '--tag', self.tag, '--head', 'a'*40, '--assets', str(self.root),
+                '--request', str(request)]
+        with patch('sys.argv', argv), patch('build.ci.publish_dev_pointer.gh') as gh, \
+             patch('build.ci.publish_dev_pointer.subprocess.run') as run:
+            with self.assertRaises(ValueError):
                 main()
-            self.assertEqual(caught.exception.code, 2)
             gh.assert_not_called()
+            run.assert_not_called()
 
     def test_dev_request_cli_accepts_both_targets_and_nightly_policy(self):
         from unittest.mock import patch
@@ -89,15 +94,20 @@ class PointerTests(unittest.TestCase):
             channel = ('radar-puffin' if target == 'radar_puffin' else target) + '-dev-channel'
             data = b'test-only-pointer\n'
             current = dict(tag_name=channel, draft=False, prerelease=True, assets=[])
-            verified = current | {'assets': [dict(name='release-pointer.txt', size=len(data),
+            verified = current | {'assets': [dict(name='release-pointer-v3.txt', size=len(data),
                          digest='sha256:'+hashlib.sha256(data).hexdigest())]}
-            argv = ['pointer', '--repository', 'aslater3/LibreEcho', '--tag', self.tag,
+            from build.ci.target_registry import asset_prefix
+            (self.root / (asset_prefix(self.tag, target) + '-build.json')).write_text(
+                json.dumps({'channel': 'dev', 'signed': True, 'ota_format': 'v3', 'board': target}))
+            argv = ['pointer', '--advance-pointer', 'true', '--repository', 'aslater3/LibreEcho', '--tag', self.tag,
                     '--head', 'a'*40, '--assets', str(self.root), '--target', target,
                     '--request', str(request)]
             with patch('sys.argv', argv), \
                  patch('build.ci.publish_dev_pointer.gh', side_effect=[json.dumps(self.release),
                        json.dumps(current), '', json.dumps(verified)]) as gh, \
                  patch('build.ci.publish_dev_pointer.pointer_bytes', return_value=data) as pointer, \
+                 patch.dict('sys.modules', {'build.ci.release_completeness':
+                            SimpleNamespace(check_assets=lambda *a, **k: None)}), \
                  patch('build.ci.publish_dev_pointer.subprocess.run', return_value=SimpleNamespace(returncode=0)):
                 main()
                 pointer.assert_called_once_with(self.root, self.tag, self.release, target)

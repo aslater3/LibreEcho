@@ -57,17 +57,13 @@ on:
         default: dfefe52f0eed7296012707cfff1f753b0ea33257
         type: string
       ota_format:
-        description: OTA contract; v2 is the release dispatch default (v1 remains the bridge format)
+        description: Immutable whole target-state OTA contract
         required: false
-        default: v2
+        default: v3
         type: choice
-        options: [v1, v2]
-      device_baseline_json:
-        description: Optional hash-only dev device migration baseline (manual v2 only)
-        required: false
-        type: string
+        options: [v3]
       ota_release:
-        description: OTA v2 candidate version (defaults to release branch version)
+        description: Target-state version (defaults to release branch version)
         required: false
         type: string
 
@@ -99,8 +95,6 @@ jobs:
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
       ota_format: ${{ steps.resolve.outputs.ota_format }}
       ota_release: ${{ steps.resolve.outputs.ota_release }}
-      ota_base_catalog_url: ${{ steps.resolve.outputs.ota_base_catalog_url }}
-      ota_base_catalog_sha256: ${{ steps.resolve.outputs.ota_base_catalog_sha256 }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -113,11 +107,8 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
-          OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
-          OTA_RELEASE_INPUT: ${{ inputs.ota_release || (inputs.ota_format == 'v2' && inputs.release_version) || '' }}
-          DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
-          OTA_BASE_CATALOG_URL_INPUT: ''
-          OTA_BASE_CATALOG_SHA256_INPUT: ''
+          OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v3' }}
+          OTA_RELEASE_INPUT: ${{ inputs.ota_release || inputs.release_version || '' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -194,24 +185,18 @@ jobs:
               ;;
             *) echo "ERROR: unsupported build purpose: $PURPOSE" >&2; exit 1 ;;
           esac
-          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
-            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$PURPOSE" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.14.0 ]] || {
-              echo "ERROR: device migration requires manual dev v2 release/0.14.0 dispatch" >&2; exit 1;
-            }
-            UPDATE_CHANNEL="$RELEASE_CHANNEL" python3 -c 'import os,sys; sys.path.insert(0,"build/ci"); from device_baseline import parse; parse(os.environ["DEVICE_BASELINE_JSON"], os.environ["UPDATE_CHANNEL"])'
+          # Resolve the target version without any baseline input.
+          if [[ -z "$OTA_RELEASE_INPUT" ]]; then
+            ref="${GITHUB_BASE_REF:-$GITHUB_REF_NAME}"
+            if [[ "$ref" == release/* ]]; then
+              OTA_RELEASE_INPUT="${ref#release/}"
+            else
+              OTA_RELEASE_INPUT=0.14.0
+            fi
           fi
-          # Release dispatches default to v2; non-dispatch builds retain v1.
-          if [[ "$OTA_FORMAT_INPUT" == v2 && -z "$OTA_RELEASE_INPUT" ]]; then
-            case "$GITHUB_REF" in
-              refs/heads/release/*) OTA_RELEASE_INPUT="${GITHUB_REF_NAME#release/}" ;;
-              *) echo "ERROR: OTA v2 requires a release/X.Y.Z ref (got $GITHUB_REF); select v1 for main builds" >&2; exit 1 ;;
-            esac
-          fi
-          python3 build/ci/ota_v2_inputs.py \
-            --format "$OTA_FORMAT_INPUT" --release "$OTA_RELEASE_INPUT" \
-            --base-catalog-url "$OTA_BASE_CATALOG_URL_INPUT" \
-            --base-catalog-sha256 "$OTA_BASE_CATALOG_SHA256_INPUT" \
-            --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" >> "$GITHUB_OUTPUT"
+          [[ "$OTA_FORMAT_INPUT" == v3 ]] || { echo "ERROR: new releases require v3" >&2; exit 1; }
+          [[ "$OTA_RELEASE_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid target version" >&2; exit 1; }
+          printf 'ota_format=v3\nota_release=%s\n' "$OTA_RELEASE_INPUT" >> "$GITHUB_OUTPUT"
           case "$SSH_ENABLED_INPUT" in
             disabled) SSH_ENABLED=0 ;;
             enabled) SSH_ENABLED=1 ;;
@@ -277,7 +262,11 @@ jobs:
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           else
-            printf 'release_tag=\n' >> "$GITHUB_OUTPUT"
+            source_id="$(printf '%s\n' "$PRODUCT_SHA" "$p" "$l" "$u" | sha256sum | cut -c1-16)"
+            build_id="$(printf '%s:%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | sha256sum | cut -c1-16)"
+            kind=build
+            [[ "$GITHUB_EVENT_NAME" != schedule ]] || kind=nightly
+            printf 'release_tag=radar-puffin-%s-%s-%s-%s\n' "$kind" "${PRODUCT_SHA:0:7}" "$source_id" "$build_id" >> "$GITHUB_OUTPUT"
           fi
 
   contract-checks:
@@ -332,12 +321,13 @@ jobs:
             build.tests.test_prepare_dev_release \
             build.tests.test_fetch_ota_base \
             build.tests.test_release_completeness \
-            build.tests.test_bootstrap_release \
             build.tests.test_marker_contract \
-            build.tests.test_device_baseline \
             build.tests.test_multi_target \
             build.tests.test_release_route \
             build.tests.test_publish_dev_pointer \
+            build.tests.test_publish_v3_pointer \
+            build.tests.test_target_manifest \
+            build.tests.test_ota_v3_release \
             build.tests.test_ota_v2_signing \
             build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
@@ -1215,39 +1205,6 @@ jobs:
           }
           echo "$shim" >> "$GITHUB_PATH"
 
-      - name: Resolve and verify prior GitHub release features
-        id: ota_base
-        timeout-minutes: 10
-        if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
-          DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
-          TARGETS: ${{ inputs.targets || 'radar_puffin' }}
-          # Operator-set repository variable naming never-released, non-Radar
-          # targets whose first release is fresh-install-only (all features
-          # preserved against this build's own bytes). fetch-ota-bases.py
-          # refuses it for Radar, for unselected targets, when a baseline
-          # exists, and for any lookup failure other than "no prior release".
-          BOOTSTRAP_TARGETS: ${{ vars.LIBREECHO_BOOTSTRAP_TARGETS || '' }}
-          UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
-          OTA_FORMAT: ${{ inputs.ota_format || 'v1' }}
-        run: |
-          set -euo pipefail
-          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
-            test "$TARGETS" = radar_puffin || { echo "ERROR: device migration baseline is radar-only in this hosted lane" >&2; exit 1; }
-            python3 build/ci/device_baseline.py
-          else
-            bootstrap=()
-            # Only targets actually selected in this run are passed through.
-            for t in ${BOOTSTRAP_TARGETS//,/ }; do
-              [[ ",$TARGETS," == *",$t,"* ]] && bootstrap+=("$t")
-            done
-            python3 build/ci/fetch-ota-bases.py --targets "$TARGETS" --release "$OTA_RELEASE" \
-              --bootstrap-targets "$(IFS=,; echo "${bootstrap[*]}")" \
-              --channel "$UPDATE_CHANNEL" \
-              --output-dir "$RUNNER_TEMP/ota-base" --github-output "$GITHUB_OUTPUT"
-          fi
 
       - name: Build image and features
         env:
@@ -1271,9 +1228,7 @@ jobs:
           LIBREECHO_OTA_SIGNING_KEY: ${{ needs.resolve-and-preflight.outputs.signing_mode == 'local' && format('{0}/ota-signing-key.hex', runner.temp) || '' }}
           LIBREECHO_OTA_FORMAT: ${{ needs.resolve-and-preflight.outputs.ota_format }}
           LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
-          LIBREECHO_OTA_BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
-          LIBREECHO_OTA_BASE_CATALOG_SHA256: ${{ steps.ota_base.outputs.sha256 }}
-          LIBREECHO_OTA_BASE_CATALOGS: ${{ steps.ota_base.outputs.catalogs }}
+          LIBREECHO_TARGET_RELEASE_TAG: ${{ needs.resolve-and-preflight.outputs.release_tag }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
@@ -1407,41 +1362,21 @@ jobs:
           cp "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/"*.py "${runs[0]}/"
           cp -r "$src/src/." "$dest/src/"
 
-      - name: Stage every referenced base and gate fresh-install completeness
+      - name: Stage immutable target and gate fresh-install completeness
         timeout-minutes: 15
-        # v1 builds (default push/PR/schedule) carry no feature plan and no
-        # recovery feature contract, so there is nothing to stage. Every v2
-        # build — the release dispatch default — remains fail-closed here and
-        # again in prepare-*-release.py before any publication.
-        if: needs.resolve-and-preflight.outputs.ota_format == 'v2'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_CATALOG: ${{ steps.ota_base.outputs.catalog }}
-          BASE_CATALOGS: ${{ steps.ota_base.outputs.catalogs }}
           LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/sources/platform
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
           test "${#runs[@]}" -ge 1
-          if [[ -z "$BASE_CATALOG" ]]; then
-            echo "ERROR: fresh-install completeness requires a verified OTA v2 base catalog" >&2
-            exit 1
-          fi
-          # One run directory per selected target. Each is staged and gated with
-          # its own target's base catalog; the builder is shared and idempotent.
           for run in "${runs[@]}"; do
-            target="$(sed -n 's/^board=//p' "$run/CURRENT.candidate" | head -n1)"
-            catalog="$BASE_CATALOG"
-            if [[ -n "$BASE_CATALOGS" && -f "$BASE_CATALOGS" && -n "$target" ]]; then
-              # A bootstrap record has no published catalog; stage then uses
-              # the run's own signed-handoff catalog and verifies it.
-              catalog="$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))[sys.argv[2]]; print(r.get("catalog") or sys.argv[3] + "/ota-base-catalog.json")' "$BASE_CATALOGS" "$target" "$run")"
+            python3 build/ci/release_completeness.py stage --run "$run"
+            if [[ "${{ needs.resolve-and-preflight.outputs.signing_mode }}" == local ]]; then
+              python3 build/ci/release_completeness.py check \
+                --run "$run" --builder "${runs[0]}/twrp-builder"
             fi
-            python3 build/ci/release_completeness.py stage \
-              --run "$run" --base-catalog "$catalog"
-            python3 build/ci/release_completeness.py check \
-              --run "$run" --builder "${runs[0]}/twrp-builder"
           done
 
       - name: Name build artifact
