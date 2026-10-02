@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from build.ci.publish_dev_pointer import pointer_bytes, validate_request, main
+# Imported explicitly so the CLI test can patch it when this module runs alone.
+import build.ci.release_completeness  # noqa: F401
 
 
 class PointerTests(unittest.TestCase):
