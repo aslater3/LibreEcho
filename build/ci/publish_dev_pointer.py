@@ -75,14 +75,19 @@ def main():
     p.add_argument('--tag', required=True)
     p.add_argument('--head', required=True)
     p.add_argument('--assets', required=True, type=Path)
-    p.add_argument('--request', required=True, type=Path)
+    # Optional: when supplied (automated lanes) it is validated before any
+    # other work, so a sandbox/prd request can never reach GitHub. The manual
+    # v3 advancement job has no request; pointer_bytes() still requires a
+    # published, signed dev prerelease, which only dev-purpose runs produce.
+    p.add_argument('--request', type=Path)
     a = p.parse_args()
+    if a.request is not None:
+        validate_request(a.request)
     if a.advance_pointer != 'true':
         print('dev_pointer=NOT_ADVANCED')
         return
     if a.repository != 'aslater3/LibreEcho' or not re.fullmatch('[a-f0-9]{40}', a.head):
         raise SystemExit('invalid publication scope')
-    validate_request(a.request)
     api = 'repos/' + a.repository + '/releases/tags/'
     source = json.loads(gh('api', api + a.tag))
     channel = load_target(a.target)["release_slug"] + "-dev-channel"

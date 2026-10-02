@@ -391,14 +391,9 @@ class Tests(unittest.TestCase):
    ('workflow_dispatch', 'main', 'sandbox', 'unknown', '', '', '', '', False),
    ('workflow_dispatch', 'main', 'dev', 'unsigned', '0.14.0', '', '', '', False),
   ]
-  from build.tests.test_device_baseline import DeviceBaselineTests
   import json
-  cases = [row + ('',) for row in cases]
-  baseline = json.dumps(DeviceBaselineTests().baseline())
-  cases += [('workflow_dispatch', 'release/0.14.0', 'sandbox', 'unsigned', '', 'sandbox', 'github', 'dev', False, baseline),
-            ('workflow_dispatch', 'release/0.14.0', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True, baseline)]
   script = script.replace('sys.path.insert(0,"build/ci")', 'sys.path.insert(0,'+json.dumps(str(ROOT/'build/ci'))+')')
-  for event, ref, purpose, signing, version, expected, mode, channel, success, baseline in cases:
+  for event, ref, purpose, signing, version, expected, mode, channel, success in cases:
    with self.subTest(event=event, ref=ref, purpose=purpose, signing=signing), tempfile.TemporaryDirectory() as tmp:
     out = Path(tmp)/'output'
     notes = Path(tmp)/'release/radar-puffin-v0.14.0.md'
@@ -407,9 +402,9 @@ class Tests(unittest.TestCase):
                GITHUB_REF_NAME=ref, GITHUB_BASE_REF='main', GITHUB_OUTPUT=str(out),
                PRODUCT_SHA='b'*40, BUILD_PURPOSE_INPUT=purpose, SANDBOX_SIGNING_INPUT=signing,
                RELEASE_VERSION=version, AMONET_TAG='test-only', SSH_ENABLED_INPUT='disabled',
-               DEVICE_BASELINE_JSON=baseline, OTA_FORMAT_INPUT='v2' if baseline else 'v1', OTA_RELEASE_INPUT='',
-               OTA_BASE_CATALOG_URL_INPUT='', OTA_BASE_CATALOG_SHA256_INPUT='',
-               PR_HEAD_REPOSITORY='', GITHUB_REPOSITORY='aslater3/LibreEcho', GITHUB_HEAD_REF='test')
+               OTA_FORMAT_INPUT='v3', OTA_RELEASE_INPUT='',
+               PR_HEAD_REPOSITORY='', GITHUB_REPOSITORY='aslater3/LibreEcho', GITHUB_HEAD_REF='test',
+               GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1')
     result = subprocess.run(['bash', '-c', stub+script], cwd=tmp, env=env,
                             capture_output=True, text=True)
     self.assertEqual(result.returncode == 0, success, result.stdout+result.stderr)
@@ -443,9 +438,13 @@ class Tests(unittest.TestCase):
   self.assertIn("retention-days: ${{ needs.resolve-and-preflight.outputs.purpose == 'sandbox' && 3 || 7 }}", W)
   self.assertIn('"purpose": os.environ["BUILD_PURPOSE"]', W)
   self.assertIn('"publish": os.environ["BUILD_PURPOSE"] != "sandbox"', W)
-  self.assertIn("jq -e '.purpose == \"dev\" and .publish == true'", PUBLISH)
-  self.assertLess(PUBLISH.index('Validate dev discovery purpose'), PUBLISH.index('Advance verified dev discovery pointer'))
-  self.assertIn('--request "$REQUEST_PATH"', PUBLISH)
+  # v3: the discovery pointer is never advanced by the automated publisher;
+  # only the manual, hardware-validated advance-v3-pointer dispatch moves it.
+  auto = PUBLISH.split('  publish-hosted-dev:', 1)[1].split('  publish-stable:', 1)[0]
+  self.assertNotIn('publish_dev_pointer.py', auto)
+  manual = PUBLISH.split('  advance-v3-pointer:', 1)[1].split('  route-publication:', 1)[0]
+  self.assertIn("inputs.advance_pointer == true", manual)
+  self.assertIn('--advance-pointer true', manual)
 
  def test_release_branch_dev_uses_release_component_refs(self):
   start = W.index('          component_ref=main')
