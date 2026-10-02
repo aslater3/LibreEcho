@@ -351,7 +351,7 @@ class Tests(unittest.TestCase):
   self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
   self.assertIn('LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}',W)
   self.assertIn("workflows: ['Hosted LibreEcho build and release']", PUBLISH)
-  self.assertIn("github.event.workflow_run.event == 'push'", PUBLISH)
+  self.assertNotIn("github.event.workflow_run.event == 'push'", PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
   self.assertNotIn("github.event.workflow_run.event == 'schedule'", PUBLISH)
   self.assertIn("github.event.workflow_run.head_branch == 'main'", PUBLISH)
@@ -407,10 +407,11 @@ class Tests(unittest.TestCase):
   stub = 'git() { printf "%s\trefs/heads/test\n" '+('a'*40)+'; }\n'
   cases = [
    ('pull_request', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
-   ('push', 'main', '', '', '', 'dev', 'local', 'dev', True),
+   ('push', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('push', 'release/0.14.0', '', '', '', 'sandbox', 'github', 'dev', True),
    ('schedule', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('workflow_dispatch', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
+   ('workflow_dispatch', 'main', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'sandbox', 'signed', '', 'sandbox', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'prd', 'unsigned', '0.14.0', 'prd', 'local', 'stable', True),

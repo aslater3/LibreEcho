@@ -10,6 +10,15 @@
 For changes spanning repositories, open a product issue here and link the
 component pull requests.
 
+## Development build promotion
+
+Pushes to `main` or `release/**` produce unsigned sandbox artifacts retained for
+3 days; routine merges neither publish a prerelease nor move the dev OTA pointer.
+The dev channel moves only through an explicit dispatch:
+`gh workflow run build-release.yml --ref <main|release/X.Y.Z> -f build_purpose=dev ...`
+with the selected ref's required inputs. Stable (`prd`) validation is unchanged.
+See [`build/README.md`](build/README.md) for the lane and signing contracts.
+
 ## Reports
 
 Before opening an issue, check for an existing report. Include exact steps,

@@ -24,8 +24,8 @@ def route(request, branch, event):
     if purpose == 'dev':
         if any(request.get(key) for key in ('version', 'release_tag', 'release_notes')):
             raise ValueError('dev request contains stable metadata')
-        if branch != 'main' and event != 'workflow_dispatch':
-            raise ValueError('dev publication requires main or manual dispatch')
+        if event != 'workflow_dispatch':
+            raise ValueError('dev publication requires manual dispatch')
         return 'dev'
     if purpose == 'prd':
         if not release or event != 'workflow_dispatch':

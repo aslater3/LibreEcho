@@ -10,12 +10,19 @@ artifact's release request; missing purpose fails closed. Manual runs use
 | `dev` | dev | Signed prerelease + dev discovery pointer; artifact retained 7 days. Dispatch on `main` or `release/**`. |
 | `prd` | stable | Signed stable release from matching `release/X.Y.Z`; artifact retained 7 days. |
 
-PRs and release-branch pushes derive sandbox; main pushes derive dev. Dev/prd
+PRs and pushes to `main` or `release/**` derive unsigned sandbox (3-day
+artifacts), never publication or pointer movement. Dev/prd
 are always signed and reject `sandbox_signing=signed`. Scheduled builds derive
 unsigned sandbox, keeping Actions caches warm with 3-day artifacts; the publisher
-rejects schedule events before downloading artifacts.
+accepts only dispatch events before downloading artifacts.
 Sandbox requests record `publish=false`; dev/prd record `publish=true`.
 Stable requests retain manual matching-release-branch and stable metadata gates.
+
+The dev channel moves only by an explicit dev dispatch:
+`gh workflow run build-release.yml --ref <main|release/X.Y.Z> -f build_purpose=dev ...`
+with the selected ref's required inputs. Publication routing requires
+`workflow_dispatch` for dev on both source lines; a dev request from a push or
+schedule fails closed, even if it carries signed artifacts.
 
 After a complete signed development build (never a scheduled sandbox) is
 published and its asset names, sizes, and SHA-256 digests match the verified

@@ -60,7 +60,8 @@ are deliberately separate. Manual runs default to `build_purpose=sandbox`:
 | `dev` | dev | Signed prerelease plus dev discovery pointer; artifact retained 7 days. Dispatch on `main` or `release/**`. |
 | `prd` | stable | Signed stable release from matching `release/X.Y.Z`; artifact retained 7 days. |
 
-PRs and release-branch pushes are sandbox builds. Main pushes are dev builds.
+PRs and pushes to `main` or `release/**` are unsigned sandbox builds: no
+publication or pointer movement, with 3-day artifact retention.
 `sandbox_signing=signed` is rejected for dev/prd (which are always signed).
 Scheduled builds are unsigned sandbox builds: the daily canary keeps Actions
 caches warm, retains artifacts for 3 days, and never publishes or moves discovery.
@@ -74,10 +75,13 @@ caches warm, retains artifacts for 3 days, and never publishes or moves discover
   server plus `dropbearkey` in the initramfs. The image uses password-only root
   login, does not include public-key authorization or persistent host keys, and
   records both binary hashes in the release manifest.
-- **Development:** pushes to `main` publish a bounded signed `dev`-channel GitHub
-  prerelease from the exact workflow artifact. Pull requests remain unsigned
-  validation-only builds. These releases are `PREPARED_NOT_FLASHED`, are not
-  marked latest, and are not hardware-acceptance evidence.
+- **Development:** only an explicit `workflow_dispatch` with `build_purpose=dev`
+  on `main` or `release/X.Y.Z` publishes a bounded signed `dev`-channel GitHub
+  prerelease from the exact workflow artifact and moves the dev discovery pointer.
+  Use `gh workflow run build-release.yml --ref <main|release/X.Y.Z> -f build_purpose=dev ...`
+  with the selected ref's required inputs. Routine merges only produce sandbox
+  artifacts. These releases are `PREPARED_NOT_FLASHED`, are not marked latest,
+  and are not hardware-acceptance evidence.
 - **Scheduled sandbox:** the daily `main` canary is unsigned and publishes nothing.
   Its verified Actions artifact expires after 3 days.
 - **Stable/product:** a maintainer manually dispatches the workflow from a
