@@ -1,9 +1,22 @@
 # Development OTA discovery
 
-The publisher classifies the exact successful build artifact's release request
-before choosing a channel. Main dev push/schedule/manual builds publish dev
-prereleases; release-branch dev builds publish only on manual dispatch. Stable
-requests retain manual matching-release-branch and stable metadata gates.
+The publisher requires an explicit purpose in the exact successful build
+artifact's release request; missing purpose fails closed. Manual runs use
+`build_purpose` (default `sandbox`):
+
+| Purpose | Channel | Publication / retention |
+| --- | --- | --- |
+| `sandbox` | dev | Never publishes or moves discovery; artifact expires after 3 days. Optional `sandbox_signing=signed`, otherwise unsigned. |
+| `dev` | dev | Signed prerelease + dev discovery pointer; artifact retained 7 days. Dispatch on `main` or `release/**`. |
+| `prd` | stable | Signed stable release from matching `release/X.Y.Z`; artifact retained 7 days. |
+
+PRs and release-branch pushes derive sandbox; main pushes derive dev. Dev/prd
+are always signed and reject `sandbox_signing=signed`. Scheduled builds retain
+the existing signed nightly behavior. The release-line pointer helper retains
+nightly-tag support; the default-branch publisher controls whether scheduled
+builds advance discovery (currently they do not).
+Sandbox requests record `publish=false`; dev/prd record `publish=true`.
+Stable requests retain manual matching-release-branch and stable metadata gates.
 
 After the complete immutable dev release is published and its asset names,
 sizes, and SHA-256 digests match the verified preparation, the publisher advances
@@ -28,4 +41,6 @@ checks remain mandatory, including for development-device migration packages.
 
 The `workflow_run` publisher must also be integrated into the default branch
 before a release-branch merge can change live downstream publication behavior.
+Its YAML runs from `main`, while routing/preparation scripts are checked out from
+the build commit: purpose derivation and routing must ship together.
 Build success, publication readback, and device installation are separate gates.

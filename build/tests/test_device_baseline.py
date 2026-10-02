@@ -41,12 +41,13 @@ class DeviceBaselineTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / '.github/workflows/build-release.yml').read_text()
         block = workflow.split('      - id: resolve', 1)[1].split('        run: |', 1)[1]
-        guard = textwrap.dedent(block.split('          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then', 1)[0])
+        guard = textwrap.dedent(block.split('          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then', 1)[1].split('          # Release dispatches default to v2;', 1)[0])
+        guard = 'set -euo pipefail\nif [[ -n "$DEVICE_BASELINE_JSON" ]]; then\n' + guard
         env = dict(os.environ, DEVICE_BASELINE_JSON=json.dumps(self.baseline()),
-                   GITHUB_EVENT_NAME='workflow_dispatch', RELEASE_CHANNEL='dev',
+                   GITHUB_EVENT_NAME='workflow_dispatch', PURPOSE='dev', RELEASE_CHANNEL='dev',
                    OTA_FORMAT_INPUT='v2', GITHUB_REF='refs/heads/release/0.14.0')
         self.assertEqual(subprocess.run(['bash', '-c', guard], env=env, cwd=root, capture_output=True, timeout=10).returncode, 0)
-        for key, value in [('RELEASE_CHANNEL', 'stable'), ('OTA_FORMAT_INPUT', 'v1'),
+        for key, value in [('PURPOSE', 'sandbox'), ('PURPOSE', 'prd'), ('OTA_FORMAT_INPUT', 'v1'),
                            ('GITHUB_EVENT_NAME', 'push'), ('GITHUB_REF', 'refs/heads/main'),
                            ('DEVICE_BASELINE_JSON', '{"serial":"private"}')]:
             result = subprocess.run(['bash', '-c', guard], env=env | {key: value}, cwd=root, capture_output=True, timeout=10)

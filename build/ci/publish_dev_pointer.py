@@ -26,6 +26,18 @@ def sha(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def validate_request(path):
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 8192:
+        raise ValueError('expected one bounded release request')
+    request = json.loads(path.read_text())
+    if (not isinstance(request, dict)
+            or request.get('schema') != 'libreecho-release-request-v1'
+            or request.get('purpose') != 'dev'
+            or request.get('publish') is not True
+            or request.get('channel') != 'dev'):
+        raise ValueError('dev pointer requires a publishable dev request')
+
+
 def pointer_bytes(root, tag, release, target=DEFAULT):
     prefix = asset_prefix(tag, target)
     if not TAG.fullmatch(tag) or release.get('tag_name') != tag:
@@ -62,9 +74,11 @@ def main():
     p.add_argument('--tag', required=True)
     p.add_argument('--head', required=True)
     p.add_argument('--assets', required=True, type=Path)
+    p.add_argument('--request', required=True, type=Path)
     a = p.parse_args()
     if a.repository != 'aslater3/LibreEcho' or not re.fullmatch('[a-f0-9]{40}', a.head):
         raise SystemExit('invalid publication scope')
+    validate_request(a.request)
     api = 'repos/' + a.repository + '/releases/tags/'
     source = json.loads(gh('api', api + a.tag))
     channel = load_target(a.target)["release_slug"] + "-dev-channel"
