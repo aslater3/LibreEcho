@@ -353,7 +353,7 @@ class Tests(unittest.TestCase):
   self.assertIn("workflows: ['Hosted LibreEcho build and release']", PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'push'", PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
-  self.assertIn("github.event.workflow_run.event == 'schedule'", PUBLISH)
+  self.assertNotIn("github.event.workflow_run.event == 'schedule'", PUBLISH)
   self.assertIn("github.event.workflow_run.head_branch == 'main'", PUBLISH)
   self.assertIn('prepare-dev-release.py', PUBLISH)
   self.assertIn('make_latest=false', PUBLISH)
@@ -362,8 +362,9 @@ class Tests(unittest.TestCase):
   self.assertIn('-F draft=true', PUBLISH)
   self.assertIn('-F draft=false', PUBLISH)
   self.assertIn('dev_release=ALREADY_PUBLISHED', PUBLISH)
-  self.assertIn('radar-puffin-nightly-', PUBLISH)
-  self.assertIn('nightly_retention=DELETED', PUBLISH)
+  self.assertNotIn('radar-puffin-nightly-', PUBLISH)
+  self.assertNotIn('nightly', PUBLISH)
+  self.assertIn('--release-kind development', PUBLISH)
   self.assertIn('group: publish-hosted-dev-channel', PUBLISH)
   self.assertIn('cancel-in-progress: false', PUBLISH)
   self.assertIn('-f ref="refs/tags/$tag" -f sha="$HEAD_SHA"', PUBLISH)
@@ -375,7 +376,9 @@ class Tests(unittest.TestCase):
   self.assertIn('python3 build/ci/release_route.py', PUBLISH)
   self.assertIn('python3 build/ci/publish_dev_pointer.py', PUBLISH)
   pointer_step = PUBLISH.split('      - name: Advance verified dev discovery pointer', 1)[1].split('\n      - ', 1)[0]
-  self.assertIn("github.event.workflow_run.event != 'schedule'", pointer_step)
+  self.assertNotIn('schedule', pointer_step)
+  self.assertIn("steps.prepare.outputs.signed == '1'", pointer_step)
+  self.assertIn('--request "$REQUEST_PATH"', pointer_step)
   self.assertIn('prepare-stable-release.py', PUBLISH)
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
@@ -406,7 +409,7 @@ class Tests(unittest.TestCase):
    ('pull_request', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('push', 'main', '', '', '', 'dev', 'local', 'dev', True),
    ('push', 'release/0.14.0', '', '', '', 'sandbox', 'github', 'dev', True),
-   ('schedule', 'main', '', '', '', 'dev', 'local', 'dev', True),
+   ('schedule', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('workflow_dispatch', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'sandbox', 'signed', '', 'sandbox', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),

@@ -68,10 +68,9 @@ curl -fL -o run-one-shot.sh "https://raw.githubusercontent.com/aslater3/LibreEch
 chmod +x run-one-shot.sh
 ```
 
-To deliberately install a development or nightly build, replace `latest` with
-that build's complete immutable `radar-puffin-build-*` or
-`radar-puffin-nightly-*` tag. Do not start the installer until the Echo and USB
-are prepared in sections 2–4.
+To deliberately install a development build, replace `latest` with
+that build's complete immutable `radar-puffin-build-*` tag. Do not start the
+installer until the Echo and USB are prepared in sections 2–4.
 
 The wrapper resolves `latest` through GitHub's public release API, rejects draft
 and prerelease results, and passes the resolved immutable tag to the installer.
@@ -125,7 +124,7 @@ contacts to the marked ground point—not a generic test pad.
    ./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
    ```
 
-   For a pinned development or nightly build, use its complete immutable tag
+   For a pinned development build, use its complete immutable tag
    only for maintainer-controlled test hardware—not the public installation
    flow.
 5. When the installer/Amonet prompt appears, touch the marked

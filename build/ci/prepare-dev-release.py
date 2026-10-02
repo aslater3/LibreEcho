@@ -65,22 +65,20 @@ def prepare_complete_initial_install(
     ota: Path,
     source_set_id: str,
     artifact_set_id: str,
-    release_kind: str,
 ) -> tuple[str, int]:
-    """Add the complete one-shot asset set to a dev or nightly release."""
+    """Add the complete one-shot asset set to a development release."""
     product = Path(__file__).resolve().parents[2]
     installer = product / "tools" / "libreecho-install.py"
     ota_key = run / "ota-public-key.hex"
     if not ota_key.is_file():
-        fail("nightly candidate is missing ota-public-key.hex")
+        fail("development candidate is missing ota-public-key.hex")
     if not installer.is_file():
         fail("Product installer source is missing")
-    tag_prefix = "radar-puffin-nightly" if release_kind == "nightly" else "radar-puffin-build"
-    release_tag = f"{tag_prefix}-{candidate['product_git_head'][:7]}-{source_set_id}-{artifact_set_id}"
+    release_tag = f"radar-puffin-build-{candidate['product_git_head'][:7]}-{source_set_id}-{artifact_set_id}"
     prefix = f"libreecho-{release_tag}"
     sources_dir = run / "features"
     if not sources_dir.is_dir():
-        fail("nightly candidate is missing its features directory")
+        fail("development candidate is missing its features directory")
     files: list[tuple[str, Path]] = [
         (f"{prefix}-boot.img", run / "boot.img"),
         (f"{prefix}.ota.tar", ota),
@@ -171,7 +169,7 @@ def prepare_complete_initial_install(
         "artifact_set_id": artifact_set_id,
         "board": "radar_puffin",
         "channel": "dev",
-        "kind": release_kind,
+        "kind": "development",
         "status": "PREPARED_NOT_FLASHED",
         "signed": True,
         "ota_bundle": True,
@@ -183,7 +181,7 @@ def prepare_complete_initial_install(
     (output / f"{prefix}-build.json").write_text(json.dumps(build_manifest, indent=2, sort_keys=True) + "\n")
     notes = output / f"{prefix}-release-notes.md"
     notes.write_text(
-        f"# LibreEcho {release_kind} {release_tag}\n\n"
+        f"# LibreEcho development {release_tag}\n\n"
         "This is a signed development build for controlled hardware testing. "
         "It includes the complete one-shot installer asset set. Status: "
         "PREPARED_NOT_FLASHED; no hardware acceptance is implied.\n"
@@ -199,7 +197,7 @@ def main() -> int:
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--product-commit", required=True)
-    parser.add_argument("--release-kind", choices=("development", "nightly"), default="development")
+    parser.add_argument("--release-kind", choices=("development",), default="development")
     args = parser.parse_args()
 
     if not COMMIT.fullmatch(args.product_commit):
@@ -288,7 +286,6 @@ def main() -> int:
         ("\n".join(sources[name] for name in ("product", "platform", "linux", "ui")) + "\n").encode()
     ).hexdigest()[:16]
     prefix = f"libreecho-radar-puffin-build-{args.product_commit[:7]}-{source_set_id}"
-    release_tag_prefix = "radar-puffin-nightly" if args.release_kind == "nightly" else "radar-puffin-build"
     copied: list[Path] = []
 
     def copy(source: Path, suffix: str, expected_hash: str, expected_size: str = "") -> None:
@@ -371,7 +368,7 @@ def main() -> int:
     sums.write_text("".join(
         f"{sha256(path)}  {path.name}\n" for path in sorted(copied)
     ), encoding="ascii")
-    if args.release_kind in {"development", "nightly"} and signed:
+    if signed:
         if len(ota_bundles) != 1:
             fail(f"{args.release_kind} one-shot artifact requires exactly one signed OTA")
         for path in output.iterdir():
@@ -379,7 +376,7 @@ def main() -> int:
                 path.unlink()
         release_tag, asset_count = prepare_complete_initial_install(
             run, output, candidate, sources, verification, ota_bundles[0],
-            source_set_id, artifact_set_id, args.release_kind,
+            source_set_id, artifact_set_id,
         )
         print(f"release_dir={output}")
         print(f"release_tag={release_tag}")
@@ -391,7 +388,7 @@ def main() -> int:
         print("ota_bundle=1")
         return 0
     print(f"release_dir={output}")
-    print(f"release_tag={release_tag_prefix}-{args.product_commit[:7]}-{source_set_id}-{artifact_set_id}")
+    print(f"release_tag=radar-puffin-build-{args.product_commit[:7]}-{source_set_id}-{artifact_set_id}")
     print(f"release_prefix={prefix}")
     print(f"source_set_id={source_set_id}")
     print(f"artifact_set_id={artifact_set_id}")

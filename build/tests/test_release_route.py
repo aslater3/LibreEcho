@@ -19,7 +19,7 @@ class ReleaseRouteTests(unittest.TestCase):
     def test_sandbox_never_publishes(self):
         for branch, event in [('main', 'push'), ('main', 'workflow_dispatch'),
                               ('release/0.13.11', 'workflow_dispatch'),
-                              ('release/0.13.11', 'push'), ('main', 'pull_request')]:
+                              ('release/0.13.11', 'push'), ('main', 'pull_request'), ('main', 'schedule')]:
             with self.subTest(branch=branch, event=event):
                 self.assertEqual(route(self.request(purpose='sandbox'), branch, event), 'none')
 
@@ -39,8 +39,14 @@ class ReleaseRouteTests(unittest.TestCase):
         self.assertEqual(route(request, 'untrusted/ref', 'untrusted-event'), 'none')
 
     def test_main_dev_events(self):
-        for event in ('push', 'schedule', 'workflow_dispatch'):
+        for event in ('push', 'workflow_dispatch'):
             self.assertEqual(route(self.request(), 'main', event), 'dev')
+
+    def test_schedule_publication_fails_closed(self):
+        for purpose, channel, branch in [('dev', 'dev', 'main'),
+                                         ('prd', 'stable', 'release/0.13.11')]:
+            with self.subTest(purpose=purpose), self.assertRaisesRegex(ValueError, 'unsupported publication event'):
+                route(self.request(channel, purpose), branch, 'schedule')
 
     def test_prd_retains_required_fields(self):
         request = self.request('stable')

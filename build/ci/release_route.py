@@ -16,7 +16,7 @@ def route(request, branch, event):
     channel = request.get('channel')
     if channel != ('stable' if purpose == 'prd' else 'dev'):
         raise ValueError('purpose/channel mismatch')
-    if event not in ('push', 'schedule', 'workflow_dispatch'):
+    if event not in ('push', 'workflow_dispatch'):
         raise ValueError('unsupported publication event')
     release = re.fullmatch(r'release/(\d+\.\d+\.\d+)', branch)
     if branch != 'main' and not release:

@@ -62,8 +62,8 @@ are deliberately separate. Manual runs default to `build_purpose=sandbox`:
 
 PRs and release-branch pushes are sandbox builds. Main pushes are dev builds.
 `sandbox_signing=signed` is rejected for dev/prd (which are always signed).
-Scheduled builds retain the existing signed nightly publication behavior and do
-not move the dev pointer.
+Scheduled builds are unsigned sandbox builds: the daily canary keeps Actions
+caches warm, retains artifacts for 3 days, and never publishes or moves discovery.
 
 - **PR validation:** pull requests targeting `main` or `release/**` build a
   no-publish OTA-profile image with the development channel. The run artifact is
@@ -78,10 +78,8 @@ not move the dev pointer.
   prerelease from the exact workflow artifact. Pull requests remain unsigned
   validation-only builds. These releases are `PREPARED_NOT_FLASHED`, are not
   marked latest, and are not hardware-acceptance evidence.
-- **Nightly:** the scheduled `main` run uses the same no-publish signed build but tags
-  its output as `radar-puffin-nightly-*`. After successful publication it keeps
-  only the three newest nightly prereleases and removes older nightly releases
-  and tags. Ordinary development prereleases are not affected.
+- **Scheduled sandbox:** the daily `main` canary is unsigned and publishes nothing.
+  Its verified Actions artifact expires after 3 days.
 - **Stable/product:** a maintainer manually dispatches the workflow from a
   matching `release/X.Y.Z` branch with `build_purpose=prd`, the release
   version, release notes, and the reviewed Amonet tag. The protected

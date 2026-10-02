@@ -11,12 +11,13 @@ artifact's release request; missing purpose fails closed. Manual runs use
 | `prd` | stable | Signed stable release from matching `release/X.Y.Z`; artifact retained 7 days. |
 
 PRs and release-branch pushes derive sandbox; main pushes derive dev. Dev/prd
-are always signed and reject `sandbox_signing=signed`. Scheduled builds retain
-the existing signed nightly behavior but never advance device discovery.
+are always signed and reject `sandbox_signing=signed`. Scheduled builds derive
+unsigned sandbox, keeping Actions caches warm with 3-day artifacts; the publisher
+rejects schedule events before downloading artifacts.
 Sandbox requests record `publish=false`; dev/prd record `publish=true`.
 Stable requests retain manual matching-release-branch and stable metadata gates.
 
-After a complete signed development build (never a scheduled nightly) is
+After a complete signed development build (never a scheduled sandbox) is
 published and its asset names, sizes, and SHA-256 digests match the verified
 preparation, the publisher advances
 `radar-puffin-dev-channel/release-pointer.txt`. This prerelease is a mutable

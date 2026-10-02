@@ -114,7 +114,7 @@ jobs:
                 PURPOSE=sandbox; SIGNING_MODE=github
               fi
               ;;
-            schedule) PURPOSE=dev ;;
+            schedule) PURPOSE=sandbox; SIGNING_MODE=github ;;
             workflow_dispatch)
               PURPOSE=${BUILD_PURPOSE_INPUT:-sandbox}
               sandbox_signing=${SANDBOX_SIGNING_INPUT:-unsigned}
