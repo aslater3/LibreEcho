@@ -4,8 +4,6 @@ from pathlib import Path
 import tempfile
 import unittest
 from build.ci.publish_dev_pointer import pointer_bytes, validate_request, main
-# Imported explicitly so the CLI test can patch it when this module runs alone.
-import build.ci.release_completeness  # noqa: F401
 
 
 class PointerTests(unittest.TestCase):
@@ -108,7 +106,8 @@ class PointerTests(unittest.TestCase):
                  patch('build.ci.publish_dev_pointer.gh', side_effect=[json.dumps(self.release),
                        json.dumps(current), '', json.dumps(verified)]) as gh, \
                  patch('build.ci.publish_dev_pointer.pointer_bytes', return_value=data) as pointer, \
-                 patch('build.ci.release_completeness.check_assets'), \
+                 patch.dict('sys.modules', {'build.ci.release_completeness':
+                            SimpleNamespace(check_assets=lambda *a, **k: None)}), \
                  patch('build.ci.publish_dev_pointer.subprocess.run', return_value=SimpleNamespace(returncode=0)):
                 main()
                 pointer.assert_called_once_with(self.root, self.tag, self.release, target)

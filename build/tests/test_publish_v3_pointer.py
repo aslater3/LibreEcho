@@ -16,18 +16,28 @@ class PointerV3Tests(unittest.TestCase):
         self.assertEqual(publisher.POINTER_ASSET, 'release-pointer-v3.txt')
 
     def test_workflow_requires_manual_hardware_validation_authorization(self):
-        import yaml
+        # Plain-text parse: the CI contract job has no YAML library.
         text = (ROOT / '.github/workflows/publish-release.yml').read_text()
-        data = yaml.safe_load(text)
-        dispatch = data.get('on', data.get(True))['workflow_dispatch']
-        self.assertFalse(dispatch['inputs']['advance_pointer']['default'])
-        self.assertEqual(dispatch['inputs']['advance_pointer']['type'], 'boolean')
-        jobs = data['jobs']
+        dispatch = text.split('  workflow_dispatch:\n', 1)[1].split('\npermissions:', 1)[0]
+        pointer = dispatch.split('      advance_pointer:\n', 1)[1].split('\n      release_tag:', 1)[0]
+        self.assertIn('        type: boolean', pointer)
+        self.assertIn('        default: false', pointer)
+        jobs = {}
+        body = text.split('\njobs:\n', 1)[1]
+        for chunk in ('\n' + body).split('\n  ')[1:]:
+            if chunk and not chunk.startswith(' ') and chunk.split('\n', 1)[0].endswith(':'):
+                name = chunk.split(':', 1)[0]
+                jobs[name] = chunk
+            elif jobs:
+                jobs[name] += '\n  ' + chunk
+        self.assertIn('advance-v3-pointer', jobs)
+        self.assertIn('publish-hosted-dev', jobs)
         for name, job in jobs.items():
-            if 'publish_dev_pointer.py' in json.dumps(job):
-                self.assertIn("github.event_name == 'workflow_dispatch'", job['if'])
-                self.assertIn('inputs.advance_pointer == true', job['if'])
-        self.assertNotIn('publish_dev_pointer.py', json.dumps(jobs['publish-hosted-dev']))
+            if 'publish_dev_pointer.py' in job:
+                cond = [l for l in job.splitlines() if l.strip().startswith('if:')][0]
+                self.assertIn("github.event_name == 'workflow_dispatch'", cond, name)
+                self.assertIn('inputs.advance_pointer == true', cond, name)
+        self.assertNotIn('publish_dev_pointer.py', jobs['publish-hosted-dev'])
 
     def test_cli_defaults_to_no_side_effect(self):
         with patch.object(sys, 'argv', ['publish_dev_pointer.py', '--repository', 'aslater3/LibreEcho', '--tag', 'unused', '--head', 'a'*40, '--assets', '/missing']), patch.object(publisher, 'gh') as gh, patch.object(publisher.subprocess, 'run') as run:
