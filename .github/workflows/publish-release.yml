@@ -251,6 +251,18 @@ jobs:
             )
           fi
 
+      - name: Validate dev discovery purpose
+        if: >-
+          steps.prepare.outputs.signed == '1' &&
+          github.event.workflow_run.event != 'schedule'
+        id: pointer-request
+        run: |
+          set -euo pipefail
+          mapfile -t requests < <(find verified-build -name release-request.json -type f)
+          test "${#requests[@]}" -eq 1
+          test ! -L "${requests[0]}"
+          jq -e '.purpose == "dev" and .publish == true' "${requests[0]}"
+          printf 'path=%s\n' "${requests[0]}" >> "$GITHUB_OUTPUT"
       - name: Advance verified dev discovery pointer
         if: >-
           steps.prepare.outputs.signed == '1' &&
@@ -259,9 +271,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REQUEST_PATH: ${{ steps.pointer-request.outputs.path }}
         run: >-
           python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
-          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets
+          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets --request "$REQUEST_PATH"
 
   publish-stable:
     needs: route-publication

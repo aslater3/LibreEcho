@@ -336,8 +336,8 @@ class Tests(unittest.TestCase):
   self.assertLess(download, install)
 
  def test_triggers_and_jobs(self):
-  self.assertIn("branches: [main, 'release/**']",W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertIn('update_channel:',W); self.assertIn('release_version:',W); self.assertIn('signing_mode:',W)
-  self.assertIn("SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}", W)
+  self.assertIn("branches: [main, 'release/**']",W); self.assertIn("cron: '17 3 * * *'",W); self.assertIn('workflow_dispatch:',W); self.assertIn('build_purpose:',W); self.assertIn('sandbox_signing:',W); self.assertNotIn('update_channel:',W); self.assertIn('release_version:',W); self.assertIn('signing_mode:',W)
+  self.assertIn('pull_request) PURPOSE=sandbox; SIGNING_MODE=github ;;', W)
   self.assertIn("'dev-release'", W)
   self.assertEqual(W.count("- '**/*.md'"), 2)
   self.assertEqual(W.count("- 'docs/**'"), 2)
@@ -393,6 +393,76 @@ class Tests(unittest.TestCase):
   self.assertIn('UI VERSION=', W)
   self.assertIn('"$GITHUB_BASE_REF" == release/*', W)
   self.assertIn('component_ref="$GITHUB_BASE_REF"', W)
+
+ def test_build_purpose_resolver(self):
+  import os, subprocess, tempfile, textwrap
+  step = W.split('      - id: resolve\n', 1)[1].split('\n  contract-checks:', 1)[0]
+  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+  # Execute the entire resolver with deterministic remote refs, not copied logic.
+  script = script.replace('python3 build/ci/resolve-source-set.py',
+                          'python3 "'+str(ROOT/'build/ci/resolve-source-set.py')+'"')
+  stub = 'git() { printf "%s\trefs/heads/test\n" '+('a'*40)+'; }\n'
+  cases = [
+   ('pull_request', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
+   ('push', 'main', '', '', '', 'dev', 'local', 'dev', True),
+   ('push', 'release/0.14.0', '', '', '', 'sandbox', 'github', 'dev', True),
+   ('schedule', 'main', '', '', '', 'dev', 'local', 'dev', True),
+   ('workflow_dispatch', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
+   ('workflow_dispatch', 'release/0.14.0', 'sandbox', 'signed', '', 'sandbox', 'local', 'dev', True),
+   ('workflow_dispatch', 'release/0.14.0', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),
+   ('workflow_dispatch', 'release/0.14.0', 'prd', 'unsigned', '0.14.0', 'prd', 'local', 'stable', True),
+   ('workflow_dispatch', 'main', 'prd', 'unsigned', '0.14.0', '', '', '', False),
+   ('workflow_dispatch', 'main', 'dev', 'signed', '', '', '', '', False),
+   ('workflow_dispatch', 'main', 'prd', 'signed', '0.14.0', '', '', '', False),
+   ('workflow_dispatch', 'main', 'unknown', 'unsigned', '', '', '', '', False),
+   ('workflow_dispatch', 'main', 'sandbox', 'unknown', '', '', '', '', False),
+   ('workflow_dispatch', 'main', 'dev', 'unsigned', '0.14.0', '', '', '', False),
+  ]
+  for event, ref, purpose, signing, version, expected, mode, channel, success in cases:
+   with self.subTest(event=event, ref=ref, purpose=purpose, signing=signing), tempfile.TemporaryDirectory() as tmp:
+    out = Path(tmp)/'output'
+    notes = Path(tmp)/'release/radar-puffin-v0.14.0.md'
+    notes.parent.mkdir(); notes.write_text('# LibreEcho radar-puffin v0.14.0\n')
+    env = dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF='refs/heads/'+ref,
+               GITHUB_REF_NAME=ref, GITHUB_BASE_REF='main', GITHUB_OUTPUT=str(out),
+               PRODUCT_SHA='b'*40, BUILD_PURPOSE_INPUT=purpose, SANDBOX_SIGNING_INPUT=signing,
+               RELEASE_VERSION=version, AMONET_TAG='test-only', SSH_ENABLED_INPUT='disabled')
+    result = subprocess.run(['bash', '-c', stub+script], cwd=tmp, env=env,
+                            capture_output=True, text=True)
+    self.assertEqual(result.returncode == 0, success, result.stdout+result.stderr)
+    if success:
+     outputs = dict(line.split('=', 1) for line in out.read_text().splitlines())
+     self.assertEqual(outputs['purpose'], expected)
+     self.assertEqual(outputs['signing_mode'], mode)
+     self.assertEqual(outputs['channel'], channel)
+     self.assertEqual(outputs['ssh_enabled'], '0')
+
+ def test_release_request_records_boolean_publication_intent(self):
+  import json, os, subprocess, tempfile, textwrap
+  step = W.split('      - name: Record release request and public OTA key', 1)[1].split('\n      # Ship', 1)[0]
+  body = step.split("<<'PY'\n", 1)[1].split('          PY', 1)[0]
+  for purpose in ('sandbox', 'dev', 'prd'):
+   with self.subTest(purpose=purpose), tempfile.TemporaryDirectory() as tmp:
+    request = Path(tmp)/'release-request.json'
+    env = dict(os.environ, BUILD_PURPOSE=purpose,
+               RELEASE_CHANNEL='stable' if purpose == 'prd' else 'dev',
+               RELEASE_VERSION='', RELEASE_NOTES='', AMONET_REPOSITORY='',
+               AMONET_TAG='', AMONET_COMMIT='', SSH_ENABLED='0')
+    result = subprocess.run(['python3', '-c', textwrap.dedent(body), str(request)],
+                            env=env, capture_output=True, text=True)
+    self.assertEqual(result.returncode, 0, result.stderr)
+    data = json.loads(request.read_text())
+    self.assertEqual(data['purpose'], purpose)
+    self.assertIs(data['publish'], purpose != 'sandbox')
+    self.assertEqual(data['schema'], 'libreecho-release-request-v1')
+
+ def test_purpose_artifact_and_pointer_wiring(self):
+  self.assertIn("retention-days: ${{ needs.resolve-and-preflight.outputs.purpose == 'sandbox' && 3 || 7 }}", W)
+  self.assertIn('"purpose": os.environ["BUILD_PURPOSE"]', W)
+  self.assertIn('"publish": os.environ["BUILD_PURPOSE"] != "sandbox"', W)
+  self.assertIn("jq -e '.purpose == \"dev\" and .publish == true'", PUBLISH)
+  self.assertLess(PUBLISH.index('Validate dev discovery purpose'), PUBLISH.index('Advance verified dev discovery pointer'))
+  self.assertIn('--request "$REQUEST_PATH"', PUBLISH)
 
  def test_release_branch_dev_uses_release_component_refs(self):
   start = W.index('          component_ref=main')

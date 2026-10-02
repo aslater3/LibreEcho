@@ -8,18 +8,26 @@ from pathlib import Path
 def route(request, branch, event):
     if not isinstance(request, dict) or request.get('schema') != 'libreecho-release-request-v1':
         raise ValueError('invalid release request')
+    purpose = request.get('purpose')
+    if purpose not in ('sandbox', 'dev', 'prd'):
+        raise ValueError('missing or invalid build purpose')
+    if purpose == 'sandbox':
+        return 'none'
+    channel = request.get('channel')
+    if channel != ('stable' if purpose == 'prd' else 'dev'):
+        raise ValueError('purpose/channel mismatch')
     if event not in ('push', 'schedule', 'workflow_dispatch'):
         raise ValueError('unsupported publication event')
     release = re.fullmatch(r'release/(\d+\.\d+\.\d+)', branch)
     if branch != 'main' and not release:
         raise ValueError('unsupported publication branch')
-    channel = request.get('channel')
-    if channel == 'dev':
+    if purpose == 'dev':
         if any(request.get(key) for key in ('version', 'release_tag', 'release_notes')):
             raise ValueError('dev request contains stable metadata')
-        # Release-branch push validation is not publication authorization.
-        return 'dev' if branch == 'main' or event == 'workflow_dispatch' else 'none'
-    if channel == 'stable':
+        if branch != 'main' and event != 'workflow_dispatch':
+            raise ValueError('dev publication requires main or manual dispatch')
+        return 'dev'
+    if purpose == 'prd':
         if not release or event != 'workflow_dispatch':
             raise ValueError('stable publication requires manual release branch')
         version = release.group(1)
