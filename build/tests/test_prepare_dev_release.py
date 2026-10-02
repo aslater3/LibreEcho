@@ -111,19 +111,10 @@ class Tests(unittest.TestCase):
             )
             self.assertEqual(check.returncode, 0, check.stderr)
 
-    def test_prepares_bounded_unsigned_nightly_release(self) -> None:
+    def test_rejects_nightly_release_kind_before_preparing_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            run, commits = fixture(root)
-            ota = run / "nightly.ota.tar"
-            ota.write_bytes(b"signed nightly ota")
-            candidate = run / "CURRENT.candidate"
-            text = candidate.read_text()
-            text = text.replace("ota_signing_mode=github\n", "ota_signing_mode=local\n")
-            text = text.replace("ota_bundle=\n", "ota_bundle=" + str(ota) + "\n")
-            text = text.replace("ota_bundle_sha256=\n", "ota_bundle_sha256=" + digest(ota) + "\n")
-            candidate.write_text(text)
-            (run / "ota-public-key.hex").write_text("a" * 64 + "\n")
+            _, commits = fixture(root)
             output = root / "release"
             result = subprocess.run([
                 sys.executable, str(SCRIPT),
@@ -132,12 +123,9 @@ class Tests(unittest.TestCase):
                 "--product-commit", commits["product"],
                 "--release-kind", "nightly",
             ], text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            files = {path.name for path in output.iterdir()}
-            self.assertEqual(len(files), 20)
-            self.assertIn("-initial-install.tar", next(name for name in files if name.endswith("-initial-install.tar")))
-            self.assertTrue(any(name.endswith("-installer.py") for name in files))
-            self.assertIn("asset_count=20", result.stdout)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("invalid choice: 'nightly'", result.stderr)
+            self.assertFalse(output.exists())
 
     def test_prepares_bounded_development_initial_install_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -14,7 +14,6 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       (github.event.workflow_run.event == 'push' ||
-       github.event.workflow_run.event == 'schedule' ||
        github.event.workflow_run.event == 'workflow_dispatch') &&
       (github.event.workflow_run.head_branch == 'main' ||
        startsWith(github.event.workflow_run.head_branch, 'release/'))
@@ -98,18 +97,17 @@ jobs:
           python -m pip install --disable-pip-version-check --no-index \
             --find-links "$wheelhouse" --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
-      - name: Prepare development or nightly release
+      - name: Prepare development release
         id: prepare
         env:
           LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
         run: |
           set -euo pipefail
           python3 build/ci/prepare-dev-release.py \
             --artifact-root verified-build \
             --product-commit "$HEAD_SHA" \
-            --release-kind "$RELEASE_KIND" \
+            --release-kind development \
             --output-dir release-assets | tee prepare-release.out
           grep -E '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle|asset_count)=' \
             prepare-release.out >>"$GITHUB_OUTPUT"
@@ -169,12 +167,11 @@ jobs:
 
           # Verifies the original assets and the two TWRP bundle files added above.
           (cd release-assets && sha256sum -c *-SHA256SUMS)
-      - name: Publish development or nightly prerelease
+      - name: Publish development prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
           RELEASE_SIGNED: ${{ steps.prepare.outputs.signed }}
           EXPECTED_ASSET_COUNT: ${{ steps.prepare.outputs.asset_count }}
         run: |
@@ -200,14 +197,14 @@ jobs:
           test "${#release_ids[@]}" -le 1
           release_id="${release_ids[0]:-}"
           if [[ "$RELEASE_SIGNED" == 1 ]]; then
-            release_body=$'Signed development/nightly OTA from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is a signed dev-channel OTA prerelease and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS and the OTA signature before use.'
+            release_body=$'Signed development OTA from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is a signed dev-channel OTA prerelease and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS and the OTA signature before use.'
           else
-            release_body=$'Unsigned development/nightly build from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.'
+            release_body=$'Unsigned development build from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.'
           fi
           if [[ -z "$release_id" ]]; then
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$tag" -f target_commitish="$HEAD_SHA" \
-              -f name="LibreEcho development/nightly build $short" \
+              -f name="LibreEcho development build $short" \
               -f body="$release_body" \
               -F draft=true -F prerelease=true -f make_latest=false --jq .id)"
           else
@@ -238,23 +235,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             --jq 'select(.draft == false and .prerelease == true) | .id' | grep -qx "$release_id"
           echo "dev_release=PASS tag=$tag assets=${#assets[@]}"
-          if [[ "$RELEASE_KIND" == nightly ]]; then
-            while IFS=$'\t' read -r created release_id old_tag; do
-              [[ -n "$release_id" ]] || continue
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$release_id" >/dev/null
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$old_tag" >/dev/null
-              echo "nightly_retention=DELETED tag=$old_tag created=$created"
-            done < <(
-              gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
-                --jq '.[] | select(.tag_name | startswith("radar-puffin-nightly-")) | [.created_at, (.id|tostring), .tag_name] | @tsv' |
-                LC_ALL=C sort -r | tail -n +4
-            )
-          fi
 
       - name: Validate dev discovery purpose
-        if: >-
-          steps.prepare.outputs.signed == '1' &&
-          github.event.workflow_run.event != 'schedule'
+        if: steps.prepare.outputs.signed == '1'
         id: pointer-request
         run: |
           set -euo pipefail
@@ -264,9 +247,7 @@ jobs:
           jq -e '.purpose == "dev" and .publish == true' "${requests[0]}"
           printf 'path=%s\n' "${requests[0]}" >> "$GITHUB_OUTPUT"
       - name: Advance verified dev discovery pointer
-        if: >-
-          steps.prepare.outputs.signed == '1' &&
-          github.event.workflow_run.event != 'schedule'
+        if: steps.prepare.outputs.signed == '1'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}

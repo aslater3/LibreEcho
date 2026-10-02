@@ -86,8 +86,8 @@ chmod +x run-one-shot.sh
 ./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
 ```
 
-Development and nightly tags are for maintainer-controlled test hardware only;
-they are not a public installation recommendation. Do not shorten, rename, or
+Immutable `radar-puffin-build-*` development tags are for maintainer-controlled
+test hardware only; they are not a public installation recommendation. Do not shorten, rename, or
 mix asset files from another release.
 
 `install` is only the host-side preparation/checkpoint action and does not touch
