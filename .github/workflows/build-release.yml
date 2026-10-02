@@ -15,12 +15,18 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
-      update_channel:
-        description: Release channel for this run
+      build_purpose:
+        description: Build lane (sandbox never publishes)
         required: true
-        default: dev
+        default: sandbox
         type: choice
-        options: [dev, stable]
+        options: [sandbox, dev, prd]
+      sandbox_signing:
+        description: Optional signing for sandbox builds only
+        required: true
+        default: unsigned
+        type: choice
+        options: [unsigned, signed]
       ssh_enabled:
         description: Include password-authenticated root SSH in the image
         required: true
@@ -65,6 +71,7 @@ jobs:
       linux_sha: ${{ steps.resolve.outputs.linux_sha }}
       ui_sha: ${{ steps.resolve.outputs.ui_sha }}
       source_set_id: ${{ steps.resolve.outputs.source_set_id }}
+      purpose: ${{ steps.resolve.outputs.purpose }}
       channel: ${{ steps.resolve.outputs.channel }}
       release_version: ${{ steps.resolve.outputs.release_version }}
       release_notes: ${{ steps.resolve.outputs.release_notes }}
@@ -77,11 +84,11 @@ jobs:
       - id: resolve
         env:
           PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          RELEASE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
+          BUILD_PURPOSE_INPUT: ${{ inputs.build_purpose || '' }}
+          SANDBOX_SIGNING_INPUT: ${{ inputs.sandbox_signing || '' }}
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
-          SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -95,13 +102,46 @@ jobs:
               *) echo "ERROR: unsupported build ref: $GITHUB_REF" >&2; exit 1 ;;
             esac
           fi
-          case "$RELEASE_CHANNEL" in
-            dev)
+          BUILD_PURPOSE_INPUT=${BUILD_PURPOSE_INPUT:-}
+          SANDBOX_SIGNING_INPUT=${SANDBOX_SIGNING_INPUT:-}
+          SIGNING_MODE=local
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) PURPOSE=sandbox; SIGNING_MODE=github ;;
+            push)
+              if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+                PURPOSE=dev
+              else
+                PURPOSE=sandbox; SIGNING_MODE=github
+              fi
+              ;;
+            schedule) PURPOSE=dev ;;
+            workflow_dispatch)
+              PURPOSE=${BUILD_PURPOSE_INPUT:-sandbox}
+              sandbox_signing=${SANDBOX_SIGNING_INPUT:-unsigned}
+              case "$sandbox_signing" in
+                unsigned) ;;
+                signed)
+                  [[ "$PURPOSE" == sandbox ]] || {
+                    echo "ERROR: sandbox_signing=signed requires sandbox purpose" >&2; exit 1;
+                  }
+                  ;;
+                *) echo "ERROR: unsupported sandbox_signing input: $sandbox_signing" >&2; exit 1 ;;
+              esac
+              if [[ "$PURPOSE" == sandbox && "$sandbox_signing" == unsigned ]]; then
+                SIGNING_MODE=github
+              fi
+              ;;
+            *) echo "ERROR: unsupported build event: $GITHUB_EVENT_NAME" >&2; exit 1 ;;
+          esac
+          case "$PURPOSE" in
+            sandbox|dev)
+              RELEASE_CHANNEL=dev
               [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || -z "$RELEASE_VERSION" ]] || {
-                echo "ERROR: release_version is only valid for stable dispatches" >&2; exit 1;
+                echo "ERROR: release_version is only valid for prd dispatches" >&2; exit 1;
               }
               ;;
-            stable)
+            prd)
+              RELEASE_CHANNEL=stable
               [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || {
                 echo "ERROR: stable builds require workflow_dispatch" >&2; exit 1;
               }
@@ -129,7 +169,7 @@ jobs:
                 echo "ERROR: stable releases require an amonet_tag input" >&2; exit 1;
               }
               ;;
-            *) echo "ERROR: unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
+            *) echo "ERROR: unsupported build purpose: $PURPOSE" >&2; exit 1 ;;
           esac
           case "$SSH_ENABLED_INPUT" in
             disabled) SSH_ENABLED=0 ;;
@@ -163,6 +203,7 @@ jobs:
           fi
           printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          printf 'purpose=%s\n' "$PURPOSE" >> "$GITHUB_OUTPUT"
           printf 'signing_mode=%s\n' "$SIGNING_MODE" >> "$GITHUB_OUTPUT"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
@@ -954,6 +995,7 @@ jobs:
 
       - name: Record release request and public OTA key
         env:
+          BUILD_PURPOSE: ${{ needs.resolve-and-preflight.outputs.purpose }}
           RELEASE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
           RELEASE_NOTES: ${{ needs.resolve-and-preflight.outputs.release_notes }}
@@ -973,6 +1015,8 @@ jobs:
           import json, os, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
               "schema": "libreecho-release-request-v1",
+              "purpose": os.environ["BUILD_PURPOSE"],
+              "publish": os.environ["BUILD_PURPOSE"] != "sandbox",
               "channel": os.environ["RELEASE_CHANNEL"],
               "version": os.environ["RELEASE_VERSION"],
               "release_tag": (f"radar-puffin-v{os.environ['RELEASE_VERSION']}"
@@ -1018,7 +1062,7 @@ jobs:
           name: libreecho-${{ steps.dev-build-name.outputs.value }}
           path: ${{ runner.temp }}/libreecho-build/out/runs/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: ${{ needs.resolve-and-preflight.outputs.purpose == 'sandbox' && 3 || 7 }}
           compression-level: 0
 
       # Save caches after the build. The kernel tree is saved only after a

@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from build.ci.publish_dev_pointer import pointer_bytes
+from build.ci.publish_dev_pointer import pointer_bytes, validate_request, main
 
 
 class PointerTests(unittest.TestCase):
@@ -39,6 +39,36 @@ class PointerTests(unittest.TestCase):
         release = self.release | {'tag_name': nightly}
         with self.assertRaisesRegex(ValueError, 'invalid immutable dev identity'):
             pointer_bytes(self.root, nightly, release)
+
+    def test_request_guard_accepts_only_publishable_dev(self):
+        request = dict(schema='libreecho-release-request-v1', purpose='dev', publish=True, channel='dev')
+        path = self.root/'release-request.json'
+        path.write_text(json.dumps(request))
+        validate_request(path)
+        for change in ({'purpose': 'sandbox'}, {'purpose': 'prd'}, {'purpose': None},
+                       {'publish': False}, {'publish': 1}, {'channel': 'stable'}):
+            path.write_text(json.dumps(request | change))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                validate_request(path)
+        path.unlink()
+        path.symlink_to(self.root/('libreecho-'+self.tag+'-build.json'))
+        with self.assertRaises(ValueError):
+            validate_request(path)
+
+    def test_sandbox_cli_fails_before_any_github_call(self):
+        from unittest.mock import patch
+        request = self.root/'release-request.json'
+        request.write_text(json.dumps(dict(schema='libreecho-release-request-v1',
+                                          purpose='sandbox', publish=False, channel='dev')))
+        argv = ['publish_dev_pointer.py', '--repository', 'aslater3/LibreEcho',
+                '--tag', self.tag, '--head', 'a'*40, '--assets', str(self.root),
+                '--request', str(request)]
+        with patch('sys.argv', argv), patch('build.ci.publish_dev_pointer.gh') as gh, \
+             patch('build.ci.publish_dev_pointer.subprocess.run') as run:
+            with self.assertRaises(ValueError):
+                main()
+            gh.assert_not_called()
+            run.assert_not_called()
 
     def test_rejects_symlink(self):
         (self.root/'extra').symlink_to('missing')

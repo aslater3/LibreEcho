@@ -20,6 +20,10 @@ on:
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'build/ci/release_route.py'
+      - 'build/ci/publish_dev_pointer.py'
+      - 'build/tests/test_release_route.py'
+      - 'build/tests/test_publish_dev_pointer.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -42,6 +46,10 @@ on:
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'build/ci/release_route.py'
+      - 'build/ci/publish_dev_pointer.py'
+      - 'build/tests/test_release_route.py'
+      - 'build/tests/test_publish_dev_pointer.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -92,6 +100,8 @@ jobs:
         run: |
           python3 tools/check-release-components.py \
             --release-scope community-noncommercial
+      - name: Verify build purpose and discovery routing
+        run: python -B -m unittest build.tests.test_release_route build.tests.test_publish_dev_pointer -v
       - name: Verify stable OTA packaging and publication contract
         run: |
           bash -n build/ci/publish-stable-release.sh
