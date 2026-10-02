@@ -2322,7 +2322,7 @@ python3 -B "$BUILDER" "${TARGET_TOOL_ARGS[@]}" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
   --dtb "$IMAGE_DTB" --expected-dtb-sha256 "$IMAGE_DTB_SHA256" \
   --output "$RUN/boot.img" \
-  --ramdisk-output "$RUN/boot.ramdisk.cpio.gz" \
+  --ramdisk-output "$RUN/boot.ramdisk.cpio.xz" \
   --manifest "$RUN/manifest.json" | tee "$RUN/build.log"
 
 bootsha="$(sha256sum "$RUN/boot.img" | awk '{print $1}')"
@@ -2332,7 +2332,7 @@ python3 -B "$VERIFIER" "${TARGET_TOOL_ARGS[@]}" \
   --boot-envelope "$BOOT_ENVELOPE" \
   --zimage "$RUN/zImage" --expected-zimage-sha256 "$zsha" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
-  --ramdisk "$RUN/boot.ramdisk.cpio.gz" --manifest "$RUN/manifest.json" \
+  --ramdisk "$RUN/boot.ramdisk.cpio.xz" --manifest "$RUN/manifest.json" \
   --boot-image "$RUN/boot.img" --expected-boot-sha256 "$bootsha" \
   --expected-busybox-sha256 "$busybox_sha" \
   --expected-musl-loader-sha256 "$musl_loader_sha" \
@@ -2790,7 +2790,7 @@ userdata_tree_manifest_sha256=$userdata_manifest_sha
 userdata_tree_bytes=$userdata_tree_bytes
 source_offer_index=$source_offer_index
 source_offer_manifest_sha256=$source_offer_manifest_sha256
-ramdisk=$RUN/boot.ramdisk.cpio.gz
+ramdisk=$RUN/boot.ramdisk.cpio.xz
 ota_bootctl_sha256=$ota_bootctl_sha
 ota_update_verifier_sha256=$ota_verifier_sha
 ota_public_key_sha256=$ota_public_key_sha
