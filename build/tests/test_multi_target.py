@@ -173,7 +173,7 @@ class DescriptorTests(unittest.TestCase):
                 amonet.assert_not_called()
 
     def test_route_accepts_targets_but_preserves_product_tag(self):
-        request = {'schema': 'libreecho-release-request-v1', 'channel': 'stable', 'version': '0.14.0',
+        request = {'schema': 'libreecho-release-request-v1', 'purpose': 'prd', 'publish': True, 'channel': 'stable', 'version': '0.14.0',
                    'release_tag': 'radar-puffin-v0.14.0', 'release_notes': 'release/radar-puffin-v0.14.0.md'}
         request.update(amonet_repository='https://github.com/aslater3/amonet-k32', amonet_tag='v1.0.0', amonet_commit=WORKING_AMONET_COMMIT, ssh_enabled='disabled')
         original = route(request, 'release/0.14.0', 'workflow_dispatch')

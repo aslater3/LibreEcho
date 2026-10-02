@@ -202,15 +202,26 @@ jobs:
             )
           fi
 
+      - name: Validate dev discovery purpose
+        if: steps.prepare.outputs.signed == '1'
+        id: pointer-request
+        run: |
+          set -euo pipefail
+          mapfile -t requests < <(find verified-build -name release-request.json -type f)
+          test "${#requests[@]}" -eq 1
+          test ! -L "${requests[0]}"
+          jq -e '.purpose == "dev" and .publish == true' "${requests[0]}"
+          printf 'path=%s\n' "${requests[0]}" >> "$GITHUB_OUTPUT"
       - name: Advance verified dev discovery pointer
         if: steps.prepare.outputs.signed == '1'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REQUEST_PATH: ${{ steps.pointer-request.outputs.path }}
         run: >-
           python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
-          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets
+          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets --request "$REQUEST_PATH"
 
       - name: Advance verified Biscuit dev discovery pointer (opt-in)
         if: steps.prepare.outputs.signed == '1' && vars.LIBREECHO_PUBLISH_BISCUIT_DEV_POINTER == 'true'
@@ -218,9 +229,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REQUEST_PATH: ${{ steps.pointer-request.outputs.path }}
         run: >-
           python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
-          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets --target biscuit
+          --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets --request "$REQUEST_PATH" --target biscuit
 
   publish-stable:
     needs: route-publication

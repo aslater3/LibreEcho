@@ -41,7 +41,7 @@ step performed by the mature builder from the same pinned ONNX Runtime source.
 ## Issuing a stable release
 
 Use GitHub only: open **Actions → Hosted LibreEcho build and release → Run
-workflow**, select the matching `release/X.Y.Z` branch, choose `stable`, and
+workflow**, select the matching `release/X.Y.Z` branch, choose `build_purpose=prd`, and
 provide the version plus the reviewed Amonet repository/tag/commit. The
 matching authored `release/radar-puffin-vX.Y.Z.md` file must already be checked
 in. The workflow validates that file before the expensive build, appends an
@@ -52,7 +52,18 @@ protected signing environment, and publishes the normal
 ## Product release lanes
 
 The Product repository owns all hosted image and release automation. The lanes
-are deliberately separate:
+are deliberately separate. Manual runs default to `build_purpose=sandbox`:
+
+| Purpose | Channel | Result |
+| --- | --- | --- |
+| `sandbox` | dev | No publication; verified artifact expires after 3 days. Unsigned by default; optional `sandbox_signing=signed`. |
+| `dev` | dev | Signed prerelease plus dev discovery pointer; artifact retained 7 days. Dispatch on `main` or `release/**`. |
+| `prd` | stable | Signed stable release from matching `release/X.Y.Z`; artifact retained 7 days. |
+
+PRs and release-branch pushes are sandbox builds. Main pushes are dev builds.
+`sandbox_signing=signed` is rejected for dev/prd (which are always signed).
+Scheduled builds retain the existing signed nightly publication behavior and do
+not move the dev pointer.
 
 - **PR validation:** pull requests targeting `main` or `release/**` build a
   no-publish OTA-profile image with the development channel. The run artifact is
@@ -77,7 +88,7 @@ are deliberately separate:
   only the three newest nightly prereleases and removes older nightly releases
   and tags. Ordinary development prereleases are not affected.
 - **Stable/product:** a maintainer manually dispatches the workflow from a
-  matching `release/X.Y.Z` branch with `update_channel=stable`, the release
+  matching `release/X.Y.Z` branch with `build_purpose=prd`, the release
   version, release notes, and the reviewed Amonet tag. The protected
   `stable-release` environment supplies `LIBREECHO_OTA_SIGNING_KEY_HEX`; the
   image job uses local signing and must produce exactly one signed OTA bundle.

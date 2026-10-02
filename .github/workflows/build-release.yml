@@ -20,12 +20,18 @@ on:
         required: true
         default: radar_puffin
         type: string
-      update_channel:
-        description: Release channel for this run
+      build_purpose:
+        description: Build lane (sandbox never publishes)
         required: true
-        default: dev
+        default: sandbox
         type: choice
-        options: [dev, stable]
+        options: [sandbox, dev, prd]
+      sandbox_signing:
+        description: Optional signing for sandbox builds only
+        required: true
+        default: unsigned
+        type: choice
+        options: [unsigned, signed]
       ssh_enabled:
         description: Include password-authenticated root SSH in the image
         required: true
@@ -84,6 +90,7 @@ jobs:
       linux_sha: ${{ steps.resolve.outputs.linux_sha }}
       ui_sha: ${{ steps.resolve.outputs.ui_sha }}
       source_set_id: ${{ steps.resolve.outputs.source_set_id }}
+      purpose: ${{ steps.resolve.outputs.purpose }}
       channel: ${{ steps.resolve.outputs.channel }}
       release_version: ${{ steps.resolve.outputs.release_version }}
       release_notes: ${{ steps.resolve.outputs.release_notes }}
@@ -101,7 +108,8 @@ jobs:
         env:
           PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
-          RELEASE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
+          BUILD_PURPOSE_INPUT: ${{ inputs.build_purpose || '' }}
+          SANDBOX_SIGNING_INPUT: ${{ inputs.sandbox_signing || '' }}
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
@@ -110,15 +118,8 @@ jobs:
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
           OTA_BASE_CATALOG_URL_INPUT: ''
           OTA_BASE_CATALOG_SHA256_INPUT: ''
-          SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
         run: |
           set -euo pipefail
-          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
-            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_CHANNEL" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.14.0 ]] || {
-              echo "ERROR: device migration requires manual dev v2 release/0.14.0 dispatch" >&2; exit 1;
-            }
-            UPDATE_CHANNEL="$RELEASE_CHANNEL" python3 -c 'import os,sys; sys.path.insert(0,"build/ci"); from device_baseline import parse; parse(os.environ["DEVICE_BASELINE_JSON"], os.environ["UPDATE_CHANNEL"])'
-          fi
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             case "$GITHUB_BASE_REF" in
               main|release/*) ;;
@@ -130,13 +131,46 @@ jobs:
               *) echo "ERROR: unsupported build ref: $GITHUB_REF" >&2; exit 1 ;;
             esac
           fi
-          case "$RELEASE_CHANNEL" in
-            dev)
+          BUILD_PURPOSE_INPUT=${BUILD_PURPOSE_INPUT:-}
+          SANDBOX_SIGNING_INPUT=${SANDBOX_SIGNING_INPUT:-}
+          SIGNING_MODE=local
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) PURPOSE=sandbox; SIGNING_MODE=github ;;
+            push)
+              if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+                PURPOSE=dev
+              else
+                PURPOSE=sandbox; SIGNING_MODE=github
+              fi
+              ;;
+            schedule) PURPOSE=dev ;;
+            workflow_dispatch)
+              PURPOSE=${BUILD_PURPOSE_INPUT:-sandbox}
+              sandbox_signing=${SANDBOX_SIGNING_INPUT:-unsigned}
+              case "$sandbox_signing" in
+                unsigned) ;;
+                signed)
+                  [[ "$PURPOSE" == sandbox ]] || {
+                    echo "ERROR: sandbox_signing=signed requires sandbox purpose" >&2; exit 1;
+                  }
+                  ;;
+                *) echo "ERROR: unsupported sandbox_signing input: $sandbox_signing" >&2; exit 1 ;;
+              esac
+              if [[ "$PURPOSE" == sandbox && "$sandbox_signing" == unsigned ]]; then
+                SIGNING_MODE=github
+              fi
+              ;;
+            *) echo "ERROR: unsupported build event: $GITHUB_EVENT_NAME" >&2; exit 1 ;;
+          esac
+          case "$PURPOSE" in
+            sandbox|dev)
+              RELEASE_CHANNEL=dev
               [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || -z "$RELEASE_VERSION" ]] || {
-                echo "ERROR: release_version is only valid for stable dispatches" >&2; exit 1;
+                echo "ERROR: release_version is only valid for prd dispatches" >&2; exit 1;
               }
               ;;
-            stable)
+            prd)
+              RELEASE_CHANNEL=stable
               [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || {
                 echo "ERROR: stable builds require workflow_dispatch" >&2; exit 1;
               }
@@ -164,8 +198,14 @@ jobs:
                 echo "ERROR: stable releases require an amonet_tag input" >&2; exit 1;
               }
               ;;
-            *) echo "ERROR: unsupported release channel: $RELEASE_CHANNEL" >&2; exit 1 ;;
+            *) echo "ERROR: unsupported build purpose: $PURPOSE" >&2; exit 1 ;;
           esac
+          if [[ -n "$DEVICE_BASELINE_JSON" ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$PURPOSE" == dev && "$OTA_FORMAT_INPUT" == v2 && "$GITHUB_REF" == refs/heads/release/0.14.0 ]] || {
+              echo "ERROR: device migration requires manual dev v2 release/0.14.0 dispatch" >&2; exit 1;
+            }
+            UPDATE_CHANNEL="$RELEASE_CHANNEL" python3 -c 'import os,sys; sys.path.insert(0,"build/ci"); from device_baseline import parse; parse(os.environ["DEVICE_BASELINE_JSON"], os.environ["UPDATE_CHANNEL"])'
+          fi
           # Release dispatches default to v2; non-dispatch builds retain v1.
           if [[ "$OTA_FORMAT_INPUT" == v2 && -z "$OTA_RELEASE_INPUT" ]]; then
             case "$GITHUB_REF" in
@@ -238,6 +278,7 @@ jobs:
           fi
           printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          printf 'purpose=%s\n' "$PURPOSE" >> "$GITHUB_OUTPUT"
           printf 'signing_mode=%s\n' "$SIGNING_MODE" >> "$GITHUB_OUTPUT"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
@@ -1195,7 +1236,7 @@ jobs:
           # refuses it for Radar, for unselected targets, when a baseline
           # exists, and for any lookup failure other than "no prior release".
           BOOTSTRAP_TARGETS: ${{ vars.LIBREECHO_BOOTSTRAP_TARGETS || '' }}
-          UPDATE_CHANNEL: ${{ inputs.update_channel || 'dev' }}
+          UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           OTA_FORMAT: ${{ inputs.ota_format || 'v1' }}
         run: |
           set -euo pipefail
@@ -1313,6 +1354,7 @@ jobs:
 
       - name: Record release request and public OTA key
         env:
+          BUILD_PURPOSE: ${{ needs.resolve-and-preflight.outputs.purpose }}
           TARGETS: ${{ inputs.targets || 'radar_puffin' }}
           RELEASE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
@@ -1336,6 +1378,8 @@ jobs:
           import json, os, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
               "schema": "libreecho-release-request-v1",
+              "purpose": os.environ["BUILD_PURPOSE"],
+              "publish": os.environ["BUILD_PURPOSE"] != "sandbox",
               "targets": os.environ["TARGETS"].split(","),
               "channel": os.environ["RELEASE_CHANNEL"],
               "version": os.environ["RELEASE_VERSION"],
@@ -1422,7 +1466,7 @@ jobs:
           name: libreecho-${{ steps.dev-build-name.outputs.value }}
           path: ${{ runner.temp }}/libreecho-build/out/runs/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: ${{ needs.resolve-and-preflight.outputs.purpose == 'sandbox' && 3 || 7 }}
           compression-level: 0
 
       # Save caches after the build. The kernel tree is saved only after a
