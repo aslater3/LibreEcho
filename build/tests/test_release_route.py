@@ -38,9 +38,14 @@ class ReleaseRouteTests(unittest.TestCase):
         request = self.request(purpose='sandbox') | {'channel': 'stable', 'publish': True}
         self.assertEqual(route(request, 'untrusted/ref', 'untrusted-event'), 'none')
 
-    def test_main_dev_events(self):
-        for event in ('push', 'schedule', 'workflow_dispatch'):
-            self.assertEqual(route(self.request(), 'main', event), 'dev')
+    def test_main_dev_dispatch_publishes(self):
+        self.assertEqual(route(self.request(), 'main', 'workflow_dispatch'), 'dev')
+
+    def test_non_dispatch_dev_fails_closed(self):
+        for branch in ('main', 'release/0.14.0'):
+            for event in ('push', 'schedule', 'pull_request'):
+                with self.subTest(branch=branch, event=event), self.assertRaises(ValueError):
+                    route(self.request(), branch, event)
 
     def test_prd_retains_required_fields(self):
         request = self.request('stable')

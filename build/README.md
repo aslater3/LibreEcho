@@ -60,10 +60,11 @@ are deliberately separate. Manual runs default to `build_purpose=sandbox`:
 | `dev` | dev | Signed prerelease plus dev discovery pointer; artifact retained 7 days. Dispatch on `main` or `release/**`. |
 | `prd` | stable | Signed stable release from matching `release/X.Y.Z`; artifact retained 7 days. |
 
-PRs and release-branch pushes are sandbox builds. Main pushes are dev builds.
+PRs and pushes to `main` or `release/**` are unsigned sandbox builds: no
+publication or pointer movement, with 3-day artifact retention.
 `sandbox_signing=signed` is rejected for dev/prd (which are always signed).
-Scheduled builds retain the existing signed nightly publication behavior and do
-not move the dev pointer.
+The release-line scheduled build resolver remains unchanged, but scheduled
+requests fail closed at publication routing and cannot move the dev pointer.
 
 - **PR validation:** pull requests targeting `main` or `release/**` build a
   no-publish OTA-profile image with the development channel. The run artifact is
@@ -79,14 +80,16 @@ not move the dev pointer.
   records all three binary hashes in the release manifest. The protected
   `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional and is not consumed by
   the build, because the image accepts no root password.
-- **Development:** pushes to `main` publish a bounded signed `dev`-channel GitHub
-  prerelease from the exact workflow artifact. Pull requests remain unsigned
-  validation-only builds. These releases are `PREPARED_NOT_FLASHED`, are not
-  marked latest, and are not hardware-acceptance evidence.
-- **Nightly:** the scheduled `main` run uses the same no-publish signed build but tags
-  its output as `radar-puffin-nightly-*`. After successful publication it keeps
-  only the three newest nightly prereleases and removes older nightly releases
-  and tags. Ordinary development prereleases are not affected.
+- **Development:** only an explicit `workflow_dispatch` with `build_purpose=dev`
+  on `main` or `release/X.Y.Z` publishes a bounded signed `dev`-channel GitHub
+  prerelease from the exact workflow artifact and moves the dev discovery pointer.
+  Use `gh workflow run build-release.yml --ref <main|release/X.Y.Z> -f build_purpose=dev ...`
+  with the selected ref's required inputs. Routine merges only produce sandbox
+  artifacts. These releases are `PREPARED_NOT_FLASHED`, are not marked latest,
+  and are not hardware-acceptance evidence.
+- **Scheduled validation:** this release line retains its existing signed build
+  derivation and retention, but publication routing rejects scheduled dev requests.
+  The live default-branch schedule is an unsigned sandbox canary.
 - **Stable/product:** a maintainer manually dispatches the workflow from a
   matching `release/X.Y.Z` branch with `build_purpose=prd`, the release
   version, release notes, and the reviewed Amonet tag. The protected
