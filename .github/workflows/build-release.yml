@@ -136,13 +136,7 @@ jobs:
           SIGNING_MODE=local
           case "$GITHUB_EVENT_NAME" in
             pull_request) PURPOSE=sandbox; SIGNING_MODE=github ;;
-            push)
-              if [[ "$GITHUB_REF" == refs/heads/main ]]; then
-                PURPOSE=dev
-              else
-                PURPOSE=sandbox; SIGNING_MODE=github
-              fi
-              ;;
+            push) PURPOSE=sandbox; SIGNING_MODE=github ;;
             schedule) PURPOSE=dev ;;
             workflow_dispatch)
               PURPOSE=${BUILD_PURPOSE_INPUT:-sandbox}
