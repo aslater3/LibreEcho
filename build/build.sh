@@ -1033,7 +1033,10 @@ if [[ -f "$radar_machine_source" && -f "$radar_codec_header" &&
   require_source_marker "$radar_machine_source" \
     'RADAR_PUFFIN_DAC_PROCESSING_BLOCK' 'PRB_P2 profile'
   require_source_marker "$radar_machine_source" \
-    'radar_speaker_apply_profile(component)' 'speaker coefficients'
+    'radar_speaker_apply_profile(component, priv->speaker_profile)' \
+    'speaker coefficients (selected per-target codec profile, Radar default)'
+  require_source_marker "$radar_machine_source" \
+    'RADAR_SPEAKER_PROFILE_RADAR = 0' 'Radar crossover as the default codec profile'
   radar_volume_contract="$KERNEL_SRC/sound/soc/mediatek/mt8163/test_radar_puffin_volume_preservation.py"
   [[ -f "$radar_volume_contract" && ! -L "$radar_volume_contract" ]] || {
     echo "ERROR: Radar-Puffin PCM volume preservation contract missing: $radar_volume_contract" >&2
