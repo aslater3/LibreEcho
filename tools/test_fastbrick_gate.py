@@ -179,6 +179,37 @@ class KaeruGateTests(unittest.TestCase):
                         self.plan(fake, target, amonet="x.zip")
                     self.assertFalse(any("flash" in c for c in fake.calls))
 
+    def test_transport_errors_are_never_read_as_a_stock_unit(self):
+        errors = (
+            "FAILED (command write failed (No such device))",
+            "FAILED (status read failed (Protocol error))",
+            "fastboot: error: usb_write failed with status e00002ed\nFAILED (command write failed (Unknown error))",
+            "FAILED (unable to open device)",
+            "FAILED",
+        )
+        for target, spec in TARGETS.items():
+            for text in errors:
+                with self.subTest(target=target, text=text):
+                    fake = FakeFastboot(spec["product"], kaeru_mode="stock", lk=spec["lk_ok"][0])
+                    original = fake.run
+                    def run(argv, timeout, *, check=True, _o=original, _t=text):
+                        if argv[-2:] == ["oem", "kaeru-version"]:
+                            fake.calls.append(list(argv))
+                            return completed(argv, 1, "", _t)
+                        return _o(argv, timeout, check=check)
+                    with mock.patch.object(INSTALLER, "_run_command", side_effect=run):
+                        with self.assertRaisesRegex(INSTALLER.InstallerError, "could not be determined"):
+                            INSTALLER.plan_fastbrick("fb", "SERIAL", target, "x.zip", Path(tempfile.mkdtemp()))
+                    self.assertFalse(any("flash" in c for c in fake.calls))
+
+    def test_every_real_stock_refusal_wording_is_accepted_as_stock(self):
+        wordings = ("FAILunknown command\n", "FAILED (remote: 'unknown command')",
+                    "FAILED (remote: 'not allowed in locked state')", "FAILED (remote: 'unsupported command')")
+        for text in wordings:
+            with self.subTest(text=text):
+                with mock.patch.object(INSTALLER, "_run_command", return_value=completed(["x"], 1, "", text)):
+                    self.assertIsNone(INSTALLER.identify_kaeru("fb", "SERIAL"))
+
     def test_already_unlocked_unit_skips_the_brick_without_probing_kaeru(self):
         fake = FakeFastboot("RADAR", unlocked=True, kaeru_mode="silent", lk=RADAR_NEW)
         self.assertIsNone(self.plan(fake, amonet=None))

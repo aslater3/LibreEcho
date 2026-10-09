@@ -204,11 +204,13 @@ class DescriptorTests(unittest.TestCase):
                  mock.patch.object(INSTALLER, 'verify_fastboot_product', return_value='radar_puffin'), \
                  mock.patch.object(INSTALLER, 'fastboot_getvar', return_value='false'), \
                  mock.patch.object(INSTALLER, 'validate_public_boot_image'), \
-                 mock.patch.object(INSTALLER, '_run_command') as command:
+                 mock.patch.object(INSTALLER, '_run_command',
+                                   return_value=subprocess.CompletedProcess([], 1, '', 'FAILunknown command\n')) as command:
                 with self.assertRaisesRegex(INSTALLER.InstallerError, 'requires --amonet-zip'):
                     INSTALLER.one_shot(root, None, release_tag='radar-puffin-v0.14.0', cache_root=root / 'cache',
                         state_root=root / 'state', target='radar_puffin', execute_hardware=True)
-                command.assert_not_called()
+                # Only the read-only Kaeru identity probe may run before the refusal.
+                self.assertEqual([call.args[0][-2:] for call in command.call_args_list], [['oem', 'kaeru-version']])
 
     def test_route_accepts_targets_but_preserves_product_tag(self):
         request = {'schema': 'libreecho-release-request-v1', 'purpose': 'prd', 'publish': True, 'channel': 'stable', 'version': '0.14.0',

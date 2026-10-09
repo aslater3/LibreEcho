@@ -158,6 +158,13 @@ AMONET_PINS = {
     },
 }
 FASTBRICK_RETRY_SECONDS = 2
+# A stock bootloader refuses `oem kaeru-version`; anything else is indeterminate.
+FASTBOOT_COMMAND_REFUSED = re.compile(
+    r"FAIL(?:ED)?\s*\(?\s*(?:remote:?\s*)?'?\s*(?:unknown command|not allowed|not supported|unsupported|invalid command|unrecognized)",
+    re.IGNORECASE)
+FASTBOOT_TRANSPORT_ERROR = re.compile(
+    r"write failed|read failed|usb_|no devices|no permissions|protocol error|cannot (?:open|claim)|unable to|disconnected|timed out|I/O error",
+    re.IGNORECASE)
 ONE_SHOT_PHASES = {
     "RELEASE_READY", "AMONET_VERIFIED", "AMONET_HANDOFF", "FASTBOOT_READY",
     "BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED", "FEATURES_STAGED",
@@ -516,7 +523,11 @@ def identify_kaeru(fastboot_bin: str, serial: str) -> str | None:
     """
     result = _run_command([fastboot_bin, "-s", serial, "oem", "kaeru-version"], 20, check=False)
     output = f"{result.stdout}\n{result.stderr}"
-    if "FAIL" in output and "OKAY" not in output:
+    # Only a deliberate bootloader refusal proves a stock chain. A bare FAIL is
+    # not enough: transport errors ("command write failed", "status read
+    # failed", usb_write failures) also contain FAIL and say nothing about the unit.
+    if (result.returncode != 0 and "OKAY" not in output and not FASTBOOT_TRANSPORT_ERROR.search(output)
+            and FASTBOOT_COMMAND_REFUSED.search(output)):
         return None
     if result.returncode == 0 and "OKAY" in output and "FAIL" not in output:
         info = re.search(r"INFO\s*(.+)", output)

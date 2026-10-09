@@ -401,7 +401,7 @@ class Tests(unittest.TestCase):
     env = dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF='refs/heads/'+ref,
                GITHUB_REF_NAME=ref, GITHUB_BASE_REF='main', GITHUB_OUTPUT=str(out),
                PRODUCT_SHA='b'*40, BUILD_PURPOSE_INPUT=purpose, SANDBOX_SIGNING_INPUT=signing,
-               RELEASE_VERSION=version, AMONET_TAG='test-only', SSH_ENABLED_INPUT='disabled',
+               RELEASE_VERSION=version, SSH_ENABLED_INPUT='disabled',
                OTA_FORMAT_INPUT='v3', OTA_RELEASE_INPUT='',
                PR_HEAD_REPOSITORY='', GITHUB_REPOSITORY='aslater3/LibreEcho', GITHUB_HEAD_REF='test',
                GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1')
@@ -424,8 +424,7 @@ class Tests(unittest.TestCase):
     request = Path(tmp)/'release-request.json'
     env = dict(os.environ, BUILD_PURPOSE=purpose,
                RELEASE_CHANNEL='stable' if purpose == 'prd' else 'dev',
-               RELEASE_VERSION='', RELEASE_NOTES='', TARGETS='radar_puffin', AMONET_REPOSITORY='',
-               AMONET_TAG='', AMONET_COMMIT='', SSH_ENABLED='0')
+               RELEASE_VERSION='', RELEASE_NOTES='', TARGETS='radar_puffin', SSH_ENABLED='0')
     result = subprocess.run(['python3', '-c', textwrap.dedent(body), str(request)],
                             env=env, capture_output=True, text=True)
     self.assertEqual(result.returncode, 0, result.stderr)

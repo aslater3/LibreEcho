@@ -25,7 +25,7 @@ done
 if [[ -z "$target" ]]; then
   if [[ "$serial" == auto ]]; then
     mapfile -t devices < <("$fastboot_bin" devices | cut -f1)
-    [[ "${#devices[@]}" == 1 ]] || { echo 'ERROR: specify --target for BROM or ambiguous stock fastboot identity' >&2; exit 2; }
+    [[ "${#devices[@]}" == 1 ]] || { echo 'ERROR: specify --target when zero or several fastboot devices are present' >&2; exit 2; }
     serial="${devices[0]}"
   fi
   product="$("$fastboot_bin" -s "$serial" getvar product 2>&1)"
