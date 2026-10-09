@@ -21,7 +21,7 @@ on:
       - 'tools/libreecho-install.py.sha256'
       - 'tools/run-one-shot.sh'
       - 'tools/test_initial_installer_publication.py'
-      - 'tools/test_brom_preflight.py'
+      - 'tools/test_fastbrick_gate.py'
       - 'tools/test_oneshot_host_preflight.py'
       - 'build/ci/release_route.py'
       - 'build/ci/publish_dev_pointer.py'
@@ -50,7 +50,7 @@ on:
       - 'tools/libreecho-install.py.sha256'
       - 'tools/run-one-shot.sh'
       - 'tools/test_initial_installer_publication.py'
-      - 'tools/test_brom_preflight.py'
+      - 'tools/test_fastbrick_gate.py'
       - 'tools/test_oneshot_host_preflight.py'
       - 'build/ci/release_route.py'
       - 'build/ci/publish_dev_pointer.py'
@@ -91,7 +91,7 @@ jobs:
             tools/test_release_tools.py \
             tools/libreecho-install.py \
             tools/test_initial_installer_publication.py \
-            tools/test_brom_preflight.py \
+            tools/test_fastbrick_gate.py \
             tools/test_oneshot_host_preflight.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
@@ -110,7 +110,7 @@ jobs:
         run: python -B -m unittest build.tests.test_release_route build.tests.test_publish_dev_pointer -v
       - name: Verify public installer mirror
         run: python -B -m unittest tools.test_initial_installer_publication -v
-      - name: Verify BROM permission preflight suite
-        run: python -B -m unittest tools.test_brom_preflight -v
+      - name: Verify fastbrick identity and payload gate suite
+        run: python -B -m unittest tools.test_fastbrick_gate -v
       - name: Verify host fastboot preflight suite
         run: python -B -m unittest tools.test_oneshot_host_preflight -v

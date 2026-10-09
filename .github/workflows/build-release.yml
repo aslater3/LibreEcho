@@ -322,7 +322,7 @@ jobs:
             build.tests.test_release_candidate_selection \
             tools.test_shared_mdns_packages \
             tools.test_build_release_workflow \
-            tools.test_brom_preflight \
+            tools.test_fastbrick_gate \
             tools.test_initial_installer_publication \
             tools.test_oneshot_host_preflight \
             tools.test_release_tools

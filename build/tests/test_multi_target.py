@@ -16,6 +16,8 @@ import unittest
 from unittest import mock
 from nacl.signing import SigningKey
 
+from build.ci.amonet_pins import amonet_record
+
 ROOT = Path(__file__).resolve().parents[2]
 CI = ROOT / 'build/ci'
 sys.path.insert(0, str(CI))
@@ -82,6 +84,12 @@ def prepare(script, artifact, output, product=None, extra=()):
     if product:
         cmd += ['--product-root', str(product), '--release-version', '0.14.0', '--release-notes', 'release/radar-puffin-v0.14.0.md',
                 ]
+        # The base generator on origin/release/0.14.0 predates the pinned-archive
+        # record and still requires these flags; the current one rejects none but
+        # no longer declares them.
+        if '--amonet-repository' in Path(script).read_text(encoding='utf-8'):
+            cmd += ['--amonet-repository', 'https://github.com/aslater3/amonet-k32', '--amonet-tag', 'v1.0.0',
+                    '--amonet-commit', 'dfefe52f0eed7296012707cfff1f753b0ea33257']
     return subprocess.run(cmd + list(extra), capture_output=True, text=True, timeout=180)
 
 
@@ -306,24 +314,45 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(before.returncode, 0, before.stderr)
             self.assertEqual(after.returncode, 0, after.stderr)
             self.assertEqual({p.name for p in (root / 'before').iterdir()}, {p.name for p in (root / 'after').iterdir()})
-            # The only intended change is build.json's hardware_accepted, which the
-            # target descriptor now sets; SHA256SUMS follows from that file's hash.
+            # Intended changes versus the base generator: build.json's
+            # hardware_accepted (the target descriptor now sets it) and the install
+            # manifest's `amonet` record, which now identifies the pinned archive
+            # instead of a repository/tag/commit. initial-install.tar carries that
+            # manifest, so its hash, and the build.json and SHA256SUMS lines that
+            # cite it, change with it. Everything else must stay byte-identical.
             build_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-build.json'))
+            sums_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-SHA256SUMS'))
+            tar_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-initial-install.tar'))
             prior = json.loads((root / 'before' / build_name).read_text())
             current = json.loads((root / 'after' / build_name).read_text())
             # The base generator may predate the descriptor (False) or already
             # copy it (True); the current generator must copy the descriptor.
             self.assertIsInstance(prior.pop('hardware_accepted'), bool)
             self.assertIs(current.pop('hardware_accepted'), True)
+            for record in (prior, current):
+                record['artifacts'] = [a for a in record['artifacts'] if a['name'] != tar_name]
             self.assertEqual(prior, current)
-            sums_name = next(p.name for p in (root / 'before').iterdir() if p.name.endswith('-SHA256SUMS'))
+            def install_members(path):
+                with tarfile.open(path) as archive:
+                    return {m.name: archive.extractfile(m).read() for m in archive.getmembers() if m.isfile()}
+            old_members = install_members(root / 'before' / tar_name)
+            new_members = install_members(root / 'after' / tar_name)
+            self.assertEqual(set(old_members), set(new_members))
+            old_manifest = json.loads(old_members.pop('manifest.json'))
+            new_manifest = json.loads(new_members.pop('manifest.json'))
+            self.assertEqual(old_manifest.pop('amonet')['repository'], 'https://github.com/aslater3/amonet-k32')
+            self.assertEqual(new_manifest.pop('amonet'), amonet_record('radar_puffin'))
+            self.assertEqual(old_manifest, new_manifest)
+            self.assertEqual(old_members, new_members)
             prior_sums = (root / 'before' / sums_name).read_text().splitlines()
             current_sums = (root / 'after' / sums_name).read_text().splitlines()
-            self.assertEqual([l for l in prior_sums if not l.endswith(build_name)],
-                             [l for l in current_sums if not l.endswith(build_name)])
+            changed = (build_name, tar_name)
+            self.assertEqual([l for l in prior_sums if not l.endswith(changed)],
+                             [l for l in current_sums if not l.endswith(changed)])
             self.assertIn(hashlib.sha256((root / 'after' / build_name).read_bytes()).hexdigest() + '  ' + build_name, current_sums)
+            self.assertIn(hashlib.sha256((root / 'after' / tar_name).read_bytes()).hexdigest() + '  ' + tar_name, current_sums)
             for path in (root / 'before').iterdir():
-                if path.name in (build_name, sums_name):
+                if path.name in (build_name, sums_name, tar_name):
                     continue
                 self.assertEqual(path.read_bytes(), (root / 'after' / path.name).read_bytes(), path.name)
 
