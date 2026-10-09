@@ -3,7 +3,6 @@ from pathlib import Path
 import json
 import os
 import re
-import shlex
 import subprocess
 import tempfile
 import unittest
@@ -475,10 +474,11 @@ class Tests(unittest.TestCase):
  def test_release_lanes_and_ota_boundaries(self):
   self.assertIn('LIBREECHO_OTA_SIGNING_MODE', W)
   self.assertIn('LIBREECHO_OTA_SIGNING_KEY_HEX', W)
-  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
+  self.assertNotIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
   self.assertIn('LIBREECHO_SSH_ENABLED', W)
-  self.assertIn('Materialize protected SSH root password hash', W)
+  self.assertNotIn('Materialize protected SSH root password hash', W)
   self.assertIn('dropbear_sha256', (ROOT/'build/ci/prepare-dev-release.py').read_text())
+  self.assertIn('scp_sha256', (ROOT/'build/ci/prepare-dev-release.py').read_text())
   self.assertIn('stable-release', W)
   self.assertIn('local) ;;', PUBLIC_WRAPPER)
   self.assertIn('stable releases require local OTA signing', PUBLIC_WRAPPER)
@@ -501,14 +501,13 @@ class Tests(unittest.TestCase):
   self.assertTrue('--tcp-port "$ADBD_TCP_PORT"' in B, 'adbd builder does not receive port')
 
  def test_ssh_enabled_default(self):
-  # Manual selection keeps the non-dispatch gate; the protected password is
-  # optional and no longer a condition of enabling SSH.
+  # Manual selection keeps the non-dispatch gate.
   field = W.split('      ssh_enabled:', 1)[1].split('      release_version:', 1)[0]
   self.assertIn('default: enabled', field)
   self.assertIn('options: [disabled, enabled]', field)
   self.assertIn("SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}", W)
   self.assertIn("needs.resolve-and-preflight.outputs.ssh_enabled == '1'", W)
-  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
+  self.assertNotIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
 
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
@@ -646,7 +645,7 @@ class Tests(unittest.TestCase):
   self.assertIn('not a second responder', note)
 
 class SshOptionTests(unittest.TestCase):
- """Enabling SSH ships the bundle; the root password is optional."""
+ """SSH ships only the WebUI-account bundle, without build credentials."""
 
  SSH_BLOCK_START='case "$SSH_ENABLED" in'
 
@@ -656,76 +655,34 @@ class SshOptionTests(unittest.TestCase):
   end=B.index('\nesac\n',start)+len('\nesac\n')
   return B[start:end]
 
- def _run_ssh_validation(self,enabled,hash_value):
+ def _run_ssh_validation(self,enabled):
   script=(f'SSH_ENABLED={enabled}\n'
-          f'SSH_ROOT_PASSWORD_HASH={shlex.quote(hash_value)}\n'
           f'{self._ssh_validation_block()}\n'
           'echo VALIDATION_OK\n')
   return subprocess.run(['bash','-c',script],capture_output=True,text=True)
 
- def test_ssh_without_a_root_password_builds(self):
-  # The behaviour the change exists for: enabling SSH must not require a
-  # credential, because the supervisor waits for the users database instead.
-  result=self._run_ssh_validation('1','')
-  self.assertEqual(0,result.returncode,result.stderr)
-  self.assertIn('VALIDATION_OK',result.stdout)
-  self.assertIn('no root password',result.stderr)
-
- def test_ssh_with_an_empty_hash_file_builds(self):
-  with tempfile.TemporaryDirectory() as tmp:
-   path=os.path.join(tmp,'hash'); Path(path).write_text(''); os.chmod(path,0o600)
-   result=self._run_ssh_validation('1',path)
-  self.assertEqual(0,result.returncode,result.stderr)
-  self.assertIn('no root password',result.stderr)
-
- def test_ssh_with_a_staged_hash_file_builds(self):
-  with tempfile.TemporaryDirectory() as tmp:
-   path=os.path.join(tmp,'hash'); Path(path).write_text('$6$salt$digest\n'); os.chmod(path,0o600)
-   result=self._run_ssh_validation('1',path)
-  self.assertEqual(0,result.returncode,result.stderr)
-  self.assertNotIn('no root password',result.stderr)
-
- def test_ssh_rejects_a_missing_hash_path(self):
-  result=self._run_ssh_validation('1','/nonexistent/root-password-hash')
-  self.assertEqual(1,result.returncode)
-  self.assertIn('regular build-local root password hash file',result.stderr)
-
- def test_ssh_rejects_a_symlinked_hash_file(self):
-  with tempfile.TemporaryDirectory() as tmp:
-   target=os.path.join(tmp,'real'); Path(target).write_text('$6$salt$digest\n'); os.chmod(target,0o600)
-   link=os.path.join(tmp,'link'); os.symlink(target,link)
-   result=self._run_ssh_validation('1',link)
-  self.assertEqual(1,result.returncode)
-  self.assertIn('regular build-local root password hash file',result.stderr)
-
- def test_ssh_rejects_a_world_writable_hash_file(self):
-  with tempfile.TemporaryDirectory() as tmp:
-   path=os.path.join(tmp,'hash'); Path(path).write_text('$6$salt$digest\n'); os.chmod(path,0o666)
-   result=self._run_ssh_validation('1',path)
-  self.assertEqual(1,result.returncode)
-  self.assertIn('group/world-writable',result.stderr)
-
- def test_disabled_ssh_still_rejects_a_hash(self):
-  result=self._run_ssh_validation('0','/tmp/root-password-hash')
-  self.assertEqual(1,result.returncode)
-  self.assertIn('requires LIBREECHO_SSH_ENABLED=1',result.stderr)
+ def test_enabled_and_disabled_ssh_are_valid(self):
+  for enabled in ('0','1'):
+   with self.subTest(enabled=enabled):
+    result=self._run_ssh_validation(enabled)
+    self.assertEqual(0,result.returncode,result.stderr)
+    self.assertIn('VALIDATION_OK',result.stdout)
 
  def test_ssh_enabled_value_must_be_binary(self):
-  result=self._run_ssh_validation('2','')
+  result=self._run_ssh_validation('2')
   self.assertEqual(1,result.returncode)
   self.assertIn('must be 0 or 1',result.stderr)
 
- def test_workflow_stages_the_root_password_only_when_present(self):
-  step=W.split('      - name: Materialize protected SSH root password hash',1)[1].split('      - name:',1)[0]
-  self.assertNotIn('test -n "$SSH_ROOT_PASSWORD_HASH"',step)
-  self.assertIn('if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then',step)
-  self.assertIn(': >"$RUNNER_TEMP/ssh-root-password-hash"',step)
+ def test_no_root_password_materialization_or_build_input(self):
+  self.assertNotIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH',W)
+  self.assertNotIn('SSH_ROOT_PASSWORD_HASH',B)
+  self.assertNotIn('ssh-root-password-hash',W)
 
- def test_documentation_states_the_root_password_is_optional(self):
+ def test_documentation_describes_saved_switch_and_persistent_host_key(self):
   flat=' '.join((ROOT/'build/README.md').read_text().split())
-  self.assertIn('`LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional',flat)
-  self.assertNotIn('password-only root login',flat)
-  self.assertNotIn('enabled run requires the protected LIBREECHO_SSH_ROOT_PASSWORD_HASH secret',flat)
+  self.assertIn('saved WebUI SSH switch',flat)
+  self.assertIn('protected host key across reboots',flat)
+  self.assertIn('No root password enters the build',flat)
 
 
 class SshInputInventoryTests(unittest.TestCase):

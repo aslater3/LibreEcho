@@ -323,14 +323,14 @@ def main() -> int:
     if not isinstance(ssh_manifest, dict) or bool(ssh_manifest.get("enabled")) != (ssh_enabled == "1"):
         fail("candidate SSH manifest does not match ssh_enabled")
     ssh_files = ssh_manifest.get("files", {}) if isinstance(ssh_manifest, dict) else {}
-    for field in ("dropbear_sha256", "dropbearkey_sha256"):
+    for field in ("dropbear_sha256", "dropbearkey_sha256", "scp_sha256"):
         value = candidate.get(field, "")
         if ssh_enabled == "1" and not re.fullmatch(r"[0-9a-f]{64}", value):
             fail(f"candidate is missing enabled SSH identity: {field}")
         if ssh_enabled == "0" and value:
             fail(f"disabled SSH candidate contains {field}")
     if ssh_enabled == "1":
-        for field, path in (("dropbear_sha256", "sbin/dropbear"), ("dropbearkey_sha256", "sbin/dropbearkey")):
+        for field, path in (("dropbear_sha256", "sbin/dropbear"), ("dropbearkey_sha256", "sbin/dropbearkey"), ("scp_sha256", "usr/bin/scp")):
             record = ssh_files.get(path, {}) if isinstance(ssh_files, dict) else {}
             if record.get("sha256") != candidate[field]:
                 fail(f"candidate SSH manifest identity mismatch: {field}")
@@ -458,6 +458,7 @@ def main() -> int:
         "ssh": {
             "dropbear_sha256": candidate.get("dropbear_sha256", ""),
             "dropbearkey_sha256": candidate.get("dropbearkey_sha256", ""),
+            "scp_sha256": candidate.get("scp_sha256", ""),
         },
         "status": "PREPARED_NOT_FLASHED",
         "signed": signed,

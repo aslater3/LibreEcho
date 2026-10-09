@@ -317,6 +317,7 @@ class Tests(unittest.TestCase):
             self.assertFalse(manifest["ssh_enabled"])
             self.assertEqual(manifest["ssh"]["dropbear_sha256"], "")
             self.assertEqual(manifest["ssh"]["dropbearkey_sha256"], "")
+            self.assertEqual(manifest["ssh"]["scp_sha256"], "")
             self.assertEqual(manifest["status"], "PREPARED_NOT_FLASHED")
             self.assertIs(manifest["hardware_accepted"], True)
             self.assertRegex(manifest["source_set_id"], r"^[0-9a-f]{16}$")
@@ -422,7 +423,8 @@ class Tests(unittest.TestCase):
             text = text.replace(
                 "ssh_enabled=0\n",
                 "ssh_enabled=1\ndropbear_sha256=" + "a" * 64 +
-                "\ndropbearkey_sha256=" + "b" * 64 + "\n",
+                "\ndropbearkey_sha256=" + "b" * 64 +
+                "\nscp_sha256=" + "c" * 64 + "\n",
             )
             candidate.write_text(text)
             manifest_path = run / "manifest.json"
@@ -432,6 +434,7 @@ class Tests(unittest.TestCase):
                 "files": {
                     "sbin/dropbear": {"sha256": "a" * 64},
                     "sbin/dropbearkey": {"sha256": "b" * 64},
+                    "usr/bin/scp": {"sha256": "c" * 64},
                 },
             }
             manifest_path.write_text(json.dumps(manifest))
@@ -445,6 +448,7 @@ class Tests(unittest.TestCase):
             release_manifest = json.loads(next((root / "release").glob("*-build.json")).read_text())
             self.assertTrue(release_manifest["ssh_enabled"])
             self.assertEqual(release_manifest["ssh"]["dropbear_sha256"], "a" * 64)
+            self.assertEqual(release_manifest["ssh"]["scp_sha256"], "c" * 64)
 
     def test_rejects_wrong_triggering_commit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

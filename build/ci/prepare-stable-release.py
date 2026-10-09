@@ -231,7 +231,7 @@ def main() -> int:
             fail(f"candidate has unexpected {field}")
     if candidate.get("ssh_enabled", "0") != ssh_enabled:
         fail("stable release request and candidate disagree on SSH")
-    for field in ("dropbear_sha256", "dropbearkey_sha256"):
+    for field in ("dropbear_sha256", "dropbearkey_sha256", "scp_sha256"):
         value = candidate.get(field, "")
         if ssh_enabled == "1" and not re.fullmatch(r"[0-9a-f]{64}", value):
             fail(f"candidate is missing enabled SSH identity: {field}")
@@ -266,7 +266,7 @@ def main() -> int:
         fail("candidate SSH manifest does not match ssh_enabled")
     ssh_files = manifest_ssh.get("files", {})
     if ssh_enabled == "1":
-        for field, path in (("dropbear_sha256", "sbin/dropbear"), ("dropbearkey_sha256", "sbin/dropbearkey")):
+        for field, path in (("dropbear_sha256", "sbin/dropbear"), ("dropbearkey_sha256", "sbin/dropbearkey"), ("scp_sha256", "usr/bin/scp")):
             record = ssh_files.get(path, {}) if isinstance(ssh_files, dict) else {}
             if record.get("sha256") != candidate[field]:
                 fail(f"candidate SSH manifest identity mismatch: {field}")
@@ -366,6 +366,7 @@ def main() -> int:
         "ssh": {
             "dropbear_sha256": candidate.get("dropbear_sha256", ""),
             "dropbearkey_sha256": candidate.get("dropbearkey_sha256", ""),
+            "scp_sha256": candidate.get("scp_sha256", ""),
         },
         "ota_bundle": True,
         "hardware_accepted": hardware_accepted(args.target),
