@@ -282,16 +282,17 @@ jobs:
             --find-links "$wheelhouse" \
             --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
-      - name: Fetch legacy base branch for parity checks
+      - name: Fetch legacy generator commit for parity checks
         run: |
           set -euo pipefail
           # The legacy Radar golden test compares generated metadata/names with
-          # the pre-change generator on release/0.14.0. The default shallow
-          # checkout has no such remote-tracking ref, so fetch it explicitly
-          # rather than weakening the comparison.
-          git fetch --no-tags --depth=1 origin \
-            "+refs/heads/release/0.14.0:refs/remotes/origin/release/0.14.0"
-          git rev-parse --verify origin/release/0.14.0
+          # the generator from before the pinned-archive installer manifest. It
+          # is pinned to an exact commit, not a branch tip: release/0.14.0 now
+          # contains the new generator, so the tip no longer is the baseline.
+          # The default shallow checkout lacks that commit, so fetch it
+          # explicitly rather than weakening the comparison.
+          git fetch --no-tags --depth=1 origin c48fe070f38bd2c974257656961918254848758b
+          git cat-file -e c48fe070f38bd2c974257656961918254848758b^{commit}
       - name: Run maintained Product pipeline suites
         env:
           LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source

@@ -19,6 +19,10 @@ from nacl.signing import SigningKey
 from build.ci.amonet_pins import amonet_record
 
 ROOT = Path(__file__).resolve().parents[2]
+# Last release/0.14.0 commit before the pinned-archive installer manifest. Its
+# prepare-stable-release.py is the baseline for the legacy Radar golden test.
+# Keep this in step with the fetch in .github/workflows/build-release.yml.
+LEGACY_GENERATOR_COMMIT = 'c48fe070f38bd2c974257656961918254848758b'
 CI = ROOT / 'build/ci'
 sys.path.insert(0, str(CI))
 from target_registry import (KNOWN_TARGETS, asset_prefix, contract_target, descriptor_sha256,
@@ -84,7 +88,7 @@ def prepare(script, artifact, output, product=None, extra=()):
     if product:
         cmd += ['--product-root', str(product), '--release-version', '0.14.0', '--release-notes', 'release/radar-puffin-v0.14.0.md',
                 ]
-        # The base generator on origin/release/0.14.0 predates the pinned-archive
+        # The legacy generator (LEGACY_GENERATOR_COMMIT) predates the pinned-archive
         # record and still requires these flags; the current one rejects none but
         # no longer declares them.
         if '--amonet-repository' in Path(script).read_text(encoding='utf-8'):
@@ -307,7 +311,7 @@ class ReleaseTests(unittest.TestCase):
             root = Path(tmp)
             artifact, product = stable_fixture(root)
             old = root / 'prepare-stable-release.py'
-            old.write_bytes(subprocess.check_output(['git', 'show', 'origin/release/0.14.0:build/ci/prepare-stable-release.py'], cwd=ROOT, timeout=30))
+            old.write_bytes(subprocess.check_output(['git', 'show', LEGACY_GENERATOR_COMMIT + ':build/ci/prepare-stable-release.py'], cwd=ROOT, timeout=30))
             with mock.patch.dict(os.environ, {'PYTHONPATH': str(CI)}):
                 before = prepare(old, artifact, root / 'before', product)
                 after = prepare(CI / 'prepare-stable-release.py', artifact, root / 'after', product)
