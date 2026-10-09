@@ -45,7 +45,7 @@ chmod +x run-one-shot.sh
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
-- **Security:** [read the security policy](SECURITY.md) or [submit a private advisory](https://github.com/aslater3/LibreEcho/security/advisories/new)
+- **Security:** [read the security policy](SECURITY.md), [view published advisories](SECURITY-ADVISORIES.md) or [submit a private advisory](https://github.com/aslater3/LibreEcho/security/advisories/new)
 - **Join the community:** [LibreEcho on Discord](https://discord.gg/5zBcTWjU4H)
 - **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
@@ -77,8 +77,9 @@ priority.
 
 - Local web administration for device, audio, wake word, networking, logs, and system settings.
 - Signed A/B OTA updates with opt-in automatic installation and a manual update action.
-- Optional password-authenticated root SSH in manually selected builds; public
-  builds keep it disabled unless the release operator explicitly enables it.
+- Optional SSH in operator-selected builds, authenticated against the web
+  control centre's accounts (no public-key or direct root login); stable
+  builds ship with it disabled.
 - Linux kernel and initramfs bring-up for the MT8163 ARM32 platform.
 - Clear component boundaries so UI work, hardware work, and product support can evolve independently.
 
@@ -108,8 +109,10 @@ device model, OS version, active slot, relevant logs, and the smallest reliable
 reproduction. Do not include Wi-Fi passwords, API tokens, or private keys.
 
 Security vulnerabilities must not be filed publicly. Read
-[SECURITY.md](SECURITY.md) for the supported release scope, private reporting
-route, redaction requirements and release-withdrawal guidance.
+[SECURITY.md](SECURITY.md) for supported versions, the private reporting
+route, response targets, redaction requirements and release-withdrawal
+guidance. Published advisories are archived in
+[SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
 Once Discussions are enabled in the repository settings, use them for design
 questions, setup help, and ideas that are not yet actionable bugs.
