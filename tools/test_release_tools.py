@@ -55,6 +55,9 @@ def fake_executable(root: Path, name: str) -> Path:
     return path
 
 
+AMONET_RECORD = {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162,
+                 "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"}
+
 class OneShotFastbootTests(unittest.TestCase):
     def test_prepare_fastboot_tools_stages_complete_toolset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -870,7 +873,7 @@ class OneShotContinuationTests(unittest.TestCase):
         self.manifest = {"schema": INSTALLER.SCHEMA, "release": self.tag,
                          "board": "radar_puffin", "soc": "mt8163", "image_profile": "ota", "service_profile": "production",
                          "boot": asset(prefix + "-boot.img"), "ota_public_key": asset(prefix + "-ota-public-key.hex"),
-                         "features": features, "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40}}
+                         "features": features, "amonet": AMONET_RECORD}
         for name, data in files.items():
             (self.release / name).write_bytes(data)
         self.bundle = self.release / (prefix + "-initial-install.tar")
@@ -892,6 +895,7 @@ class OneShotContinuationTests(unittest.TestCase):
         self.save_state()
         self.calls = []
         self.forward_fails = False
+        self.unlocked = False  # locked fixture: the brick step runs (mocked below)
         self.bad_boot = False
         self.bad_manifest = False
         self.device = "SERIAL"
@@ -899,12 +903,14 @@ class OneShotContinuationTests(unittest.TestCase):
         self.current_feature = ""
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(mock.patch.object(INSTALLER, "LEGACY_EXPDB_ERASE_CLOSURES", frozenset({("https://github.com/example/amonet", "a" * 40)})))
         self.host = self.stack.enter_context(mock.patch.object(INSTALLER, "require_host_commands"))
         self.tools = self.stack.enter_context(mock.patch.object(INSTALLER, "prepare_fastboot_tools", return_value="fake-fastboot"))
         self.format = self.stack.enter_context(mock.patch.object(INSTALLER, "format_userdata_in_fastboot"))
-        self.amonet = self.stack.enter_context(mock.patch.object(INSTALLER, "run_amonet_with_progress"))
-        self.stack.enter_context(mock.patch.object(INSTALLER, "verify_amonet_root", return_value=self.root))
+        # Locked-device brick step is mocked so no payload is written; the write sequence
+        # under test (flash boot_a/boot_b, forward) is unchanged.
+        self.amonet = self.stack.enter_context(mock.patch.object(INSTALLER, "brick_fastboot_payload"))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "select_amonet_payload", return_value={"payload": "fastbrick.img", "size": 1, "sha256": "0" * 64}))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "extract_amonet_payload", return_value=self.root / "fastbrick.img"))
         self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_fastboot_serial", return_value="SERIAL"))
         self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_transport"))
         self.stack.enter_context(mock.patch.object(INSTALLER, "collect_adb_diagnostics"))
@@ -919,10 +925,20 @@ class OneShotContinuationTests(unittest.TestCase):
     def command(self, argv, timeout, *, check=True):
         self.calls.append(argv)
         output = ""
-        if argv == ["fake-adb", "devices"]:
+        if argv == ["fake-fastboot", "devices"]:
+            output = f"{self.device}\tfastboot\n"
+        elif argv == ["fake-adb", "devices"]:
             output = f"List of devices attached\n{self.device}\tdevice\n"
+        elif argv[-2:] == ["oem", "kaeru-version"]:
+            # Stock bootloader rejects the Kaeru probe; this is the expected unconverted state.
+            return subprocess.CompletedProcess(argv, 1, "", "FAILunknown command\n")
         elif "getvar" in argv:
-            output = "product: RADAR\n" if argv[-1] == "product" else f"{argv[-1]}: 0x1000000\n"
+            if argv[-1] == "product":
+                output = "product: RADAR\n"
+            elif argv[-1] == "unlock_status":
+                output = f"unlock_status: {'true' if self.unlocked else 'false'}\n"
+            else:
+                output = f"{argv[-1]}: 0x1000000\n"
         elif argv[3:5] == ["shell", "cat"] and argv[-1].endswith("/uevent"):
             part = "10" if "mmcblk0p10" in argv[-1] else "11"
             slot = "a" if part == "10" else "b"
@@ -976,12 +992,12 @@ class OneShotContinuationTests(unittest.TestCase):
     def test_fresh_one_shot_forward_failure_resumes_without_repeating_installation(self):
         self.forward_fails = True
         with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
-            INSTALLER.one_shot(self.release, self.root, cache_root=self.cache, state_root=self.state_root,
+            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache, state_root=self.state_root,
                                install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
                                adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True, open_browser=False, target="radar_puffin")
         self.format.assert_called_once()
-        self.amonet.assert_called_once()
-        self.assertEqual([c[4] for c in self.calls if c[3] == "flash"], ["boot_a", "boot_b"])
+        self.amonet.assert_called_once()  # locked fixture: brick step runs once (mocked)
+        self.assertEqual([c[c.index("flash") + 1] for c in self.calls if "flash" in c], ["boot_a", "boot_b"])
         saved = INSTALLER._read_state(self.state_path)
         self.assertEqual(saved["phase"], "FEATURES_STAGED")
         self.assertEqual((saved["device_serial"], saved["slots"], saved["userdata_formatted"]), ("SERIAL", "both", True))

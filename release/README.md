@@ -84,7 +84,9 @@ license used by LibreEcho-authored product code. Do not describe a
 
 Amonet support remains an external user-supplied integration. LibreEcho does not
 publish upstream Amonet archives, signed vendor boot-chain partitions, wrapper
-images, or owner-device connectivity firmware.
+images, or owner-device connectivity firmware. The pinned archive digests live in
+`release/amonet-pins.json`; the operator supplies the exact ZIP with `--amonet-zip`
+only for locked devices.
 
 ## Generate a release record
 

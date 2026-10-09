@@ -1,32 +1,50 @@
 # LibreEcho initial-install tool
 
-`run-one-shot.sh` is the recommended entry point because it downloads the
-release checksum inventory and installer, verifies the installer before
-executing Python, and then lets the Python installer download/verify the rest.
+`run-one-shot.sh` is the entry point. It downloads the release checksum
+inventory and installer, verifies the installer before executing Python, and
+then lets the Python installer download and verify the rest of the bundle.
 
 `libreecho-install.py` is the Product-side mirror of the verified LibreEcho
-initial-install orchestrator. It is intentionally a single standard-library
-Python file with a checksum sidecar:
+initial-install orchestrator. It is a single standard-library Python file with a
+checksum sidecar:
 
 ```text
 tools/libreecho-install.py
 tools/libreecho-install.py.sha256
 ```
 
+## Supported targets
+
+| Target | Product string | Amonet archive | Accepted LK builds |
+|---|---|---|---|
+| `radar_puffin` (Echo 2nd Gen) | `RADAR` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
+| `biscuit` (Echo Dot 2nd Gen) | `BISCUIT` | `amonet-biscuit-v2.0.0.zip` | `63cb91b-20221007_072309` only |
+
+The pinned archive and per-build payload digests are recorded in
+`release/amonet-pins.json` and embedded in the installer as `AMONET_PINS`. A
+test asserts the two never drift.
+
+Biscuit accepts any LK build. The reviewed build `63cb91b-20221007_072309` uses
+its own payload. Any other build uses the archive's default `fastbrick.img`,
+as upstream `fastbrick.sh` does. An empty LK build string still fails closed
+before any write.
+
 ## What `one-shot` does
 
-For a controlled fresh-install test on a supported Amazon Echo 2nd Gen /
-`radar_puffin` / BISCUIT device, the command performs the complete flow:
+The installer starts from **stock fastboot**. There is no BROM short and no
+k32 launcher.
 
 ```text
-verify/download Product release
-→ download and verify pinned Amonet + Git LFS inputs
-→ run the Amonet BROM handoff
-→ wait for unlocked BISCUIT fastboot
-→ validate the exact BISCUIT product and reviewed userdata geometry
-→ format only userdata as ext4 (Amonet has cleared its old filesystem header)
-→ flash the verified boot image to logical boot_a and boot_b
-→ erase only expdb
+verify/download the Product release
+→ check the device's fastboot product against the release target
+→ if the bootloader is locked:
+     select the payload for the exact lk_build_desc
+     extract and verify it from the pinned Amonet ZIP
+     fastboot flash brick <payload>
+→ wait for the unlocked fastboot device
+→ validate the exact product and reviewed userdata geometry
+→ format only userdata as ext4
+→ flash the verified boot image to boot_a and boot_b
 → reboot and wait for ADB
 → collect read-only ADB bring-up diagnostics
 → verify boot_a_x and boot_b_x readback hashes
@@ -35,48 +53,62 @@ verify/download Product release
 → open the first-boot setup page
 ```
 
-The installer also performs a host preflight before BROM. It stages private
-copies of `fastboot`, `mke2fs`, and `dumpe2fs` under the cache directory. To
-avoid distro fastboot's incompatible internal ext4 generator, the installer
-builds userdata with the reviewed ext4 feature set, converts it to Android
-sparse format, validates the sparse header and exact expanded geometry, and
-flashes only `userdata`. If either image helper is absent, the installer stops
-before device access with the exact repair command. To let it install
-`e2fsprogs` using `apt-get`/`sudo`, add
-`--install-host-deps`.
+`expdb` is never erased. The Kaeru header there is the unlock proof, so the
+installer leaves it intact.
 
-Host requirements are validated before the BROM handoff:
+### Unlock and the Amonet ZIP
+
+- If `fastboot getvar unlock_status` reports `true`, no brick write is needed
+  and `--amonet-zip` is not required.
+- If the device is locked, pass the pinned archive:
+
+  ```sh
+  ./run-one-shot.sh "$TAG" --amonet-zip ~/Downloads/amonet-biscuit-v2.0.0.zip \
+    --fastboot-serial auto --slots both --execute-hardware
+  ```
+
+- The archive's SHA-256 and size must match the pin for the selected target.
+  The payload's size and SHA-256 must match the entry for the device's exact
+  `lk_build_desc`. Any mismatch stops before the brick write.
+- `eMMC-RO` and `Device mismatch` in the brick output are hard stops. The
+  installer does not retry them.
+
+The Amonet ZIPs are community artifacts. LibreEcho does not redistribute them;
+you supply the exact file.
+
+## Host requirements
 
 ```text
 bash, adb, fastboot, executable mke2fs, executable dumpe2fs, staged tool probes
 ```
 
-On Debian/Ubuntu, install the required host tools before using `one-shot`:
+On Debian/Ubuntu:
 
 ```sh
 sudo apt-get update
 sudo apt-get install adb fastboot e2fsprogs
 ```
 
-`--install-host-deps` can install only `e2fsprogs`; it does **not** install `adb` or `fastboot`.
-Check the complete tool closure with:
+`--install-host-deps` installs only `e2fsprogs`; it does **not** install `adb`
+or `fastboot`. Check the full tool set with:
 
 ```sh
 command -v adb fastboot mke2fs dumpe2fs
 ```
 
-It does not flash Amonet wrapper partitions directly or invent credentials. The
-Amonet exploit owns the stock-to-Amonet conversion; this tool validates the
-handoff, recreates the reviewed userdata filesystem, and completes LibreEcho
-installation after that point.
+The installer stages private copies of `fastboot`, `mke2fs`, and `dumpe2fs`
+under the cache directory. It builds userdata with the reviewed ext4 feature
+set, converts it to Android sparse format, validates the sparse header and the
+exact expanded geometry, and flashes only `userdata`. If an image helper is
+absent, the installer stops before device access with the repair command.
 
 ## User command
 
 Use the public wrapper with an explicit **published stable** tag. It downloads
 only the checksum file and installer bootstrap, verifies the bootstrap, and
-then hands control to the Python installer. The Python installer downloads and
-verifies the complete release bundle, including `initial-install.tar`, the five
-feature payloads/manifests, and pinned Amonet inputs.
+hands control to the Python installer. The Python installer downloads and
+verifies the complete release bundle, including `initial-install.tar` and the
+five feature payloads and manifests.
 
 ```bash
 TAG=radar-puffin-vX.Y.Z  # replace with the published stable tag you selected
@@ -85,47 +117,16 @@ chmod +x run-one-shot.sh
 ./run-one-shot.sh "$TAG" --fastboot-serial auto --slots both --execute-hardware
 ```
 
-Development and nightly tags are for maintainer-controlled test hardware only;
-they are not a public installation recommendation. Do not shorten, rename, or
-mix asset files from another release.
+Development and nightly tags are for maintainer-controlled test hardware only.
+Do not shorten, rename, or mix asset files from another release.
 
-`install` is only the host-side preparation/checkpoint action and does not touch
-hardware. Use `one-shot` for the actual BROM → fastboot → ADB installation.
-
-## BROM operator sequence
-
-USB remains connected throughout the entry sequence. When the installer shows
-the boxed action prompt:
-
-1. Ensure the Echo is connected to the host over USB.
-2. Power the Echo off; USB can remain connected.
-3. Hold the marked CLK-to-GND short.
-4. Power the Echo on while holding the short.
-5. Release the short when Amonet prompts you.
-6. Press Enter when Amonet prompts you.
-
-BROM entry may not work on the first attempt. If the installer continues
-waiting, power-cycle the Echo and try the short sequence again. Keep the
-terminal open and follow the live Amonet progress messages.
-
-### BROM diagnostics
-
-Transport diagnostics are shown only while the installer is actually waiting
-for BROM, or when the handoff fails before any Amonet progress is recorded. If
-`0e8d:0003` and a MediaTek `ttyACM` node are both present, the output says:
-
-```text
-BROM transport is healthy; no transport action is needed.
-```
-
-It does not print generic shorting, ModemManager, or recovery advice in that
-healthy state. Those messages are reserved for an actual missing, ambiguous, or
-incorrect transport condition.
+`install` is only the host-side preparation and checkpoint action and does not
+touch hardware. Use `one-shot` for the installation itself.
 
 ## Resuming
 
-With the updated wrapper, resume with the **same immutable release tag** (never
-`latest`), original device serial, slot choice, cache/state roots and install ID:
+With the same immutable release tag (never `latest`), the original device
+serial, slot choice, cache/state roots, and install ID:
 
 ```bash
 ./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
@@ -133,26 +134,22 @@ With the updated wrapper, resume with the **same immutable release tag** (never
 ```
 
 `--continue` must immediately follow the tag. `FEATURES_STAGED` and
-`WEBUI_FORWARDED` continuation revalidates the cached release, both selected boot
-slots and every installed payload/manifest pair, then restores the setup forward.
-It does not stage files again, reboot, reformat or reflash. Choose another local
-port when the original is occupied. A changed device, slot selection, bundle,
-installed hash or outstanding staging marker fails closed. New state binds the
-device serial and slots; legacy state requires an explicit original serial rather
-than `auto`. The local cache retains the complete checksum-covered inventory, so
-continuation does not depend on a temporary `--release-dir` remaining available.
+`WEBUI_FORWARDED` continuation revalidates the cached release, both selected
+boot slots, and every installed payload/manifest pair, then restores the setup
+forward. It does not stage files again, reboot, reformat, or reflash. Choose
+another local port when the original is occupied. A changed device, slot
+selection, bundle, installed hash, or outstanding staging marker fails closed.
 
-`BOOT_WRITTEN` can continue once that device is online in ADB, without reflashing.
-`FASTBOOT_READY` can complete the boot writes without formatting userdata again
-when the original successful format is recorded. Do not guess a phase or edit
-state to force it. Concurrent one-shot/continuation runs share the same cache lock.
+`BOOT_WRITTEN` can continue once the device is online in ADB, without
+reflashing. `FASTBOOT_READY` can complete the boot writes without formatting
+userdata again when the original successful format is recorded. Do not guess a
+phase or edit state to force it. Concurrent one-shot and continuation runs share
+the same cache lock.
 
-The installer stores private cached downloads and resumable state under the
-user's home directory. If a legacy run stopped after ADB/readback before the userdata-format fix,
-`continue-one-shot` refuses to guess. Pass `--repair-userdata` to explicitly
-reboot the exact ADB device into fastboot, validate it, format only userdata,
-reboot, recollect diagnostics, verify boot readback, and continue feature
-staging without repeating the BROM/Amonet conversion:
+If an older run stopped after ADB readback but before the userdata-format fix,
+`continue-one-shot` refuses to guess. Pass `--repair-userdata` to reboot the
+exact ADB device into fastboot, validate it, format only userdata, reboot,
+recollect diagnostics, verify boot readback, and continue feature staging:
 
 ```bash
 python3 "libreecho-${TAG}-installer.py" continue-one-shot \
@@ -163,15 +160,15 @@ python3 "libreecho-${TAG}-installer.py" continue-one-shot \
   --execute-hardware
 ```
 
-Every run leaves its shareable log in `./libreecho-installer.log` unless
-`--log-file PATH` is supplied. Do not rerun `one-shot` after Amonet has already
-completed unless a fresh conversion is explicitly intended.
+Every run leaves its log in `./libreecho-installer.log` unless `--log-file PATH`
+is supplied. Do not rerun `one-shot` after the boot slots have been written
+unless a fresh install is explicitly intended.
 
 If any installer operation fails, it performs a best-effort evidence pass before
-reporting the original error. When available, this records host identity and
-USB/serial state, fastboot device inventory and `getvar all`, ADB device
-inventory and read-only device state, and the cached Amonet log. The installer
-packages the evidence and the final installer log into:
+reporting the original error. It records host identity and USB/serial state,
+fastboot device inventory and `getvar all`, ADB device inventory and read-only
+device state, and the brick log. The installer packages the evidence and the
+final log into:
 
 ```text
 ./libreecho-installer-evidence.tar.gz
@@ -179,26 +176,14 @@ packages the evidence and the final installer log into:
 
 The archive is mode `0600`. Missing or unresponsive transports are recorded as
 collection failures inside the archive; they do not hide or replace the original
-installation error. ADB collection is attempted if a device is visible even
-when the failure occurred while waiting for or using fastboot.
+installation error.
 
 ## Safety boundary
 
-This is a controlled hardware-test tool, not a general public installer. A
-successful checksum, build, or release publication does not establish hardware
-acceptance. Preserve the release identity, Amonet log, fastboot/ADB output,
-readback hashes, runtime checks, and UART evidence separately under the project
-evidence directory.
-
-## Echo Gen 2 pogo-pin carrier (v5)
-
-[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip) contains the printable six-pin carrier used to make a repeatable development/service jig for the Echo 2nd Gen base contacts. It replaces the original rounded-rectangle rubber plug while positioning six spring probes over the 2 × 3 contact array.
-
-The model is based on measured hardware dimensions: 3.0 mm pin pitch, approximately 0.66 mm pogo barrels, a 10.0 × 7.6 mm clearance lid, an 8.8 × 6.0 mm insert body, a 5.0 mm insert depth and a 2.0 mm lid. The gold contacts were estimated to sit roughly another 2 mm below the top of the pogo cage, so verify tip projection and compression against the physical device before wiring or powering the jig.
-
-v5 is specifically designed for a 0.4 mm FDM nozzle. Instead of relying on marginal 0.68–0.75 mm printed holes, it uses flared through-channels and provides 0.80, 0.90, 1.00, 1.10 and 1.20 mm bore variants plus a calibration coupon. Print the coupon first; 1.00 mm is the recommended starting carrier for the measured 0.66 mm pins. If adhesive is required, use only a small amount at the wiring-side pocket and keep it clear of the moving plunger.
-
-This is a hardware-development aid, not a required part of the LibreEcho software installation path.
+This is a controlled hardware-test tool. A successful checksum, build, or
+release publication does not establish hardware acceptance. Preserve the release
+identity, the brick log, fastboot and ADB output, readback hashes, runtime
+checks, and UART evidence separately under the project evidence directory.
 
 ## Userdata allocation contract (0.14)
 
@@ -217,3 +202,10 @@ The corresponding Platform image must accept 2,137,088 and 2,153,472 sectors for
 userdata during init, feature staging, updater validation and boot control.
 Publish a fresh immutable installer and rebuilt Platform/boot image together;
 changing only the installer cannot fix an older image's runtime guards.
+
+## Echo Gen 2 pogo-pin carrier (v5)
+
+[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)
+contains the printable six-pin carrier used to make a repeatable development or
+service jig for the Echo 2nd Gen base contacts. It is a hardware-development aid,
+not a required part of the software installation path.

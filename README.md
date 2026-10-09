@@ -41,7 +41,7 @@ chmod +x run-one-shot.sh
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
-- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, BROM sequence, first-boot steps, and recovery guidance for the latest stable release.
+- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, the Amonet step for locked devices, first-boot steps, and recovery guidance for the latest stable release. Supported targets: Echo 2nd Gen (`radar_puffin`) and Echo Dot 2nd Gen (`biscuit`).
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)

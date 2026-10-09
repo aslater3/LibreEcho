@@ -350,13 +350,13 @@
     },
     {
       "id": "amonet-installer",
-      "name": "Amonet/BROM installer integration",
-      "version": "external-user-supplied",
+      "name": "Amonet fastbrick ZIPs (pinned, operator-supplied)",
+      "version": "amonet-radar-v1.0.0 / amonet-biscuit-v2.0.0",
       "license": "NOASSERTION",
       "release_status": "not-redistributed",
       "distribution_scope": "external-user-supplied",
-      "download_location": "https://github.com/aslater3/amonet-k32",
-      "source_offer": "https://github.com/aslater3/amonet-k32",
+      "download_location": "NOASSERTION",
+      "source_offer": "NOASSERTION",
       "evidence": [
         "release/README.md"
       ]

@@ -18,7 +18,6 @@ PLATFORM_TOOL = Path(os.environ.get(
     "LIBREECHO_PLATFORM_SRC",
     str(ROOT.parent / "platform"),
 )) / "tools/mt8163-arm32/ota/make_ota_bundle.py"
-WORKING_AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 
 
@@ -205,9 +204,7 @@ class StableReleasePackagingTests(unittest.TestCase):
             result = subprocess.run([
                 sys.executable, str(SCRIPT), "--artifact-root", str(artifact_root),
                 "--product-root", str(product), "--product-commit", "1" * 40,
-                "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md",
-                "--amonet-repository", "https://github.com/aslater3/amonet-k32", "--amonet-tag", "v1.0.0",
-                "--amonet-commit", WORKING_AMONET_COMMIT, "--output-dir", str(root / "release"),
+                "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md", "--output-dir", str(root / "release"),
             ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(artifact_root / "run" / "ota-public-key.hex")}, text=True, capture_output=True)
             output = root / "release"
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -225,9 +222,7 @@ class StableReleasePackagingTests(unittest.TestCase):
             result = subprocess.run([
                 sys.executable, str(SCRIPT), "--artifact-root", str(artifact_root),
                 "--product-root", str(product), "--product-commit", "1" * 40,
-                "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md",
-                "--amonet-repository", "https://github.com/aslater3/amonet-k32", "--amonet-tag", "v1.0.0",
-                "--amonet-commit", WORKING_AMONET_COMMIT, "--output-dir", str(root / "release"),
+                "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md", "--output-dir", str(root / "release"),
             ], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
     def test_publisher_rejects_missing_or_mismatched_alias_before_github(self):
@@ -270,9 +265,6 @@ class StableReleasePackagingTests(unittest.TestCase):
                 "--product-commit", "1" * 40,
                 "--release-version", "0.14.0",
                 "--release-notes", "release/radar-puffin-v0.14.0.md",
-                "--amonet-repository", "https://github.com/aslater3/amonet-k32",
-                "--amonet-tag", "v1.0.0",
-                "--amonet-commit", WORKING_AMONET_COMMIT,
                 "--output-dir", str(output),
             ], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -296,7 +288,8 @@ class StableReleasePackagingTests(unittest.TestCase):
             with tarfile.open(output / f"{prefix}-initial-install.tar") as archive:
                 manifest = json.load(archive.extractfile("manifest.json"))
             self.assertEqual(manifest["release"], "radar-puffin-v0.14.0")
-            self.assertEqual(manifest["amonet"]["commit"], WORKING_AMONET_COMMIT)
+            from build.ci.amonet_pins import amonet_record
+            self.assertEqual(manifest["amonet"], amonet_record("radar_puffin"))
 
     def test_stable_packager_rejects_missing_ota(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -311,9 +304,6 @@ class StableReleasePackagingTests(unittest.TestCase):
                 "--product-commit", "1" * 40,
                 "--release-version", "0.14.0",
                 "--release-notes", "release/radar-puffin-v0.14.0.md",
-                "--amonet-repository", "https://github.com/aslater3/amonet-k32",
-                "--amonet-tag", "v1.0.0",
-                "--amonet-commit", WORKING_AMONET_COMMIT,
                 "--output-dir", str(root / "release"),
             ], text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)

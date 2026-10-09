@@ -76,7 +76,9 @@ class InstallerPublicationTests(unittest.TestCase):
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn("radar-puffin-build-", source)
         self.assertIn("def download_release", source)
-        self.assertIn("def download_amonet", source)
+        self.assertIn("AMONET_PINS = {", source)
+        self.assertIn("ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a", source)
+        self.assertIn("98297293701082bc7272efe077f941c56fc7b6e1f27ef6f2e93b6e4c6fc7b62d", source)
         self.assertIn("release_dir = download_release", source)
 
     def test_installer_starts_with_readable_libreecho_banner(self) -> None:
@@ -111,14 +113,6 @@ class InstallerPublicationTests(unittest.TestCase):
             log_text = log.read_text(encoding="utf-8")
             self.assertIn("LibreEcho initial installer", log_text)
             self.assertNotIn("\x1b[", log_text)
-
-        prompt_output = io.StringIO()
-        with contextlib.redirect_stdout(prompt_output):
-            installer.print_brom_action_prompt()
-        prompt = prompt_output.getvalue()
-        self.assertIn("ACTION REQUIRED - ENTER BROM MODE", prompt)
-        self.assertIn("Connect the USB data pins: D+, D-, and GND.", prompt)
-        self.assertIn("Do not apply power yet.", prompt)
 
         console = io.StringIO()
         logfile = io.StringIO()
@@ -169,8 +163,8 @@ class InstallerPublicationTests(unittest.TestCase):
     def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
         readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
         for marker in (
-            "release checksum inventory",
-            "download and verify pinned Amonet",
+            "downloads the release checksum",
+            "pinned Amonet",
             "./run-one-shot.sh \"$TAG\"",
             "--execute-hardware",
             "initial-install.tar",
@@ -178,8 +172,8 @@ class InstallerPublicationTests(unittest.TestCase):
             "adb",
             "fastboot",
             "e2fsprogs",
-            "--install-host-deps` can install only",
-            "does **not** install `adb` or `fastboot`",
+            "`--install-host-deps` installs only `e2fsprogs`",
+            "does **not** install `adb`",
             "command -v adb fastboot mke2fs dumpe2fs",
         ):
             self.assertIn(marker, readme)
@@ -333,7 +327,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "boot": {"name": f"{prefix}-boot.img", "size": len(files[f"{prefix}-boot.img"]), "sha256": hashlib.sha256(files[f"{prefix}-boot.img"]).hexdigest()},
                 "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": len(files[f"{prefix}-ota-public-key.hex"]), "sha256": hashlib.sha256(files[f"{prefix}-ota-public-key.hex"]).hexdigest()},
                 "features": [],
-                "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+                "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
             }
             bundle = release / f"{prefix}-initial-install.tar"
             with tarfile.open(bundle, "w") as archive:
@@ -416,7 +410,7 @@ class InstallerPublicationTests(unittest.TestCase):
             "boot": {"name": f"{prefix}-boot.img", "size": 4, "sha256": hashlib.sha256(b"boot").hexdigest()},
             "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65, "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
             "features": [],
-            "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+            "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
         }
 
         def materialize(release: Path, files: dict) -> Path:
@@ -543,7 +537,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65,
                                    "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
                 "features": [],
-                "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+                "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
             }
             bundle = release / bundle_name
             with tarfile.open(bundle, "w") as archive:
@@ -625,13 +619,13 @@ class InstallerPublicationTests(unittest.TestCase):
     def test_install_guide_documents_initial_forward_and_safe_reassembly(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
         self.assertIn("http://127.0.0.1:18080/setup.html", guide)
-        self.assertIn("power before reconnecting any flex cables", guide.lower())
+        self.assertIn("power before reconnecting any", guide.lower())
         self.assertIn("adb wait-for-device", guide)
-        self.assertIn("Start the installer now", guide)
-        self.assertLess(guide.index("Start the installer now"),
-                        guide.index("## 5. Complete the installer transaction"))
-        self.assertGreater(guide.index("./run-one-shot.sh \"$TAG\""),
-                           guide.index("## 4. Enter BROM mode"))
+        self.assertIn("## 3. Run the installer", guide)
+        self.assertLess(guide.index("## 2. Connect the device"), guide.index("## 3. Run the installer"))
+        self.assertIn("fastboot flash brick", guide)
+        self.assertNotIn("BROM", guide)
+        self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND|BROM short", guide, re.I))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
