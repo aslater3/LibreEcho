@@ -222,10 +222,6 @@ jobs:
               linux_ref="$GITHUB_HEAD_REF"
               ui_ref="$GITHUB_HEAD_REF"
             elif [[ "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" &&
-                    "$GITHUB_BASE_REF" == release/0.14.0 &&
-                    "$GITHUB_HEAD_REF" == fix/014-ssh-product ]]; then
-              platform_ref=fix/014-ssh-platform
-            elif [[ "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" &&
                     "$GITHUB_HEAD_REF" == feature/*-product ]]; then
               candidate_stem="${GITHUB_HEAD_REF%-product}"
               platform_ref="${candidate_stem}-platform"

@@ -35,14 +35,6 @@ class CandidateSelectionTests(unittest.TestCase):
     def test_same_owner_coordinated_014_candidates(self):
         self.assertEqual(self.selection(), ['fix/forward-port-01314'] * 3)
 
-    def test_ssh_pr_uses_only_its_platform_candidate(self):
-        self.assertEqual(self.selection(GITHUB_HEAD_REF='fix/014-ssh-product'),
-                         ['fix/014-ssh-platform', 'release/0.14.0', 'release/0.14.0'])
-        self.assertEqual(self.selection(GITHUB_HEAD_REF='fix/014-ssh-product',
-                                        PR_HEAD_REPOSITORY='fork/LibreEcho'), ['release/0.14.0'] * 3)
-        self.assertEqual(self.selection(GITHUB_HEAD_REF='fix/014-ssh-product',
-                                        GITHUB_BASE_REF='release/0.15.0'), ['release/0.15.0'] * 3)
-
     def test_fork_and_normal_pr_use_release_components(self):
         self.assertEqual(self.selection(PR_HEAD_REPOSITORY='fork/LibreEcho'), ['release/0.14.0'] * 3)
         self.assertEqual(self.selection(GITHUB_HEAD_REF='fix/ordinary'), ['release/0.14.0'] * 3)
