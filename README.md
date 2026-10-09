@@ -16,7 +16,7 @@
 </div>
 
 LibreEcho is an open embedded voice-assistant operating system focused on
-privacy, repairability, and local control. The current development line targets
+privacy, repairability, and local control (see [Privacy and telemetry](docs/privacy.md)). The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
 tooling, a native web control centre, and a signed A/B update path.
 

@@ -33,6 +33,17 @@ Before publication, independently verify repeated capture after TTS (Product
 Local/Custom restoration, and ESPHome-mode OTA confirmation. Host protocol or
 packaging checks alone do not establish these outcomes.
 
+### Weekly active-device count and privacy choices
+
+0.14 adds an anonymous weekly ping to `stats.libreecho.org`, purely to count
+how many devices are running and on which version. It carries only hardware
+model, version, channel, development build hash, and the week/month/year; no
+device ID, serial, MAC or install date. It cannot be turned off and is
+disclosed in setup and on the Privacy page, which shows the exact body sent.
+Setup now offers health/usage and crash-report consent, ticked by default for
+new setups; upgrades keep existing choices. 0.14 sends neither yet. See
+[Privacy and telemetry](../docs/privacy.md).
+
 ### Maintenance fixes carried forward
 
 - Factory IDME Wi-Fi identity, so a reboot does not generate a new fallback MAC
