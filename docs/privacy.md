@@ -25,10 +25,12 @@ with `User-Agent: libreecho-ping/1` and this JSON body:
 | `mo` | `2026-10` | Month, UTC |
 | `yr` | `2026` | Year, UTC |
 | `w`, `m`, `y` | `1` | `1` if this is the device's first ping of that week, month or year |
+| `i` | `1` | Sent once, on this install's first counted ping, then never again. Lets the project estimate installs ever |
 
 There is no device ID, serial number, MAC address, install date, account,
 location, or anything about you or your home. The device remembers only which
-week, month and year it has already been counted for, under `/data`.
+week, month and year it has already been counted for, and whether this install
+has been counted, under `/data`.
 
 The server stores only running totals per period, hardware, version, channel
 and build. LibreEcho does not store your IP address, request headers or the
