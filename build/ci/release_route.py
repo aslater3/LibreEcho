@@ -40,7 +40,7 @@ def route(request, branch, event):
         version = release.group(1)
         if request.get('version') != version or request.get('release_tag') != 'radar-puffin-v' + version:
             raise ValueError('stable identity mismatch')
-        for key in ('release_notes', 'amonet_repository', 'amonet_tag', 'amonet_commit', 'ssh_enabled'):
+        for key in ('release_notes', 'ssh_enabled'):
             if not request.get(key):
                 raise ValueError('missing stable field: ' + key)
         return 'stable'

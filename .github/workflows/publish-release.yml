@@ -307,7 +307,7 @@ jobs:
           python3 - "${requests[0]}" >>"$GITHUB_OUTPUT" <<'PY'
           import json, sys
           data = json.load(open(sys.argv[1], encoding="utf-8"))
-          for key in ("channel", "version", "release_tag", "release_notes", "amonet_repository", "amonet_tag", "amonet_commit", "ssh_enabled"):
+          for key in ("channel", "version", "release_tag", "release_notes", "ssh_enabled"):
               value = data.get(key, "")
               if not value:
                   raise SystemExit(f"missing stable release field: {key}")
@@ -340,9 +340,6 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_VERSION: ${{ steps.request.outputs.version }}
           RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
-          AMONET_REPOSITORY: ${{ steps.request.outputs.amonet_repository }}
-          AMONET_TAG: ${{ steps.request.outputs.amonet_tag }}
-          AMONET_COMMIT: ${{ steps.request.outputs.amonet_commit }}
           PRODUCT_HEAD: ${{ steps.sources.outputs.product_head }}
           PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
           LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
@@ -364,9 +361,6 @@ jobs:
             --product-commit "$HEAD_SHA" \
             --release-version "$RELEASE_VERSION" \
             --release-notes "$RELEASE_NOTES" \
-            --amonet-repository "$AMONET_REPOSITORY" \
-            --amonet-tag "$AMONET_TAG" \
-            --amonet-commit "$AMONET_COMMIT" \
             --output-dir release-assets
           python3 tools/check-public-metadata.py release-assets
           python3 build/ci/prepare-twrp-installs.py --assets release-assets --artifact-root verified-build

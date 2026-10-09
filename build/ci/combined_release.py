@@ -108,7 +108,7 @@ def prepare_if_combined(args, script):
                 if tag:
                     command += ["--combined-release-tag", tag]
             else:
-                for field in ("product_root", "release_version", "release_notes", "amonet_repository", "amonet_tag", "amonet_commit"):
+                for field in ("product_root", "release_version", "release_notes"):
                     command += ["--" + field.replace("_", "-"), str(getattr(args, field))]
             result = subprocess.run(command, capture_output=True, text=True, timeout=180)
             if result.returncode:

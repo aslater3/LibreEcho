@@ -85,19 +85,21 @@ integration dependency.
 
 Stock fastboot `product` maps `RADAR` to `radar_puffin` and `BISCUIT` to `biscuit`.
 A cross-flashed LK identifies its donor boot chain, **not** the physical board.
-Use explicit `--target radar_puffin` or `--target biscuit` for BROM installs or a
-cross-flashed LK; mismatches are logged. Saved transactions bind their target,
+Use explicit `--target radar_puffin` or `--target biscuit` for a cross-flashed
+LK; mismatches are refused before any write. Saved transactions bind their target,
 so continuation cannot silently select another target's bundle.
 
-**One-shot installation is intentionally blocked before install writes unless
-the pinned Amonet repository/commit is positively classified as the legacy
-chain.** The legacy-closure allowlist is empty. The existing `erase expdb`
-operation remains in the source, behind an early fail-closed guard and a second
-guard immediately before the erase. A CLI option, environment variable, or
-Amonet tag claiming `v1` is not evidence of the closure's chain generation.
+The one-shot installer no longer uses the legacy k32 BROM path. It starts from
+stock fastboot and never erases `expdb`. On v2 Kaeru, expdb contains the
+LK-stage payload, which is the unlock proof, so it must stay intact.
 
-This is an operator decision, not an automatic migration: on v2 Kaeru, expdb
-contains the LK-stage payload, while the fastboot marker belongs in misc.
+Each target has its own pinned community Amonet ZIP, recorded in
+`release/amonet-pins.json`. Biscuit accepts any LK build: its reviewed build
+`63cb91b-20221007_072309` uses its own payload, and any other build uses the archive's
+default `fastbrick.img`, as upstream `fastbrick.sh` does. Radar
+`63cb91b-20221007_072309`. Radar accepts both of its reviewed builds. Payloads are
+selected by exact `lk_build_desc` and verified by size and SHA-256 before any
+write.
 Deleting or retargeting that erase without a reviewed boot-chain decision is
 not part of this scaffolding. No USB/hardware validation or release publication
 is implied by host tests.

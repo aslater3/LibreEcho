@@ -14,6 +14,7 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from amonet_pins import amonet_record
 from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, hardware_accepted, load_target
 from ota_v2_product import (  # noqa: E402
     load_feature_contract,
@@ -25,7 +26,6 @@ COMMIT = re.compile(r"^[0-9a-f]{40}$")
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
-WORKING_AMONET_COMMIT = "dfefe52f0eed7296012707cfff1f753b0ea33257"
 
 
 def fail(message: str) -> None:
@@ -77,9 +77,6 @@ def initial_install_manifest(
     boot: Path,
     public_key: Path,
     output: Path,
-    amonet_repository: str,
-    amonet_tag: str,
-    amonet_commit: str,
     target: str = DEFAULT,
 ) -> dict[str, object]:
     prefix = asset_prefix(release_tag, target)
@@ -102,11 +99,7 @@ def initial_install_manifest(
         "boot": asset_record(boot),
         "ota_public_key": asset_record(public_key),
         "features": features,
-        "amonet": {
-            "repository": amonet_repository,
-            "tag": amonet_tag,
-            "commit": amonet_commit,
-        },
+        "amonet": amonet_record(target),
     }
 
 
@@ -146,9 +139,6 @@ def main() -> int:
     parser.add_argument("--product-commit", required=True)
     parser.add_argument("--release-version", required=True)
     parser.add_argument("--release-notes", required=True)
-    parser.add_argument("--amonet-repository", required=True)
-    parser.add_argument("--amonet-tag", required=True)
-    parser.add_argument("--amonet-commit", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     from combined_release import discover_runs
@@ -167,10 +157,6 @@ def main() -> int:
         fail("product commit must be a full lowercase SHA")
     if not VERSION.fullmatch(args.release_version):
         fail("release version must be X.Y.Z")
-    if not re.fullmatch(r"https://[^/]+/.+", args.amonet_repository) or not args.amonet_tag:
-        fail("Amonet repository and tag are invalid")
-    if args.amonet_commit != WORKING_AMONET_COMMIT:
-        fail("Amonet commit is not the reviewed release commit")
 
     product = args.product_root.resolve()
     if not product.is_dir() or product.is_symlink():
@@ -344,7 +330,7 @@ def main() -> int:
             sha256(run / "feature-assets.json"),
         )
 
-    install_manifest = initial_install_manifest(release_tag, output / f"{prefix}-boot.img", output / f"{prefix}-ota-public-key.hex", output, args.amonet_repository, args.amonet_tag, args.amonet_commit, target)
+    install_manifest = initial_install_manifest(release_tag, output / f"{prefix}-boot.img", output / f"{prefix}-ota-public-key.hex", output, target)
     if feature_plan is not None:
         from release_completeness import install_features, ship
         completeness, extra_paths = ship(run, output, prefix, feature_plan, target=target)

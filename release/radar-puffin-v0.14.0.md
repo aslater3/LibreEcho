@@ -110,8 +110,12 @@ setup completion carries that choice back to the parent HTTP process, so a
 subsequent unrelated settings save does not disable it. An explicit later
 AirPlay disable survives restart; other integration choices are preserved.
 
-One-shot staging checks both payload and manifest integrity, including device
-readback. Continuation is bound to the original release, bundle, device and
+One-shot installation starts from stock fastboot. It reads the device's fastboot
+product to confirm the target, and it runs the Amonet brick step only when the
+bootloader is locked. The pinned Amonet ZIP is supplied by the operator with
+`--amonet-zip`. Biscuit accepts any LK build; the default `fastbrick.img` covers builds without a reviewed mapping. `expdb`
+is never erased. One-shot staging checks both payload and manifest integrity,
+including device readback. Continuation is bound to the original release, bundle, device and
 boot slots. Once features are staged, it revalidates them and restores forwarding
 without repeating formatting, flashing, rebooting or payload writes. The retained
 local-release cache includes SHA256SUMS and its covered assets. The wrapper

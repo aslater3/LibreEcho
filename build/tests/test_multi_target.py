@@ -26,7 +26,7 @@ from release_route import route
 from combined_release import assert_parity
 from sign_ota_candidate import validate_handoff, create_handoff, invoke_platform_signer, HandoffError
 from build.tests.test_prepare_dev_release import fixture as dev_fixture
-from build.tests.test_release_packaging import fixture as stable_fixture, WORKING_AMONET_COMMIT
+from build.tests.test_release_packaging import fixture as stable_fixture
 from build.tests.test_ota_v2_complete_gate import contract as v2_fixture, control_raw
 
 
@@ -81,7 +81,7 @@ def prepare(script, artifact, output, product=None, extra=()):
     cmd = [sys.executable, str(script), '--artifact-root', str(artifact), '--product-commit', '1' * 40, '--output-dir', str(output)]
     if product:
         cmd += ['--product-root', str(product), '--release-version', '0.14.0', '--release-notes', 'release/radar-puffin-v0.14.0.md',
-                '--amonet-repository', 'https://github.com/aslater3/amonet-k32', '--amonet-tag', 'v1.0.0', '--amonet-commit', WORKING_AMONET_COMMIT]
+                ]
     return subprocess.run(cmd + list(extra), capture_output=True, text=True, timeout=180)
 
 
@@ -149,33 +149,71 @@ class DescriptorTests(unittest.TestCase):
                 if target == 'biscuit':
                     with self.assertRaises(INSTALLER.InstallerError): INSTALLER.verify_fastboot_product('mock', 'fixture', 'radar_puffin')
 
-    def test_expdb_erase_has_no_unreviewed_allowlist_or_override(self):
-        self.assertEqual(INSTALLER.LEGACY_EXPDB_ERASE_CLOSURES, frozenset())
-        for commit in (WORKING_AMONET_COMMIT, '0' * 40):
-            with self.assertRaisesRegex(INSTALLER.InstallerError, 'Operator decision'):
-                INSTALLER.require_legacy_expdb_erase({'repository': 'https://github.com/aslater3/amonet-k32', 'commit': commit})
-        with mock.patch.object(INSTALLER, 'LEGACY_EXPDB_ERASE_CLOSURES', frozenset({('fixture-legacy', '1' * 40)})):
-            INSTALLER.require_legacy_expdb_erase({'repository': 'fixture-legacy', 'commit': '1' * 40})
+    def test_old_expdb_erase_guard_and_brom_path_are_gone(self):
+        for name in ('LEGACY_EXPDB_ERASE_CLOSURES', 'require_legacy_expdb_erase', 'download_amonet',
+                     'verify_amonet_root', 'run_amonet_with_progress', 'brom_permission_preflight', 'AMONET_COMMIT'):
+            self.assertFalse(hasattr(INSTALLER, name), name)
 
-    def test_unreviewed_one_shot_stops_before_any_flash_or_erase(self):
+    def test_embedded_pins_match_release_pin_file(self):
+        from build.ci.amonet_pins import load_pins
+        pins = load_pins()['targets']
+        self.assertEqual(set(INSTALLER.AMONET_PINS), set(pins))
+        for target in pins:
+            self.assertEqual(INSTALLER.AMONET_PINS[target], pins[target], target)
+
+    def test_biscuit_accepts_any_lk_build_and_uses_reviewed_payload_when_mapped(self):
+        ok = INSTALLER.select_amonet_payload('biscuit', '63cb91b-20221007_072309')
+        self.assertEqual(ok['payload'], 'fastbrick-20221007.img')
+        for build in ('59779ca-20220524_183401', '63cb91b-20221007_072310', 'anything-else'):
+            chosen = INSTALLER.select_amonet_payload('biscuit', build)
+            self.assertEqual(chosen['payload'], 'fastbrick.img')
+            self.assertEqual(chosen['build'], build)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, 'LK build is unknown'):
+            INSTALLER.select_amonet_payload('biscuit', '')
+
+    def test_radar_accepts_both_pinned_lk_builds(self):
+        for build, name in (('59779ca-20220524_183401', 'fastbrick-20220524.img'), ('63cb91b-20221007_072309', 'fastbrick.img')):
+            self.assertEqual(INSTALLER.select_amonet_payload('radar_puffin', build)['payload'], name)
+
+    def test_brick_stops_on_emmc_ro_and_device_mismatch_without_retry(self):
+        for text, pattern in (('eMMC-RO', 'read-only'), ('Device mismatch', 'Device mismatch')):
+            with tempfile.TemporaryDirectory() as tmp:
+                payload = Path(tmp) / 'fastbrick.img'; payload.write_bytes(b'x')
+                result = subprocess.CompletedProcess([], 1, stdout=text, stderr='')
+                with mock.patch.object(INSTALLER.subprocess, 'run', return_value=result) as run, \
+                     mock.patch.object(INSTALLER, '_safe_regular'):
+                    with self.assertRaisesRegex(INSTALLER.InstallerError, pattern):
+                        INSTALLER.brick_fastboot_payload('fastboot', 'SER', payload, 60)
+                self.assertEqual(run.call_count, 1)
+
+    def test_one_shot_locked_device_without_zip_stops_before_any_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            manifest = {'amonet': {'repository': 'https://github.com/aslater3/amonet-k32', 'commit': WORKING_AMONET_COMMIT}}
-            with mock.patch.object(INSTALLER, '_prepare', return_value=(manifest, root / 'bundle')), \
+            bundle = root / 'cache' / 'radar-puffin-v0.14.0' / 'bundle.tar'
+            bundle.parent.mkdir(parents=True)
+            bundle.write_bytes(b'fixture-bundle')
+            boot = bundle.parent / 'b.img'
+            boot.write_bytes(b'fixture-boot')
+            manifest = {'board': 'radar_puffin', 'boot': {'name': 'b.img', 'sha256': hashlib.sha256(b'fixture-boot').hexdigest()}}
+            with mock.patch.object(INSTALLER, '_prepare', return_value=(manifest, bundle)), \
                  mock.patch.object(INSTALLER, 'require_host_commands'), \
                  mock.patch.object(INSTALLER, 'prepare_fastboot_tools', return_value='fixture-fastboot'), \
-                 mock.patch.object(INSTALLER, '_run_command') as command, \
-                 mock.patch.object(INSTALLER, 'run_amonet_with_progress') as amonet:
-                with self.assertRaisesRegex(INSTALLER.InstallerError, 'expdb erase refused'):
-                    INSTALLER.one_shot(root, root, release_tag='radar-puffin-v0.14.0', cache_root=root / 'cache',
+                 mock.patch.object(INSTALLER, 'adb_forward_command', return_value=[]), \
+                 mock.patch.object(INSTALLER, 'fastboot_devices', return_value=['SER']), \
+                 mock.patch.object(INSTALLER, 'select_fastboot_serial', return_value='SER'), \
+                 mock.patch.object(INSTALLER, 'verify_fastboot_product', return_value='radar_puffin'), \
+                 mock.patch.object(INSTALLER, 'fastboot_getvar', return_value='false'), \
+                 mock.patch.object(INSTALLER, 'validate_public_boot_image'), \
+                 mock.patch.object(INSTALLER, '_run_command') as command:
+                with self.assertRaisesRegex(INSTALLER.InstallerError, 'requires --amonet-zip'):
+                    INSTALLER.one_shot(root, None, release_tag='radar-puffin-v0.14.0', cache_root=root / 'cache',
                         state_root=root / 'state', target='radar_puffin', execute_hardware=True)
                 command.assert_not_called()
-                amonet.assert_not_called()
 
     def test_route_accepts_targets_but_preserves_product_tag(self):
         request = {'schema': 'libreecho-release-request-v1', 'purpose': 'prd', 'publish': True, 'channel': 'stable', 'version': '0.14.0',
                    'release_tag': 'radar-puffin-v0.14.0', 'release_notes': 'release/radar-puffin-v0.14.0.md'}
-        request.update(amonet_repository='https://github.com/aslater3/amonet-k32', amonet_tag='v1.0.0', amonet_commit=WORKING_AMONET_COMMIT, ssh_enabled='disabled')
+        request.update(ssh_enabled='disabled')
         original = route(request, 'release/0.14.0', 'workflow_dispatch')
         for targets in (['radar_puffin'], ['biscuit'], list(KNOWN_TARGETS)):
             self.assertEqual(route({**request, 'targets': targets}, 'release/0.14.0', 'workflow_dispatch'), original)
