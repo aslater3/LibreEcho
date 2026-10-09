@@ -16,6 +16,11 @@
           "payload": "fastbrick.img",
           "size": 114294816,
           "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"
+        },
+        "63cb91b-20221007_073612": {
+          "payload": "fastbrick.img",
+          "size": 114294816,
+          "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"
         }
       }
     },

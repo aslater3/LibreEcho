@@ -141,6 +141,8 @@ AMONET_PINS = {
                                         "sha256": "cc78ba7e497b7049361da4e3a85a69ee33e0e6cc5eef89e2752bc8c024f63ffb"},
             "63cb91b-20221007_072309": {"payload": "fastbrick.img", "size": 114294816,
                                         "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"},
+            "63cb91b-20221007_073612": {"payload": "fastbrick.img", "size": 114294816,
+                                        "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"},
         },
     },
     # Biscuit accepts any LK build. A reviewed build maps to its own payload; any other
@@ -160,7 +162,7 @@ AMONET_PINS = {
 FASTBRICK_RETRY_SECONDS = 2
 # A stock bootloader refuses `oem kaeru-version`; anything else is indeterminate.
 FASTBOOT_COMMAND_REFUSED = re.compile(
-    r"FAIL(?:ED)?\s*\(?\s*(?:remote:?\s*)?'?\s*(?:unknown command|not allowed|not supported|unsupported|invalid command|unrecognized)",
+    r"FAIL(?:ED)?[^\n]*?(?:unknown command|not allowed|not supported|unsupported|invalid command|unrecognized|restricted on locked)",
     re.IGNORECASE)
 FASTBOOT_TRANSPORT_ERROR = re.compile(
     r"write failed|read failed|usb_|no devices|no permissions|protocol error|cannot (?:open|claim)|unable to|disconnected|timed out|I/O error",

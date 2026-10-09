@@ -172,7 +172,7 @@ class DescriptorTests(unittest.TestCase):
             INSTALLER.select_amonet_payload('biscuit', '')
 
     def test_radar_accepts_both_pinned_lk_builds(self):
-        for build, name in (('59779ca-20220524_183401', 'fastbrick-20220524.img'), ('63cb91b-20221007_072309', 'fastbrick.img')):
+        for build, name in (('59779ca-20220524_183401', 'fastbrick-20220524.img'), ('63cb91b-20221007_072309', 'fastbrick.img'), ('63cb91b-20221007_073612', 'fastbrick.img')):
             self.assertEqual(INSTALLER.select_amonet_payload('radar_puffin', build)['payload'], name)
 
     def test_brick_stops_on_emmc_ro_and_device_mismatch_without_retry(self):

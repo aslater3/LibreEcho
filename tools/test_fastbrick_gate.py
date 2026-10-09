@@ -34,9 +34,10 @@ INSTALLER = load_module("libreecho_install_fastbrick", ROOT / "tools/libreecho-i
 
 RADAR_OLD = "59779ca-20220524_183401"
 RADAR_NEW = "63cb91b-20221007_072309"
+RADAR_NEW2 = "63cb91b-20221007_073612"
 BISCUIT_LK = "63cb91b-20221007_072309"
 TARGETS = {
-    "radar_puffin": {"product": "RADAR", "lk_ok": (RADAR_OLD, RADAR_NEW)},
+    "radar_puffin": {"product": "RADAR", "lk_ok": (RADAR_OLD, RADAR_NEW, RADAR_NEW2)},
     "biscuit": {"product": "BISCUIT", "lk_ok": (BISCUIT_LK,)},
 }
 ARCHIVE_NAMES = {"radar_puffin": "amonet-radar-v1.0.0.zip", "biscuit": "amonet-biscuit-v2.0.0.zip"}
@@ -204,6 +205,7 @@ class KaeruGateTests(unittest.TestCase):
 
     def test_every_real_stock_refusal_wording_is_accepted_as_stock(self):
         wordings = ("FAILunknown command\n", "FAILED (remote: 'unknown command')",
+                    "FAILED (remote: 'the command you input is restricted on locked hw')\nfastboot: error: Command failed",
                     "FAILED (remote: 'not allowed in locked state')", "FAILED (remote: 'unsupported command')")
         for text in wordings:
             with self.subTest(text=text):
