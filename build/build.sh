@@ -153,7 +153,6 @@ ASSISTANT_CURL_SOURCE="$INPUTS/curl-8.21.0.tar.xz"
 ASSISTANT_CA_BUNDLE="$INPUTS/ca-certificates-20260601.crt"
 ASSISTANT_CA_COPYRIGHT="$INPUTS/ca-certificates-20260601.copyright"
 SSH_ENABLED="${LIBREECHO_SSH_ENABLED:-0}"
-SSH_ROOT_PASSWORD_HASH="${LIBREECHO_SSH_ROOT_PASSWORD_HASH:-}"
 JOBS="${JOBS:-$(nproc)}"
 OTA_DIR="$TOOLS_DIR/ota"
 PLATFORM_RUNTIME_VERIFIER="$TOOLS_DIR/feature_runtime/verify_runtime.py"
@@ -599,32 +598,7 @@ done
   exit 1
 }
 case "$SSH_ENABLED" in
-  0) [[ -z "$SSH_ROOT_PASSWORD_HASH" ]] || {
-       echo "ERROR: LIBREECHO_SSH_ROOT_PASSWORD_HASH requires LIBREECHO_SSH_ENABLED=1" >&2
-       exit 1
-     } ;;
-  1) # Enabling SSH ships the bundle, not a credential: init starts the
-     # supervisor, which waits for the WebUI users database that setup writes.
-     # A staged hash adds password-only root login on top of that, and is
-     # optional.  An absent, unset or empty-path hash simply means the image
-     # carries no root password, which is the intended default for a device
-     # whose credentials come from setup.
-     if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then
-       [[ -f "$SSH_ROOT_PASSWORD_HASH" && ! -L "$SSH_ROOT_PASSWORD_HASH" ]] || {
-         echo "ERROR: SSH requires a regular build-local root password hash file" >&2
-         exit 1
-       }
-       hash_mode="$(stat -c %a "$SSH_ROOT_PASSWORD_HASH")"
-       if (( 8#$hash_mode & 022 )); then
-         echo "ERROR: SSH root password hash file is group/world-writable" >&2
-         exit 1
-       fi
-       if [[ ! -s "$SSH_ROOT_PASSWORD_HASH" ]]; then
-         echo "SSH enabled without a root password hash: no root password will be set" >&2
-       fi
-     else
-       echo "SSH enabled without a root password hash: no root password will be set" >&2
-     fi ;;
+  0|1) ;;
   *) echo "ERROR: LIBREECHO_SSH_ENABLED must be 0 or 1" >&2; exit 1 ;;
 esac
 [[ -x "$TOOLS_DIR/busybox/build_busybox.sh" && -x "$TOOLS_DIR/musl/build_musl.sh" && \
@@ -2157,8 +2131,9 @@ ssh_builder_args=()
 ssh_verifier_args=()
 dropbear_sha=
 dropbearkey_sha=
+scp_sha=
 if [[ "$SSH_ENABLED" == 1 ]]; then
-  echo "=== building static ARM32 password-only SSH server ==="
+  echo "=== building static ARM32 WebUI-account SSH server ==="
   DROPBEAR_BUILDER="$TOOLS_DIR/ssh/build_dropbear.sh"
   [[ -x "$DROPBEAR_BUILDER" ]] || {
     echo "ERROR: SSH builder is missing or not executable: $DROPBEAR_BUILDER" >&2
@@ -2187,12 +2162,7 @@ if [[ "$SSH_ENABLED" == 1 ]]; then
   scp_sha="$(sha256sum "$DROPBEAR_OUTPUT/scp" | awk '{print $1}')"
   echo "dropbear_sha256=$dropbear_sha"
   echo "dropbearkey_sha256=$dropbearkey_sha"
-  # The image bundles all three binaries and the verifier rejects an SSH image
-  # whose binary identities are incomplete, so all three paths are passed and
-  # all three digests are expected.  There is deliberately no root password
-  # argument: the image has root login disabled and authenticates against the
-  # users database setup writes, so the optional
-  # LIBREECHO_SSH_ROOT_PASSWORD_HASH secret is staged but never consumed.
+  echo "scp_sha256=$scp_sha"
   ssh_builder_args=(
     --ssh-enabled
     --dropbear "$DROPBEAR_OUTPUT/dropbear"
@@ -2654,6 +2624,7 @@ ui_manifest_sha256=$ui_manifest_sha
 ssh_enabled=$SSH_ENABLED
 dropbear_sha256=$dropbear_sha
 dropbearkey_sha256=$dropbearkey_sha
+scp_sha256=$scp_sha
 manifest=$RUN/manifest.json
 userdata_tree=$USERDATA_TREE
 userdata_tree_manifest_sha256=$userdata_manifest_sha
@@ -2783,6 +2754,7 @@ ui_manifest_sha256=$ui_manifest_sha
 ssh_enabled=$SSH_ENABLED
 dropbear_sha256=$dropbear_sha
 dropbearkey_sha256=$dropbearkey_sha
+scp_sha256=$scp_sha
 zimage=$RUN/zImage
 zimage_sha256=$zsha
 system_map=$RUN/System.map
