@@ -142,6 +142,21 @@ class OneShotFastbootTests(unittest.TestCase):
             with self.subTest(size=f"{size:#x}"):
                 INSTALLER._validate_userdata_partition_size(size)
 
+    def test_userdata_geometry_accepts_stock_radar_layout_only_for_radar(self) -> None:
+        # Issue #230: Kaeru leaves the stock Radar GPT userdata, which is not
+        # 4 KiB aligned; the filesystem covers the aligned prefix only.
+        self.assertEqual(INSTALLER.USERDATA_RADAR_STOCK_BYTES, 0x4EFFBE00)
+        self.assertEqual(
+            INSTALLER._validate_userdata_partition_size(0x4EFFBE00, "radar_puffin"),
+            0x4EFFB000,
+        )
+        for target in ("biscuit", None):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+                    INSTALLER._validate_userdata_partition_size(0x4EFFBE00, target)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+            INSTALLER._validate_userdata_partition_size(0x4EFFBE00 + 512, "radar_puffin")
+
     def test_userdata_format_rejects_unexpected_partition_size(self) -> None:
         with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
              mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES + 512), \

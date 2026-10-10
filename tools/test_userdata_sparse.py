@@ -244,6 +244,39 @@ class UserdataSparseTests(unittest.TestCase):
                 self.assertIn("4096", commands[0])
                 self.assertEqual(commands[1][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
 
+    def test_stock_radar_layout_formats_aligned_prefix_and_flashes(self):
+        # Issue #230: 0x4effbe00 is the stock Radar userdata left by Kaeru.
+        partition = 0x4EFFBE00
+        size = partition - partition % 4096
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("mke2fs", "dumpe2fs", "fastboot"):
+                (root / name).write_text("fixture")
+            def run(argv, timeout, **kwargs):
+                return subprocess.CompletedProcess(argv, 0, report(size // 4096, ((2, size // 4096 - 1),)) if argv[0] == "env" else "", "")
+            def flash(argv, timeout, message):
+                image = Path(argv[5])
+                self.assertEqual(INSTALLER._validate_android_sparse_image(image, size), 8192)
+                self.assertLessEqual(struct.unpack_from("<I", image.read_bytes(), 16)[0] * 4096, partition)
+            with mock.patch.object(INSTALLER, "verify_fastboot_product", return_value="radar_puffin"), \
+                 mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=partition), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=run), \
+                 mock.patch.object(INSTALLER, "_run_command_with_heartbeat", side_effect=flash) as write, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                INSTALLER.format_userdata_in_fastboot(str(root / "fastboot"), "TEST", 120)
+            write.assert_called_once()
+
+    def test_stock_radar_layout_rejected_for_biscuit(self):
+        with mock.patch.object(INSTALLER, "verify_fastboot_product", return_value="biscuit"), \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=0x4EFFBE00), \
+             mock.patch.object(INSTALLER, "_run_command") as run, \
+             mock.patch.object(INSTALLER, "_run_command_with_heartbeat") as flash:
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                INSTALLER.format_userdata_in_fastboot("fastboot", "TEST", 120)
+            run.assert_not_called()
+            flash.assert_not_called()
+
     def test_invalid_allocation_report_never_authorises_flash(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -294,6 +327,10 @@ class UserdataFilesystemIntegrationTests(unittest.TestCase):
 
     def test_larger_layout_real_ext4_on_stale_target(self):
         self.check_geometry(0x41B80000)
+
+    def test_stock_radar_layout_real_ext4_on_stale_target(self):
+        # Issue #230: the filesystem covers the 4 KiB-aligned prefix of 0x4effbe00.
+        self.check_geometry(INSTALLER._validate_userdata_partition_size(0x4EFFBE00, 'radar_puffin'))
 
 
 if __name__ == '__main__':

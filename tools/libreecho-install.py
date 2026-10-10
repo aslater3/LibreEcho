@@ -117,13 +117,22 @@ def _safe_regular(path: Path) -> None:
 
 
 BOOT_BYTES = 16 * 1024 * 1024
-# Biscuit has two reviewed stock GPT end-LBA variants. Amonet derives the
-# post-wrapper userdata end from the existing GPT, producing either 0x209c00
-# or 0x20dc00 sectors of 512 bytes. Keep this allowlist exact so an unknown
-# partition layout still fails closed before userdata is written.
+# Legacy amonet v1 repartitioning shrinks userdata to make room for its
+# boot_*_tmp wrappers, leaving 0x209c00 or 0x20dc00 sectors of 512 bytes
+# depending on the original GPT end. Those sizes are board-independent and are
+# what units with legacy amonet history report.
 USERDATA_BYTES = 0x209C00 * 512
 USERDATA_VARIANT_BYTES = 0x20DC00 * 512
 USERDATA_SUPPORTED_BYTES = frozenset((USERDATA_BYTES, USERDATA_VARIANT_BYTES))
+# The pinned Kaeru fastbrick chain does not repartition, so a Radar unlocked
+# from stock keeps the stock GPT userdata (LBA 0x4d0000-0x747fde of the pinned
+# amonet-radar-v1.0.0 gpt-radar.bin). It is not a multiple of 4 KiB; the
+# filesystem covers the 4 KiB-aligned prefix only. Keep every allowlist exact
+# and per-target so an unknown layout still fails closed before any write.
+USERDATA_RADAR_STOCK_BYTES = (0x747FDE - 0x4D0000 + 1) * 512
+USERDATA_TARGET_BYTES = {
+    "radar_puffin": frozenset((USERDATA_RADAR_STOCK_BYTES,)),
+}
 # Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
 # control-command timeout to this bounded eMMC operation.
 USERDATA_FLASH_TIMEOUT = 900
@@ -723,10 +732,12 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
     return programmed_bytes
 
 
-def _validate_userdata_partition_size(size: int) -> None:
-    if size in USERDATA_SUPPORTED_BYTES:
-        return
-    expected = ", ".join(f"{value:#x}" for value in sorted(USERDATA_SUPPORTED_BYTES))
+def _validate_userdata_partition_size(size: int, target: str | None = None) -> int:
+    """Return the ext4 filesystem size for a reviewed userdata partition size."""
+    supported = USERDATA_SUPPORTED_BYTES | USERDATA_TARGET_BYTES.get(target or "", frozenset())
+    if size in supported:
+        return size - size % 4096
+    expected = ", ".join(f"{value:#x}" for value in sorted(supported))
     raise InstallerError(
         f"userdata partition size mismatch: expected one of {expected}, got {size:#x}"
     )
@@ -864,11 +875,11 @@ def _write_userdata_sparse(raw: Path, sparse: Path, expected_bytes: int, metadat
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
     """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
-    verify_fastboot_product(fastboot_bin, serial)
-    size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
-    _validate_userdata_partition_size(size)
+    target = verify_fastboot_product(fastboot_bin, serial)
+    partition_size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
+    size = _validate_userdata_partition_size(partition_size, target)
     print(
-        f"FASTBOOT STAGE: formatting only userdata as ext4 ({size} bytes); "
+        f"FASTBOOT STAGE: formatting only userdata as ext4 ({size} of {partition_size} bytes); "
         "boot, system, persist, and expdb are not being formatted.",
         flush=True,
     )
