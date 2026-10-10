@@ -117,21 +117,24 @@ def _safe_regular(path: Path) -> None:
 
 
 BOOT_BYTES = 16 * 1024 * 1024
-# Legacy amonet v1 repartitioning shrinks userdata to make room for its
-# boot_*_tmp wrappers, leaving 0x209c00 or 0x20dc00 sectors of 512 bytes
-# depending on the original GPT end. Those sizes are board-independent and are
-# what units with legacy amonet history report.
+# Legacy amonet v1 repartitioning shrinks the stock userdata to make room for
+# its boot_*_tmp wrappers: Radar 0x4effbe00 -> 0x41380000 (0x209c00 sectors)
+# and Biscuit 0x4f7fbe00 -> 0x41b80000 (0x20dc00 sectors). Both legacy sizes
+# remain accepted on either board, as before, for units with amonet history.
 USERDATA_BYTES = 0x209C00 * 512
 USERDATA_VARIANT_BYTES = 0x20DC00 * 512
 USERDATA_SUPPORTED_BYTES = frozenset((USERDATA_BYTES, USERDATA_VARIANT_BYTES))
-# The pinned Kaeru fastbrick chain does not repartition, so a Radar unlocked
-# from stock keeps the stock GPT userdata (LBA 0x4d0000-0x747fde of the pinned
-# amonet-radar-v1.0.0 gpt-radar.bin). It is not a multiple of 4 KiB; the
-# filesystem covers the 4 KiB-aligned prefix only. Keep every allowlist exact
-# and per-target so an unknown layout still fails closed before any write.
+# The pinned Kaeru fastbrick chains do not repartition (and the Biscuit chain
+# restores a legacy-patched GPT), so a unit unlocked from stock keeps its
+# board's stock GPT userdata (pinned amonet gpt-radar.bin / gpt-biscuit.bin).
+# Neither is a multiple of 4 KiB; the filesystem covers the 4 KiB-aligned
+# prefix only. Keep every allowlist exact and per-target so an unknown layout
+# still fails closed before any write.
 USERDATA_RADAR_STOCK_BYTES = (0x747FDE - 0x4D0000 + 1) * 512
+USERDATA_BISCUIT_STOCK_BYTES = (0x74BFDE - 0x4D0000 + 1) * 512
 USERDATA_TARGET_BYTES = {
     "radar_puffin": frozenset((USERDATA_RADAR_STOCK_BYTES,)),
+    "biscuit": frozenset((USERDATA_BISCUIT_STOCK_BYTES,)),
 }
 # Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
 # control-command timeout to this bounded eMMC operation.
