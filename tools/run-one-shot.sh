@@ -13,15 +13,48 @@ fi
 repo="${LIBREECHO_RELEASE_REPOSITORY:-aslater3/LibreEcho}"
 target="${LIBREECHO_TARGET:-}"
 fastboot_bin=fastboot
+adb_bin=adb
 serial=auto
+state_root="$HOME/.local/state/libreecho-installer"
+install_id=default
 options=("$@")
 for ((i=0; i<${#options[@]}; i++)); do
   case "${options[i]}" in
     --target) target="${options[i+1]:?missing target}" ;;
     --fastboot-bin) fastboot_bin="${options[i+1]:?missing fastboot binary}" ;;
+    --adb-bin) adb_bin="${options[i+1]:?missing adb binary}" ;;
     --fastboot-serial) serial="${options[i+1]:?missing fastboot serial}" ;;
+    --state-root) state_root="${options[i+1]:?missing state root}" ;;
+    --install-id) install_id="${options[i+1]:?missing install id}" ;;
   esac
 done
+# A continuation already knows its board: the device may be in TWRP/recovery or
+# booted LibreEcho, where no fastboot product is available to auto-detect.
+if [[ -z "$target" && "$action" == continue-one-shot ]]; then
+  state_file="$state_root/$install_id/state.json"
+  if [[ -f "$state_file" && ! -L "$state_file" ]]; then
+    target="$(python3 -c '
+import json, sys
+board = json.load(open(sys.argv[1])).get("board", "radar_puffin")
+print(board if board in ("radar_puffin", "biscuit") else "")
+' "$state_file")"
+    if [[ -n "$target" ]]; then echo "Continuation target from saved state: $target"; fi
+  fi
+fi
+# Recovery identity is usable only for continuation of the requested serial.
+# Never infer a fresh fastboot target from an unrelated ADB device.
+if [[ -z "$target" && "$action" == continue-one-shot && "$serial" != auto ]] && command -v "$adb_bin" >/dev/null 2>&1; then
+  mapfile -t adb_devices < <("$adb_bin" devices | awk 'NR > 1 && ($2 == "device" || $2 == "recovery") { print $1 }')
+  for adb_serial in "${adb_devices[@]}"; do
+    [[ "$adb_serial" == "$serial" ]] || continue
+    adb_product="$("$adb_bin" -s "$serial" shell 'getprop ro.product.device 2>/dev/null; getprop ro.build.product 2>/dev/null' 2>/dev/null | tr -d '\r' | tr 'A-Z' 'a-z' || true)"
+    case "$adb_product" in
+      *radar*|*puffin*) target=radar_puffin ;;
+      *biscuit*) target=biscuit ;;
+    esac
+    if [[ -n "$target" ]]; then echo "Target from bound ADB device identity: $target"; fi
+  done
+fi
 if [[ -z "$target" ]]; then
   if [[ "$serial" == auto ]]; then
     mapfile -t devices < <("$fastboot_bin" devices | cut -f1)
