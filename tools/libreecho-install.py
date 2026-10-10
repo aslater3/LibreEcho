@@ -52,6 +52,10 @@ class InstallerError(RuntimeError):
     """The bundle, cache, or resumable state does not meet the install contract."""
 
 
+class FastbootTransportError(InstallerError):
+    """The fastboot product could not be read (USB/transport). Never an identity mismatch."""
+
+
 ACTIVE_LOG_PATH: Path | None = None
 
 
@@ -159,7 +163,26 @@ AMONET_PINS = {
         },
     },
 }
-FASTBRICK_RETRY_SECONDS = 2
+# Reviewed host fastboot binaries packaged inside the pinned Amonet ZIPs. The Radar and
+# Biscuit archives ship byte-identical copies. Only the one whose architecture matches
+# this host is extracted, and only after size and SHA-256 match these pins. System
+# fastboot is still used for formatting, boot flashing, and identity checks.
+AMONET_HOST_TOOLS = {
+    "fastboot": {"machine": "x86_64", "size": 7314048,
+                 "sha256": "cb3d13b850143da85eb4b2099462514894459213da93d03d6ff4782d927d6e20"},
+    "fastboot32": {"machine": "i386", "size": 7050644,
+                   "sha256": "8912e9926cfc45503ad960866501305a684462b1dd1a44c5d82b1f075d6dd8c1"},
+}
+# Device-side identity used only for verified ADB/TWRP recovery after a brick.
+ADB_DEVICE_PROP = {"radar_puffin": "radar", "biscuit": "biscuit"}
+# Upstream stage1/lkloader.c and include/stage1/lkloader.h: every expdb sub-partition begins with
+# a header whose magic is LK_MAGIC, whose data size is at +4, whose name is at +8, and whose
+# extended magic is at +48. The chain is LK at offset 0, then Kaeru at round8(512 + LK data).
+LK_MAGIC = 0x58881688
+LK_EXT_MAGIC = 0x58891689
+LK_HEADER_MIN = 80
+LK_HEADER_DEFAULT = 512
+LK_ALIGNMENT = 8
 # A stock bootloader refuses `oem kaeru-version`; anything else is indeterminate.
 FASTBOOT_COMMAND_REFUSED = re.compile(
     r"FAIL(?:ED)?[^\n]*?(?:unknown command|not allowed|not supported|unsupported|invalid command|unrecognized|restricted on locked)",
@@ -167,11 +190,14 @@ FASTBOOT_COMMAND_REFUSED = re.compile(
 FASTBOOT_TRANSPORT_ERROR = re.compile(
     r"write failed|read failed|usb_|no devices|no permissions|protocol error|cannot (?:open|claim)|unable to|disconnected|timed out|I/O error",
     re.IGNORECASE)
+# BRICK_SUBMITTED is persisted before the brick is sent. AMONET_VERIFIED is the legacy
+# pre-submission marker; it is reconcile-only and never triggers another brick.
 ONE_SHOT_PHASES = {
-    "RELEASE_READY", "AMONET_VERIFIED", "AMONET_HANDOFF", "FASTBOOT_READY",
+    "RELEASE_READY", "BRICK_SUBMITTED", "AMONET_VERIFIED", "AMONET_HANDOFF", "FASTBOOT_READY",
     "BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED", "FEATURES_STAGED",
     "WEBUI_FORWARDED",
 }
+UNRECONCILED_BRICK_PHASES = {"BRICK_SUBMITTED", "AMONET_VERIFIED"}
 
 
 def require_host_commands(*commands: str) -> None:
@@ -564,11 +590,16 @@ def plan_fastbrick(fastboot_bin: str, serial: str, target: str, amonet_zip: "str
     return lk_build, staged
 
 
-def confirm_post_brick_identity(fastboot_bin: str, pre_serial: str, post_serial: str, target: str) -> None:
-    """The device that answers after the brick must be the same serial and product."""
+def confirm_post_brick_identity(fastboot_bin: str, pre_serial: str, post_serial: str, target: str,
+                                override: str | None = None) -> None:
+    """The device that answers after the brick must be the same serial and product.
+
+    An explicit cross-flash override is threaded here so the product check applies the same
+    rule as the rest of the post-brick path. It never stands in for an unreadable product.
+    """
     if post_serial != pre_serial:
         raise InstallerError(f"fastboot serial changed from {pre_serial} to {post_serial} across the brick; refusing to continue")
-    verify_fastboot_product(fastboot_bin, post_serial, target)
+    verify_fastboot_product(fastboot_bin, post_serial, target, override)
 
 
 def extract_amonet_payload(archive: Path, target: str, payload: dict[str, Any], destination_dir: Path) -> Path:
@@ -607,34 +638,206 @@ def extract_amonet_payload(archive: Path, target: str, payload: dict[str, Any], 
     return destination
 
 
-def brick_fastboot_payload(fastboot_bin: str, serial: str, payload: Path, budget: float) -> None:
-    """Send the pinned fastbrick payload as upstream fastbrick.sh does.
+def brick_fastboot_payload(fastboot_bin: str, serial: str, payload: Path, budget: float = 0) -> str:
+    """Send the pinned fastbrick payload exactly once and return "unknown".
 
-    The payload is retried until the device drops off fastboot; a timed-out
-    attempt is the expected success signal. eMMC read-only and device-mismatch
-    responses are terminal and are never retried.
+    The return value is never proof of success: a timeout, a nonzero transport reply, or
+    any other inconclusive answer is "unknown", and the caller must reconcile from device
+    facts before trusting it. There is no automatic re-send. `budget` is retained for call
+    compatibility only. eMMC read-only, device-mismatch, and bootloader-refusal replies are
+    terminal. Every attempt, including partial output from a timeout, is appended to the log.
     """
     _safe_regular(payload)
-    deadline = time.monotonic() + budget
+    argv = [fastboot_bin, "-s", serial, "flash", "brick", str(payload)]
+    try:
+        result = subprocess.run(argv, text=True, capture_output=True, timeout=8)
+    except subprocess.TimeoutExpired as timeout:
+        partial = _decode_partial(timeout.stdout) + "\n" + _decode_partial(timeout.stderr)
+        _append_log(f"BRICK attempt 1 timeout; partial output:\n{partial}")
+        print("FASTBOOT STAGE: brick payload timed out; device outcome unknown until reconciled.", flush=True)
+        return "unknown"
+    output = f"{result.stdout}\n{result.stderr}"
+    _append_log(f"BRICK attempt 1 rc={result.returncode}: {output.strip()}")
+    if "eMMC-RO" in output:
+        raise InstallerError("eMMC is permanently read-only (hardware failure); the device was not modified")
+    if "Device mismatch" in output:
+        raise InstallerError("brick payload rejected with Device mismatch; target or LK build is wrong")
+    if result.returncode == 0:
+        raise InstallerError("brick command succeeded but the device did not leave fastboot; not continuing")
+    if FASTBOOT_COMMAND_REFUSED.search(output):
+        raise InstallerError(
+            "bootloader refused the brick payload; stopping without retry (see the BRICK log line)"
+        )
+    # Transport or other nonzero replies are indeterminate: reconcile, never re-send.
+    print("FASTBOOT STAGE: brick reply was not conclusive; outcome unknown until reconciled.", flush=True)
+    return "unknown"
+
+
+def _decode_partial(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value)
+
+
+def stage_amonet_host_fastboot(archive: Path, target: str, cache_root: Path, *, machine: str | None = None) -> Path:
+    """Extract the pinned host fastboot for this architecture from the pinned ZIP.
+
+    Refuses before extraction when the archive is not the pinned ZIP, when no packaged
+    binary matches this host, or when the binary's size or hash differs from its pin.
+    The returned path is never executed here; the caller decides whether to use it.
+    """
+    pin = AMONET_PINS[target]
+    _safe_regular(archive)
+    if archive.stat().st_size != pin["archive_size"] or _sha256(archive) != pin["archive_sha256"]:
+        raise InstallerError(f"Amonet ZIP does not match the pinned {pin['archive']}")
+    machine = machine or os.uname().machine
+    matches = [(name, spec) for name, spec in AMONET_HOST_TOOLS.items() if spec["machine"] == machine]
+    if len(matches) != 1:
+        raise InstallerError(f"no packaged fastboot for architecture {machine}; refusing to execute an incompatible tool")
+    name, spec = matches[0]
+    member = f"amonet/bin/{name}"
+    destination_dir = cache_root / "amonet-host" / target
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / name
+    temporary = destination.with_name(destination.name + ".part")
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            if sum(1 for item in bundle.infolist() if item.filename == member) != 1:
+                raise InstallerError(f"pinned ZIP must contain exactly one {member}")
+            info = bundle.getinfo(member)
+            if info.is_dir() or (info.external_attr >> 16) & 0o170000 not in (0, 0o100000):
+                raise InstallerError(f"{member} is not a regular file in the pinned ZIP")
+            if info.file_size != spec["size"]:
+                raise InstallerError(f"{member} size does not match its pin")
+            with bundle.open(info) as source, temporary.open("wb") as sink:
+                shutil.copyfileobj(source, sink)
+        if temporary.stat().st_size != spec["size"] or _sha256(temporary) != spec["sha256"]:
+            raise InstallerError(f"extracted {member} does not match its pin")
+        temporary.chmod(0o755)
+    except (InstallerError, OSError, zipfile.BadZipFile, KeyError):
+        temporary.unlink(missing_ok=True)
+        raise
+    os.replace(temporary, destination)
+    return destination
+
+
+def wait_for_post_brick_fastboot(fastboot_bin: str, adb_bin: str, serial: str, target: str, timeout: float,
+                                 override: str | None = None) -> str:
+    """Bounded handoff after a brick, requiring an unlocked and identified fastboot.
+
+    Accepted: a responsive fastboot device with the same serial, product matching the
+    target (or the explicit cross-flash override), and unlock_status true. Also accepted,
+    from verified recovery only: a same-serial ADB/TWRP device whose board, recovery
+    marker, and expdb Kaeru chain all verify, which may request bootloader once. A stale
+    fastboot listing never starves the ADB check. Transport errors are retried within the
+    deadline and never reported as identity mismatches. A readable mismatch is terminal.
+    """
+    deadline = time.monotonic() + timeout
+    bootloader_requested = False
     while True:
-        try:
-            result = subprocess.run(
-                [fastboot_bin, "-s", serial, "flash", "brick", str(payload)],
-                text=True, capture_output=True, timeout=8,
-            )
-        except subprocess.TimeoutExpired:
-            print("FASTBOOT STAGE: brick payload accepted; device left fastboot (expected).", flush=True)
-            return
-        output = f"{result.stdout}\n{result.stderr}"
-        if "eMMC-RO" in output:
-            raise InstallerError("eMMC is permanently read-only (hardware failure); the device was not modified")
-        if "Device mismatch" in output:
-            raise InstallerError("brick payload rejected with Device mismatch; target or LK build is wrong")
-        if result.returncode == 0:
-            raise InstallerError("brick command succeeded but the device did not leave fastboot; not continuing")
+        if serial in fastboot_devices_safe(fastboot_bin):
+            try:
+                verify_fastboot_product(fastboot_bin, serial, target, override)
+                unlock = fastboot_getvar(fastboot_bin, serial, "unlock_status").strip().lower()
+                if re.fullmatch(r"true|unlocked|yes|1", unlock):
+                    return serial
+                print("FASTBOOT STAGE: device answers but is not unlocked yet; waiting.", flush=True)
+            except FastbootTransportError as error:
+                print(f"FASTBOOT STAGE: transient fastboot read failure; retrying ({error}).", flush=True)
+        # Checked on every pass, not only when fastboot is absent: a stale listing that
+        # still shows the serial must not hide a verified recovery ADB device.
+        if not bootloader_requested and serial in adb_devices_safe(adb_bin):
+            if _adb_recovery_is_verified(adb_bin, serial, target):
+                print("RECOVERY STAGE: verified TWRP/ADB board, marker and expdb Kaeru chain; requesting bootloader once.", flush=True)
+                _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20, check=False)
+                bootloader_requested = True
         if time.monotonic() >= deadline:
-            raise InstallerError("brick payload did not complete within the timeout")
-        time.sleep(FASTBRICK_RETRY_SECONDS)
+            raise InstallerError("timed out waiting for a responsive unlocked fastboot device after the brick")
+        time.sleep(1)
+
+
+def fastboot_devices_safe(fastboot_bin: str) -> list[str]:
+    try:
+        return fastboot_devices(fastboot_bin)
+    except InstallerError:
+        return []
+
+
+def adb_devices_safe(adb_bin: str) -> list[str]:
+    try:
+        return adb_devices(adb_bin)
+    except InstallerError:
+        return []
+
+
+def _adb_shell_text(adb_bin: str, serial: str, command: str) -> str:
+    result = _run_command([adb_bin, "-s", serial, "shell", command], 15, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _parse_lk_header(block: bytes | None) -> dict[str, Any] | None:
+    """Parse one expdb sub-partition header as stage1/lkloader.c does; None when not a header."""
+    if block is None or len(block) != LK_HEADER_MIN:
+        return None
+    if struct.unpack_from("<I", block, 0)[0] != LK_MAGIC:
+        return None
+    return {
+        "data_size": struct.unpack_from("<I", block, 4)[0],
+        "name": block[8:48].split(b"\0", 1)[0],
+        "ext": struct.unpack_from("<I", block, 48)[0],
+    }
+
+
+def _expdb_kaeru_chain_ok(read: Any) -> bool:
+    """Check the LK -> Kaeru chained header identity over `read(offset, count) -> bytes | None`.
+
+    The first sub-partition must be a non-extended LK header with a 512-byte header. The second
+    header begins at round8(512 + LK data size) and must be named exactly "kaeru" with the
+    extended magic. Any short or unreadable read fails closed.
+    """
+    lk = _parse_lk_header(read(0, LK_HEADER_MIN))
+    if lk is None or lk["name"] != b"LK" or lk["ext"] == LK_EXT_MAGIC:
+        return False
+    offset = LK_HEADER_DEFAULT + lk["data_size"]
+    offset += (-offset) % LK_ALIGNMENT
+    kaeru = _parse_lk_header(read(offset, LK_HEADER_MIN))
+    return kaeru is not None and kaeru["name"] == b"kaeru" and kaeru["ext"] == LK_EXT_MAGIC
+
+
+def _adb_expdb_node(adb_bin: str, serial: str) -> str | None:
+    """Resolve the expdb block node from sysfs PARTNAME; exactly one match or None."""
+    result = _run_command(
+        [adb_bin, "-s", serial, "shell", "grep -l '^PARTNAME=expdb$' /sys/class/block/*/uevent"], 15, check=False)
+    if result.returncode != 0:
+        return None
+    nodes = {line.strip().split("/")[-2] for line in result.stdout.splitlines()
+             if re.fullmatch(r"/sys/class/block/[A-Za-z0-9]+/uevent", line.strip())}
+    return nodes.pop() if len(nodes) == 1 else None
+
+
+def _adb_recovery_is_verified(adb_bin: str, serial: str, target: str) -> bool:
+    """Board, recovery marker, sysfs-resolved expdb and its Kaeru chain must all verify before reboot."""
+    if _adb_shell_text(adb_bin, serial, "getprop ro.product.device") != ADB_DEVICE_PROP.get(target):
+        return False
+    marker = _adb_shell_text(adb_bin, serial, "getprop ro.twrp.version")
+    if not re.fullmatch(r"[A-Za-z0-9._+-]{1,64}", marker):
+        return False
+    node = _adb_expdb_node(adb_bin, serial)
+    if node is None:
+        return False
+
+    def read(offset: int, count: int) -> bytes | None:
+        result = _run_command(
+            [adb_bin, "-s", serial, "shell", "od", "-v", "-An", "-tx1", "-j", str(offset), "-N", str(count), f"/dev/block/{node}"],
+            15, check=False)
+        tokens = result.stdout.split()
+        if result.returncode != 0 or len(tokens) != count or not all(re.fullmatch(r"[0-9a-f]{2}", t) for t in tokens):
+            return None
+        return bytes(int(t, 16) for t in tokens)
+
+    return _expdb_kaeru_chain_ok(read)
 
 
 def target_asset_prefix(tag, target="radar_puffin"):
@@ -648,13 +851,19 @@ def verify_fastboot_product(fastboot_bin: str, serial: str, target=None, overrid
     result = _run_command([fastboot_bin, "-s", serial, "getvar", "product"], 20, check=False)
     output = f"{result.stdout}\n{result.stderr}"
     match = re.search(r"product:\s*([A-Za-z0-9_-]+)\b", output, re.IGNORECASE)
-    product = match.group(1).upper() if match else ""
+    if result.returncode != 0 or match is None:
+        # A USB/transport failure or empty answer is not evidence of the wrong board.
+        # Never let an explicit cross-flash override stand in for an unread product.
+        raise FastbootTransportError(
+            f"fastboot product could not be read from {serial} (rc={result.returncode}); retry before any identity decision"
+        )
+    product = match.group(1).upper()
     detected = next((t for t, d in TARGET_INDEX.items() if product in d["fastboot_products"]), None)
     if override is not None:
         if override not in TARGET_INDEX or (target is not None and target != override):
             raise InstallerError("invalid cross-flashed LK target override")
         if detected != override:
-            print(f"WARNING: boot-chain identity differs from board: product={product or 'unknown'} explicit-target={override}", flush=True)
+            print(f"WARNING: boot-chain identity differs from board: product={product} explicit-target={override}", flush=True)
         return override
     if detected is None or (target is not None and detected != target):
         raise InstallerError("boot-chain product and release target mismatch; explicit --target required for cross-flashed LK")
@@ -866,6 +1075,8 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
     verify_fastboot_product(fastboot_bin, serial)
     size = _fastboot_partition_size(fastboot_bin, serial, "userdata")
+    if size is None:
+        raise InstallerError("fastboot did not report partition size: userdata")
     _validate_userdata_partition_size(size)
     print(
         f"FASTBOOT STAGE: formatting only userdata as ext4 ({size} bytes); "
@@ -916,11 +1127,14 @@ def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_s
         raise InstallerError("invalid readback slot")
     part = "10" if slot == "a" else "11"
     expected_name = f"boot_{slot}_x"
+    # Same node on both chains: boot_X_x (legacy Amonet) or boot_X (pinned Kaeru).
+    accepted_names = {expected_name, f"boot_{slot}"}
     uevent = _run_command(
         [adb_bin, "-s", serial, "shell", "cat", f"/sys/class/block/mmcblk0p{part}/uevent"],
         timeout,
     ).stdout
-    if f"PARTNAME={expected_name}" not in uevent or f"PARTN={part}" not in uevent:
+    names = set(re.findall(r"^PARTNAME=(\S+)\s*$", uevent, re.MULTILINE))
+    if len(names) != 1 or not names <= accepted_names or f"PARTN={part}" not in uevent:
         raise InstallerError(f"payload partition identity mismatch: mmcblk0p{part}")
     result = _run_command(
         [adb_bin, "-s", serial, "shell", "sha256sum", f"/dev/mmcblk0p{part}"],
@@ -1221,7 +1435,7 @@ def _read_state(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as error:
         raise InstallerError("malformed installer state") from error
     if (not isinstance(value, dict) or not {"phase", "release", "bundle_sha256"}.issubset(value)
-            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted", "device_serial", "slots", "board"}
+            or set(value) - {"phase", "release", "bundle_sha256", "userdata_formatted", "device_serial", "slots", "board", "payload_sha256"}
             or not isinstance(value["phase"], str)
             or value["phase"] not in ONE_SHOT_PHASES or not isinstance(value["release"], str)
             or not RELEASE.fullmatch(value["release"])
@@ -1230,7 +1444,9 @@ def _read_state(path: Path) -> dict[str, Any]:
             or ("device_serial" in value and (not isinstance(value["device_serial"], str)
                 or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value["device_serial"])))
             or ("slots" in value and (not isinstance(value["slots"], str)
-                or value["slots"] not in {"a", "b", "both"}))):
+                or value["slots"] not in {"a", "b", "both"}))
+            or ("payload_sha256" in value and (not isinstance(value["payload_sha256"], str)
+                or not SHA256.fullmatch(value["payload_sha256"])))):
         raise InstallerError("malformed installer state")
     if "board" in value and value["board"] not in TARGET_INDEX:
         raise InstallerError("malformed installer state target")
@@ -1606,7 +1822,24 @@ def one_shot(
         validate_public_boot_image(boot, manifest["boot"]["sha256"])
         state_path = _state_path(state_root, install_id)
         bundle_sha = _sha256(bundle)
+        # Durable state is never discarded by a fresh run. An unresolved brick marker (any release
+        # or bundle) and any completed or partly completed installation require explicit
+        # continuation. A new --install-id is the only explicit intent for a separate installation.
+        if state_path.exists():
+            previous = _read_state(state_path)
+            if previous["phase"] in UNRECONCILED_BRICK_PHASES:
+                raise InstallerError(
+                    f"install {install_id} has an unresolved brick marker ({previous['phase']}) for "
+                    f"release {previous['release']}; run continue-one-shot to reconcile it. A fresh one-shot "
+                    "will not discard it and will not re-send the brick."
+                )
+            if previous["phase"] != "RELEASE_READY":
+                raise InstallerError(
+                    f"install {install_id} already has a {previous['phase']} installation for "
+                    f"{previous['release']}; run continue-one-shot, or use a new --install-id for a separate installation"
+                )
         _write_state(state_path, {"phase": "RELEASE_READY", "board": target, "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": False})
+        serial: str | None = None
         if emulator_root is not None:
             emulator_root = Path(emulator_root)
             tool = emulator_root / "emulator_tool.py"
@@ -1623,7 +1856,6 @@ def one_shot(
                 wrapper.chmod(0o755)
             fastboot_bin = str(emulator_root / "mock-fastboot")
             adb_bin = str(emulator_root / "mock-adb")
-            _write_state(state_path, {"phase": "AMONET_VERIFIED", "release": release_tag, "bundle_sha256": bundle_sha})
             _run_command([str(tool)], brick_timeout)
         else:
             serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
@@ -1631,11 +1863,34 @@ def one_shot(
             plan = plan_fastbrick(fastboot_bin, serial, target, amonet_zip, cache_root)
             if plan is not None:
                 lk_build, staged = plan
-                _write_state(state_path, {"phase": "AMONET_VERIFIED", "release": release_tag, "bundle_sha256": bundle_sha})
+                payload_sha = _sha256(staged)
+                # Only the brick uses the reviewed, hash-pinned packaged fastboot; the system
+                # binary still handles the formatter and normal flashes. Staging happens before
+                # the latch, so a staging failure sends nothing.
+                if amonet_zip is None:
+                    raise InstallerError("a fastbrick plan requires the pinned Amonet archive")
+                brick_fastboot = str(stage_amonet_host_fastboot(Path(amonet_zip), target, Path(cache_root)))
+                # Durable latch: written and fsynced before the first brick byte leaves.
+                _write_state(state_path, {"phase": "BRICK_SUBMITTED", "release": release_tag, "bundle_sha256": bundle_sha,
+                                          "board": target, "device_serial": serial, "payload_sha256": payload_sha,
+                                          "userdata_formatted": False})
                 print(f"FASTBOOT STAGE: sending pinned fastbrick payload for LK build {lk_build}.", flush=True)
-                brick_fastboot_payload(fastboot_bin, serial, staged, brick_timeout)
-                confirm_post_brick_identity(fastboot_bin, serial, wait_for_fastboot_serial(fastboot_bin, fastboot_serial, fastboot_timeout), target)
-        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha})
+                outcome = brick_fastboot_payload(brick_fastboot, serial, staged, brick_timeout)
+                # Always "unknown": the send is never proof of success. Reconcile from device facts
+                # within the bounded handoff; on failure the BRICK_SUBMITTED latch is retained.
+                print("FASTBOOT STAGE: brick outcome unknown; reconciling from device facts without re-sending.", flush=True)
+                try:
+                    handoff_serial = wait_for_post_brick_fastboot(
+                        fastboot_bin, adb_bin, serial, target, fastboot_timeout, override=target_override)
+                except InstallerError as error:
+                    raise InstallerError(
+                        f"{error}; brick outcome unknown; not re-sending the brick; "
+                        "run continue-one-shot to reconcile from device facts"
+                    ) from error
+                confirm_post_brick_identity(fastboot_bin, serial, handoff_serial, target, target_override)
+        bound = {"device_serial": serial} if serial else {}
+        _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha,
+                                  "board": target, **bound})
         if slots not in {"a", "b", "both"}:
             raise InstallerError("slots must be a, b, or both")
         selected = ("a", "b") if slots == "both" else (slots,)
@@ -1685,20 +1940,47 @@ def one_shot(
         return {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha, "serial": serial, "url": url}
 
 
-def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> int:
+def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> int | None:
+    """Return the advertised size, or None when LK reports the partition as absent.
+
+    LK answers an unknown partition with an empty value. The value must be read
+    from the same line only: a whitespace-spanning match would consume the next
+    line and parse e.g. "Finished" as 0xf.
+    """
     result = _run_command([fastboot_bin, "-s", serial, "getvar", f"partition-size:{partition}"], 20, check=False)
     output = f"{result.stdout}\n{result.stderr}"
-    match = re.search(rf"partition-size:{re.escape(partition)}:\s*(?:0x)?([0-9a-fA-F]+)", output, re.IGNORECASE)
+    match = re.search(rf"^(?:\(bootloader\)\s*)?partition-size:{re.escape(partition)}:[ \t]*(\S*)[ \t]*$",
+                      output, re.IGNORECASE | re.MULTILINE)
     if match is None:
         raise InstallerError(f"fastboot did not report partition size: {partition}")
-    return int(match.group(1), 16)
+    value = match.group(1)
+    if not value:
+        return None
+    if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]+", value):
+        raise InstallerError(f"fastboot reported a malformed partition size for {partition}: {value!r}")
+    return int(value, 16)
 
 
-def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> None:
-    for partition in ("boot_a_x", "boot_b_x"):
-        size = _fastboot_partition_size(fastboot_bin, serial, partition)
-        if size != BOOT_BYTES:
-            raise InstallerError(f"{partition} is not the reviewed 16 MiB payload partition: {size:#x}")
+def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> str:
+    """Prove which reviewed chain is present before `flash boot_X` is issued.
+
+    The 16 MiB OS store is the same device node on both chains; only the name
+    differs. Legacy Amonet redirects `flash boot_X` into `boot_X_x` and keeps the
+    ~110 MiB wrapper in boot_X. The pinned Kaeru chain has no _x stores and
+    boot_X *is* the 16 MiB store. Anything else fails closed.
+    """
+    sizes = {name: _fastboot_partition_size(fastboot_bin, serial, name)
+             for name in ("boot_a_x", "boot_b_x", "boot_a", "boot_b")}
+    stores_x = (sizes["boot_a_x"], sizes["boot_b_x"])
+    if stores_x == (BOOT_BYTES, BOOT_BYTES):
+        # Legacy redirect chain: boot_a/boot_b must be the larger wrapper, never a store.
+        wrappers = (sizes["boot_a"], sizes["boot_b"])
+        if not all(size is not None and size > BOOT_BYTES for size in wrappers):
+            raise InstallerError(f"legacy Amonet layout has unexpected wrapper geometry: {sizes}")
+        return "amonet"
+    if stores_x == (None, None) and (sizes["boot_a"], sizes["boot_b"]) == (BOOT_BYTES, BOOT_BYTES):
+        return "pinned"
+    raise InstallerError(f"boot payload partitions match no reviewed layout: {sizes}")
 
 
 def continue_one_shot(
@@ -1738,7 +2020,8 @@ def continue_one_shot(
                 f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
             )
         if state["phase"] not in {"AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "ADB_READY",
-                                  "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED"}:
+                                  "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED",
+                                  "BRICK_SUBMITTED", "AMONET_VERIFIED"}:
             raise InstallerError(f"cannot continue before Amonet handoff: {state['phase']}")
         bound_serial = state.get("device_serial")
         if bound_serial:
@@ -1755,7 +2038,10 @@ def continue_one_shot(
         release = state["release"]
         cache_root = Path(cache_root)
         release_sources = cache_root / "downloads" / release
-        if not release_sources.is_dir():
+        # Prefer a populated source directory. An empty leftover must not shadow the
+        # verified cache under cache/<release>/downloads.
+        populated = release_sources.is_dir() and any(release_sources.iterdir())
+        if not populated:
             release_sources = cache_root / release / "downloads"
         saved_target = state.get("board", "radar_puffin")
         if target is not None and target != saved_target:
@@ -1796,6 +2082,21 @@ def continue_one_shot(
                 fastboot_waiting = len(fastboot_serials_present) == 1
             else:
                 fastboot_waiting = fastboot_serial in fastboot_serials_present
+        if phase in UNRECONCILED_BRICK_PHASES:
+            # A brick was submitted (or may have been). Its outcome is unknown, so it is
+            # never re-sent. Continue only once the bound device answers as the expected
+            # product with an unlocked bootloader; otherwise stop with an actionable message.
+            if not state.get("device_serial") and fastboot_serial == "auto":
+                raise InstallerError("unreconciled brick has no device binding; not re-sending the brick")
+            require_host_commands("bash", fastboot_bin)
+            fastboot_bin = prepare_fastboot_tools(fastboot_bin, cache_root, install_host_deps=install_host_deps)
+            try:
+                wait_for_post_brick_fastboot(fastboot_bin, adb_bin, fastboot_serial, saved_target, fastboot_timeout, override=target)
+            except InstallerError as error:
+                raise InstallerError(f"{error}; not re-sending the brick") from error
+            _write_state(state_path, {**state, "phase": "AMONET_HANDOFF", "device_serial": fastboot_serial, "slots": slots})
+            phase = "AMONET_HANDOFF"
+            state = _read_state(state_path)
         if (phase in {"AMONET_HANDOFF", "FASTBOOT_READY"}
                 or (needs_repair and repair_userdata) or fastboot_waiting):
             require_host_commands("bash", fastboot_bin)

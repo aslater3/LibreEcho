@@ -133,6 +133,56 @@ class OneShotFastbootTests(unittest.TestCase):
                 INSTALLER.USERDATA_BYTES,
             )
 
+    def _getvar_fixture(self, sizes):
+        def run(argv, timeout, *, check=True):
+            name = argv[-1].split(":", 1)[1]
+            value = sizes.get(name, "")
+            return subprocess.CompletedProcess(
+                argv, 0, "", f"partition-size:{name}: {value}\nFinished. Total time: 0.004s\n")
+        return run
+
+    def test_fastboot_partition_size_empty_reply_is_absent_not_parsed_from_next_line(self) -> None:
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture({})):
+            self.assertIsNone(INSTALLER._fastboot_partition_size("fastboot", "SERIAL", "boot_a_x"))
+
+    def test_payload_geometry_legacy_amonet_layout_unchanged(self) -> None:
+        sizes = {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "6e00000", "boot_b": "6e00000"}
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+            self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "amonet")
+
+    def test_payload_geometry_accepts_pinned_kaeru_layout(self) -> None:
+        # Measured on a Kaeru v2 Radar: no _x stores; boot_a/boot_b are the 16 MiB stores.
+        sizes = {"boot_a": "1000000", "boot_b": "1000000"}
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+            self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "pinned")
+
+    def test_payload_geometry_rejects_mixed_or_wrapper_layouts(self) -> None:
+        for sizes in (
+            {"boot_a": "6e00000", "boot_b": "6e00000"},          # wrapper without redirect stores
+            {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "1000000", "boot_b": "1000000"},
+            {"boot_a_x": "1000000", "boot_a": "1000000", "boot_b": "1000000"},  # half legacy
+            {"boot_a_x": "f", "boot_b_x": "f", "boot_a": "1000000", "boot_b": "1000000"},
+            {"boot_a": "1000000"},
+        ):
+            with self.subTest(sizes=sizes), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+                with self.assertRaises(INSTALLER.InstallerError):
+                    INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL")
+
+    def test_readback_accepts_either_store_name_only_on_store_node(self) -> None:
+        digest = "ab" * 32
+        for partname, ok in (("boot_a_x", True), ("boot_a", True), ("boot_b", False), ("expdb", False)):
+            def run(argv, timeout, *, check=True, partname=partname):
+                if argv[-1].endswith("/uevent"):
+                    return subprocess.CompletedProcess(argv, 0, f"PARTN=10\nPARTNAME={partname}\n", "")
+                return subprocess.CompletedProcess(argv, 0, f"{digest}  /dev/mmcblk0p10\n", "")
+            with self.subTest(partname=partname), mock.patch.object(INSTALLER, "_run_command", side_effect=run):
+                if ok:
+                    INSTALLER.verify_adb_payload_readback("adb", "SERIAL", "a", digest)
+                else:
+                    with self.assertRaisesRegex(INSTALLER.InstallerError, "identity mismatch"):
+                        INSTALLER.verify_adb_payload_readback("adb", "SERIAL", "a", digest)
+
     def test_userdata_geometry_accepts_both_reviewed_biscuit_variants(self) -> None:
         self.assertEqual(
             INSTALLER.USERDATA_SUPPORTED_BYTES,
@@ -909,13 +959,24 @@ class OneShotContinuationTests(unittest.TestCase):
         # Locked-device brick step is mocked so no payload is written; the write sequence
         # under test (flash boot_a/boot_b, forward) is unchanged.
         self.amonet = self.stack.enter_context(mock.patch.object(INSTALLER, "brick_fastboot_payload"))
+        # A successful brick leaves the device enumerating unlocked for the bounded handoff.
+        self.amonet.side_effect = lambda *a, **k: (setattr(self, "unlocked", True), "accepted")[1]
         self.stack.enter_context(mock.patch.object(INSTALLER, "select_amonet_payload", return_value={"payload": "fastbrick.img", "size": 1, "sha256": "0" * 64}))
-        self.stack.enter_context(mock.patch.object(INSTALLER, "extract_amonet_payload", return_value=self.root / "fastbrick.img"))
-        self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_fastboot_serial", return_value="SERIAL"))
+        self.staged_payload = self.root / "fastbrick.img"
+        self.staged_payload.write_bytes(b"x")
+        self.stack.enter_context(mock.patch.object(INSTALLER, "extract_amonet_payload", return_value=self.staged_payload))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "stage_amonet_host_fastboot", return_value=self.root / "packaged-fastboot"))
+        self.wait = self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_post_brick_fastboot", side_effect=self.handoff))
         self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_transport"))
         self.stack.enter_context(mock.patch.object(INSTALLER, "collect_adb_diagnostics"))
         self.raw_run = self.stack.enter_context(mock.patch.object(INSTALLER.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")))
         self.stack.enter_context(mock.patch.object(INSTALLER, "_run_command", side_effect=self.command))
+
+    def handoff(self, fastboot_bin, adb_bin, serial, target, timeout, override=None):
+        # Models the real bounded handoff: refuse unless the device reports unlocked.
+        if not self.unlocked:
+            raise INSTALLER.InstallerError("timed out waiting for a responsive unlocked fastboot device after the brick")
+        return "SERIAL"
 
     def save_state(self, **changes):
         # Direct fixture write deliberately avoids carrying fields across cases.
@@ -937,6 +998,9 @@ class OneShotContinuationTests(unittest.TestCase):
                 output = "product: RADAR\n"
             elif argv[-1] == "unlock_status":
                 output = f"unlock_status: {'true' if self.unlocked else 'false'}\n"
+            elif argv[-1] in {"partition-size:boot_a", "partition-size:boot_b"}:
+                # Legacy Amonet: boot_a/boot_b hold the 225280-sector wrapper.
+                output = f"{argv[-1]}: 0x6e00000\n"
             else:
                 output = f"{argv[-1]}: 0x1000000\n"
         elif argv[3:5] == ["shell", "cat"] and argv[-1].endswith("/uevent"):
@@ -990,6 +1054,7 @@ class OneShotContinuationTests(unittest.TestCase):
                 self.assertEqual(INSTALLER._read_state(self.state_path)["device_serial"], "SERIAL")
 
     def test_fresh_one_shot_forward_failure_resumes_without_repeating_installation(self):
+        self.state_path.unlink(missing_ok=True)  # a genuine fresh install, not a re-run over FEATURES_STAGED
         self.forward_fails = True
         with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
             INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache, state_root=self.state_root,
@@ -1080,6 +1145,161 @@ class OneShotContinuationTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+
+
+class BrickLatchTests(OneShotContinuationTests):
+    """Durable pre-submission latch: a brick is sent at most once and never repeated on resume."""
+
+    def setUp(self):
+        super().setUp()
+        self.state_path.unlink()  # fresh device: the base FEATURES_STAGED fixture is for continuation only
+
+    def one_shot_fresh(self, **kwargs):
+        arguments = dict(cache_root=self.cache, state_root=self.state_root, install_id="test",
+                         release_tag=self.tag, fastboot_bin="fake-fastboot", adb_bin="fake-adb",
+                         fastboot_serial="auto", execute_hardware=True, open_browser=False,
+                         target="radar_puffin", fastboot_timeout=0.2, brick_timeout=0.2)
+        arguments.update(kwargs)
+        return INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", **arguments)
+
+    def test_latch_is_durably_persisted_before_the_brick_is_submitted(self):
+        observed = {}
+
+        def brick(*args, **kwargs):
+            observed["raw"] = json.loads(self.state_path.read_text())
+            self.unlocked = True  # device enumerates unlocked after the brick
+            return "accepted"
+
+        self.amonet.side_effect = brick
+        self.one_shot_fresh()
+        latch = observed["raw"]
+        self.assertEqual(latch["phase"], "BRICK_SUBMITTED")
+        self.assertEqual(latch["device_serial"], "SERIAL")
+        self.assertEqual(latch["board"], "radar_puffin")
+        self.assertEqual(latch["release"], self.tag)
+        self.assertEqual(latch["bundle_sha256"], self.base_state["bundle_sha256"])
+        self.assertRegex(latch["payload_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_unknown_brick_outcome_that_never_unlocks_keeps_latch_and_never_resends(self):
+        self.amonet.side_effect = lambda *a, **k: "unknown"
+        self.unlocked = False
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "not re-sending|continue-one-shot"):
+            self.one_shot_fresh(fastboot_timeout=0.05)
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BRICK_SUBMITTED")
+        self.format.assert_not_called()
+        self.assertEqual(self.amonet.call_count, 1)
+        self.assertEqual(self.wait.call_count, 1)  # reconciliation was attempted from device facts
+
+    def test_unknown_brick_outcome_is_reconciled_automatically_when_device_unlocks(self):
+        def brick(*args, **kwargs):
+            self.unlocked = True  # the timeout hid a success: the device enumerates unlocked
+            return "unknown"
+
+        self.amonet.side_effect = brick
+        self.assertEqual(self.one_shot_fresh()["phase"], "WEBUI_FORWARDED")
+        self.assertEqual(self.amonet.call_count, 1)  # reconciled, never re-sent
+        self.format.assert_called_once()
+
+    def test_fresh_one_shot_refuses_unresolved_marker_from_another_release_without_discarding_it(self):
+        other = "radar-puffin-v0.13.15"
+        self.save_state(phase="BRICK_SUBMITTED", release=other, bundle_sha256="f" * 64,
+                        board="radar_puffin", device_serial="SERIAL", payload_sha256="a" * 64)
+        before = self.state_path.read_text()
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "continue-one-shot"):
+            self.one_shot_fresh()
+        self.amonet.assert_not_called()
+        self.format.assert_not_called()
+        self.assertEqual(self.state_path.read_text(), before)
+
+    def test_fresh_one_shot_refuses_completed_installation_without_repeating_format(self):
+        for phase in ("AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED"):
+            with self.subTest(phase=phase):
+                self.save_state(phase=phase, userdata_formatted=True)
+                self.calls.clear()
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "continue-one-shot"):
+                    self.one_shot_fresh()
+                self.format.assert_not_called()
+                self.amonet.assert_not_called()
+                self.assertFalse(any(set(c) & {"flash", "reboot"} for c in self.calls), self.calls)
+                self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], phase)
+
+    def test_new_install_id_is_the_explicit_intent_for_a_separate_installation(self):
+        self.save_state(phase="WEBUI_FORWARDED", userdata_formatted=True)
+        self.assertEqual(self.one_shot_fresh(install_id="second")["phase"], "WEBUI_FORWARDED")
+        self.format.assert_called_once()
+        self.assertEqual(INSTALLER._read_state(INSTALLER._state_path(self.state_root, "test"))["phase"], "WEBUI_FORWARDED")
+
+    def test_post_brick_handoff_threads_the_explicit_target_override(self):
+        self.one_shot_fresh(target="radar_puffin")
+        self.assertEqual(self.wait.call_args.kwargs.get("override"), "radar_puffin")
+
+    def test_post_brick_handoff_keeps_bound_serial_and_board_in_later_states(self):
+        observed = {}
+
+        def capture(*args, **kwargs):
+            observed["state"] = INSTALLER._read_state(self.state_path)
+
+        self.format.side_effect = capture
+        self.one_shot_fresh()
+        self.assertEqual((observed["state"]["phase"], observed["state"]["board"], observed["state"]["device_serial"]),
+                         ("AMONET_HANDOFF", "radar_puffin", "SERIAL"))
+
+    def test_continuation_threads_explicit_target_into_unreconciled_handoff(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64,
+                        userdata_formatted=False)
+        self.unlocked = True
+        self.continuation(fastboot_timeout=0.2, target="radar_puffin")
+        self.assertEqual(self.wait.call_args.kwargs.get("override"), "radar_puffin")
+
+    def test_restarting_one_shot_over_an_interrupted_brick_never_rebricks_or_formats(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64,
+                        userdata_formatted=False)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "continue-one-shot"):
+            self.one_shot_fresh()
+        self.amonet.assert_not_called()
+        self.format.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BRICK_SUBMITTED")
+
+    def test_legacy_amonet_verified_state_is_reconcile_only_and_never_bricks(self):
+        self.save_state(phase="AMONET_VERIFIED")
+        self.unlocked = False
+        with self.assertRaises(INSTALLER.InstallerError):
+            self.one_shot_fresh()
+        self.amonet.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "AMONET_VERIFIED")
+
+    def test_continuation_reconciles_submitted_brick_from_unlocked_device_without_rebrick(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64,
+                        userdata_formatted=False)
+        self.unlocked = True
+        self.assertEqual(self.continuation(fastboot_timeout=0.2)["phase"], "WEBUI_FORWARDED")
+        self.amonet.assert_not_called()
+        self.format.assert_called_once()
+
+    def test_continuation_refuses_still_locked_submitted_brick_without_rebrick(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64)
+        self.unlocked = False
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "not re-sending the brick"):
+            self.continuation(fastboot_timeout=0.2)
+        self.amonet.assert_not_called()
+        self.format.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BRICK_SUBMITTED")
+
+    def test_legacy_amonet_verified_continuation_resumes_only_after_device_proves_unlock(self):
+        self.save_state(phase="AMONET_VERIFIED")
+        self.unlocked = False
+        with self.assertRaises(INSTALLER.InstallerError):
+            self.continuation(fastboot_timeout=0.2)
+        self.amonet.assert_not_called()
+        self.unlocked = True
+        self.assertEqual(self.continuation(fastboot_timeout=0.2)["phase"], "WEBUI_FORWARDED")
+        self.amonet.assert_not_called()
+
+    def test_stale_empty_download_directory_does_not_shadow_verified_cache(self):
+        shutil.rmtree(self.release)
+        (self.cache / "downloads" / self.tag).mkdir(parents=True)
+        self.save_state(phase="FEATURES_STAGED")
+        self.assertEqual(self.continuation()["phase"], "WEBUI_FORWARDED")
 
 
 class UserdataRegressionIntegrationTests(unittest.TestCase):

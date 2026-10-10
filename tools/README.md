@@ -47,7 +47,9 @@ verify/download the Product release
 → flash the verified boot image to boot_a and boot_b
 → reboot and wait for ADB
 → collect read-only ADB bring-up diagnostics
-→ verify boot_a_x and boot_b_x readback hashes
+→ verify slot-store readback hashes (mmcblk0p10/p11: boot_a_x/boot_b_x on the
+  legacy Amonet chain, boot_a/boot_b on the pinned Kaeru chain; the fastboot
+  geometry gate identifies which chain is present before any boot write)
 → stage and verify all five feature payloads in userdata via the root runner
 → forward the Web UI over ADB
 → open the first-boot setup page
@@ -66,6 +68,30 @@ installer leaves it intact.
   ./run-one-shot.sh "$TAG" --amonet-zip ~/Downloads/amonet-biscuit-v2.0.0.zip \
     --fastboot-serial auto --slots both --execute-hardware
   ```
+
+- The brick uses the packaged `fastboot` (x86_64 or i386, selected by host
+  architecture and hash/size-pinned in `AMONET_HOST_TOOLS`) extracted from the
+  pinned archive. The formatter and normal flashes keep using the system
+  `fastboot`. An incompatible host architecture refuses before any extraction.
+- The brick is recorded as `BRICK_SUBMITTED` before it is sent. If the outcome
+  is unknown, or the run stops after the brick, the brick is never re-sent. Run
+  `continue-one-shot` with the original `--fastboot-serial` to reconcile from
+  device facts: it waits for a responsive, unlocked, product-matched fastboot,
+  or a same-serial verified recovery that is asked once to reboot to the
+  bootloader.
+- The brick is sent once. A timeout, or any nonzero reply that is not a
+  terminal refusal, is `unknown`; the installer never re-sends it automatically.
+- Recovery is accepted only when the ADB device reports the target board,
+  `ro.twrp.version` is set, the expdb partition is found through
+  `/sys/class/block/*/uevent` (`PARTNAME=expdb`, exactly one match), and that
+  partition holds the upstream LK header followed by the `kaeru` header at
+  round8(512 + LK data size).
+- A fresh `one-shot` never discards an existing installation. An unresolved
+  brick marker, or a completed or partly completed installation, stops the run
+  and points to `continue-one-shot`. Use a new `--install-id` for a separate
+  installation.
+- An explicit `--target` is threaded through the post-brick handoff and identity
+  check. It never stands in for an unreadable product.
 
 - The archive's SHA-256 and size must match the pin for the selected target.
   The payload's size and SHA-256 must match the entry for the device's exact
