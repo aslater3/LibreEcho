@@ -308,10 +308,29 @@ class InstallerPublicationTests(unittest.TestCase):
             (state / "default" / "state.json").write_text('{"board": "radar_puffin"}', encoding="utf-8")
             argv = run("--state-root", str(state))
             self.assertEqual(argv[1:6], ["continue-one-shot", "--release-tag", tag, "--target", "radar_puffin"])
-            # No saved state: the single recovery ADB device identifies the board.
+            # A fresh fastboot Radar and an unrelated ADB Biscuit must select
+            # only the fastboot product, never the ADB board's payload.
             (state / "default" / "state.json").unlink()
-            argv = run("--state-root", str(state))
+            (bindir / "fastboot").write_text(
+                "#!/bin/sh\ncase \"$1\" in\n"
+                " devices) printf 'FASTBOOT_SERIAL\\tfastboot\\n' ;;\n"
+                " -s) printf 'product: RADAR\\n' ;;\nesac\n", encoding="utf-8")
+            fresh = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--execute-hardware"],
+                text=True, capture_output=True, env=env, timeout=20)
+            self.assertEqual(fresh.returncode, 23, fresh.stderr)
+            self.assertEqual(argv_log.read_text().splitlines()[4:6], ["--target", "radar_puffin"])
+            (bindir / "fastboot").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            # Recovery discovery is allowed only for an explicitly bound serial.
+            argv = run("--state-root", str(state), "--fastboot-serial", "SERIAL")
             self.assertEqual(argv[4:6], ["--target", "biscuit"])
+            argv_log.unlink()
+            wrong_serial = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--continue",
+                 "--state-root", str(state), "--fastboot-serial", "OTHER_SERIAL"],
+                text=True, capture_output=True, env=env, timeout=20)
+            self.assertNotEqual(wrong_serial.returncode, 23)
+            self.assertFalse(argv_log.exists(), "unrelated recovery device must not launch an installer")
 
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"

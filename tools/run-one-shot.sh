@@ -41,17 +41,19 @@ print(board if board in ("radar_puffin", "biscuit") else "")
     if [[ -n "$target" ]]; then echo "Continuation target from saved state: $target"; fi
   fi
 fi
-# One ADB device (recovery or LibreEcho): its build identity names the board.
-if [[ -z "$target" && "$serial" == auto ]] && command -v "$adb_bin" >/dev/null 2>&1; then
+# Recovery identity is usable only for continuation of the requested serial.
+# Never infer a fresh fastboot target from an unrelated ADB device.
+if [[ -z "$target" && "$action" == continue-one-shot && "$serial" != auto ]] && command -v "$adb_bin" >/dev/null 2>&1; then
   mapfile -t adb_devices < <("$adb_bin" devices | awk 'NR > 1 && ($2 == "device" || $2 == "recovery") { print $1 }')
-  if [[ "${#adb_devices[@]}" == 1 ]]; then
-    adb_product="$("$adb_bin" -s "${adb_devices[0]}" shell 'getprop ro.product.device 2>/dev/null; getprop ro.build.product 2>/dev/null' 2>/dev/null | tr -d '\r' | tr 'A-Z' 'a-z' || true)"
+  for adb_serial in "${adb_devices[@]}"; do
+    [[ "$adb_serial" == "$serial" ]] || continue
+    adb_product="$("$adb_bin" -s "$serial" shell 'getprop ro.product.device 2>/dev/null; getprop ro.build.product 2>/dev/null' 2>/dev/null | tr -d '\r' | tr 'A-Z' 'a-z' || true)"
     case "$adb_product" in
       *radar*|*puffin*) target=radar_puffin ;;
       *biscuit*) target=biscuit ;;
     esac
-    if [[ -n "$target" ]]; then echo "Target from ADB device identity: $target"; fi
-  fi
+    if [[ -n "$target" ]]; then echo "Target from bound ADB device identity: $target"; fi
+  done
 fi
 if [[ -z "$target" ]]; then
   if [[ "$serial" == auto ]]; then

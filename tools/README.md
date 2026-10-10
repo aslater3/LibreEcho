@@ -193,7 +193,8 @@ serial, slot choice, cache/state roots, and install ID:
 ```
 
 `--continue` must immediately follow the tag. The wrapper takes the board from
-the saved installation (or a single ADB/recovery device), so a device sitting
+the saved installation (or an ADB/recovery device matching the explicitly
+requested `--fastboot-serial`), so a device sitting
 in TWRP needs no `--target`. `FEATURES_STAGED` and
 `WEBUI_FORWARDED` continuation revalidates the cached release, both selected
 boot slots, and every installed payload/manifest pair, then restores the setup
