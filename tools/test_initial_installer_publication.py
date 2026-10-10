@@ -260,6 +260,59 @@ class InstallerPublicationTests(unittest.TestCase):
             self.assertIn("saved immutable release tag", result.stderr)
             self.assertFalse(argv_log.exists())
 
+    def test_run_one_shot_continuation_without_fastboot_uses_saved_or_adb_target(self) -> None:
+        """TWRP/recovery has no fastboot product; continuation must not demand --target."""
+        tag = "radar-puffin-v1.2.3"
+        prefix = f"libreecho-{tag}"
+        digest = hashlib.sha256(b"#!/usr/bin/env python3\n").hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir, tmpdir, state = root / "bin", root / "tmp", root / "state"
+            argv_log = root / "installer-argv"
+            for directory in (bindir, tmpdir, state / "default"):
+                directory.mkdir(parents=True)
+            (bindir / "curl").write_text(
+                "#!/bin/sh\nout=\nurl=\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = -o ]; then out=$2; shift 2; continue; fi\n  url=$1; shift\ndone\n"
+                "case \"$url\" in\n"
+                f"  *SHA256SUMS) printf '%s  %s\\n%s  %s\\n' '{digest}' '{prefix}-installer.py' '{digest}' "
+                "'libreecho-biscuit-v1.2.3-installer.py' >\"$out\" ;;\n"
+                "  *-installer.py) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n  *) exit 9 ;;\nesac\n",
+                encoding="utf-8")
+            (bindir / "python3").write_text(
+                "#!/bin/sh\n"
+                f"if [ \"${{1:-}}\" = -c ]; then exec {sys.executable} \"$@\"; fi\n"
+                f"printf '%s\\n' \"$@\" > {argv_log}\nexit 23\n", encoding="utf-8")
+            # fastboot sees nothing (device is in recovery); adb sees one recovery device.
+            (bindir / "fastboot").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (bindir / "adb").write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  devices) printf 'List of devices attached\\nSERIAL\\trecovery\\n' ;;\n"
+                "  -s) printf 'biscuit\\r\\n' ;;\n"
+                "esac\n", encoding="utf-8")
+            for tool in bindir.iterdir():
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), HOME=str(root))
+            env.pop("LIBREECHO_TARGET", None)
+
+            def run(*extra: str) -> list[str]:
+                result = subprocess.run(
+                    ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--continue", *extra, "--execute-hardware"],
+                    text=True, capture_output=True, env=env, timeout=20)
+                self.assertEqual(result.returncode, 23, result.stderr)
+                return argv_log.read_text(encoding="utf-8").splitlines()
+
+            # Saved state wins: the board the installation was started for.
+            (state / "default" / "state.json").write_text('{"board": "radar_puffin"}', encoding="utf-8")
+            argv = run("--state-root", str(state))
+            self.assertEqual(argv[1:6], ["continue-one-shot", "--release-tag", tag, "--target", "radar_puffin"])
+            # No saved state: the single recovery ADB device identifies the board.
+            (state / "default" / "state.json").unlink()
+            argv = run("--state-root", str(state))
+            self.assertEqual(argv[4:6], ["--target", "biscuit"])
+
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"
         prefix = f"libreecho-{tag}"

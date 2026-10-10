@@ -51,9 +51,42 @@ verify/download the Product release
   legacy Amonet chain, boot_a/boot_b on the pinned Kaeru chain; the fastboot
   geometry gate identifies which chain is present before any boot write)
 → stage and verify all five feature payloads in userdata via the root runner
-→ forward the Web UI over ADB
-→ open the first-boot setup page
+→ v3 releases: assemble the payloads into the release's signed generation,
+  verify it with the device's own `libreecho-generation verify`, and publish
+  `update/current`
+→ optional terminal first-boot setup (`--cli-setup`): write provision.json
+→ reboot and wait for `/run/libreecho/startup-ready` (every service is up and
+  the boot animation has finished)
+→ otherwise forward the Web UI over ADB and open the first-boot setup page
 ```
+
+### v3 generation
+
+A v3 (`libreecho-ota-v3`) image mounts features only from a whole signed
+generation under `/data/libreecho/generations/<transaction_id>` named by
+`/data/libreecho/update/current`. Payloads left in the v2
+`/data/libreecho/features` tree are never mounted: every feature reconciles as
+missing, `startup-ready` is never written and the boot animation never ends.
+The installer takes the signed `manifest`/`manifest.sig` from the verified
+release OTA, refuses any staged payload, manifest or boot image that differs
+from it, assembles the generation on the device (`.partial`, `COMPLETE`,
+read-only modes, atomic rename), and publishes `current` only after the
+device verifier accepts it. It never replaces a different `current` or runs
+while a `pending` transaction exists. Continuation of a device that already has
+staged features but no generation completes this step.
+
+### First-boot setup in the terminal
+
+With `--execute-hardware` on an interactive terminal the installer asks whether
+to configure the device here or on the web setup page (`--cli-setup` /
+`--web-setup` skip the question). The terminal flow asks the same questions as
+the web installer (admin account, optional Wi-Fi, hostname, volume, wake word
+and sensitivity, local-only processing, telemetry), applies the same validation,
+and writes the same `libreecho-provision/1` document, bound to the exact release
+and target, to `/data/libreecho/config/provision.json` (0600, atomic). Only the
+salted `users_line` hash of the admin password leaves the host; passwords are
+read without echo and never logged. A device that has already completed setup
+is left untouched. The device applies the file on the next boot.
 
 `expdb` is never erased. The Kaeru header there is the unlock proof, so the
 installer leaves it intact.
@@ -159,7 +192,9 @@ serial, slot choice, cache/state roots, and install ID:
   --slots both --local-port 18081 --execute-hardware
 ```
 
-`--continue` must immediately follow the tag. `FEATURES_STAGED` and
+`--continue` must immediately follow the tag. The wrapper takes the board from
+the saved installation (or a single ADB/recovery device), so a device sitting
+in TWRP needs no `--target`. `FEATURES_STAGED` and
 `WEBUI_FORWARDED` continuation revalidates the cached release, both selected
 boot slots, and every installed payload/manifest pair, then restores the setup
 forward. It does not stage files again, reboot, reformat, or reflash. Choose

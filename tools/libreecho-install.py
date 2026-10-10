@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import struct
 import subprocess
@@ -195,7 +196,7 @@ FASTBOOT_TRANSPORT_ERROR = re.compile(
 ONE_SHOT_PHASES = {
     "RELEASE_READY", "BRICK_SUBMITTED", "AMONET_VERIFIED", "AMONET_HANDOFF", "FASTBOOT_READY",
     "BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED", "FEATURES_STAGED",
-    "WEBUI_FORWARDED",
+    "WEBUI_FORWARDED", "SETUP_DELIVERED", "INSTALL_COMPLETE",
 }
 UNRECONCILED_BRICK_PHASES = {"BRICK_SUBMITTED", "AMONET_VERIFIED"}
 
@@ -1770,6 +1771,7 @@ def one_shot(
     emulator_root: Path | str | None = None,
     emulator_kernel: Path | str | None = None,
     emulator_initramfs: Path | str | None = None,
+    setup: dict[str, Any] | None = None,
     target: str | None = None,
 ) -> dict[str, str]:
     """Unlock with the pinned fastbrick payload, install boot payloads, and open first-boot setup."""
@@ -1932,12 +1934,8 @@ def one_shot(
             collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
             raise
         _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release_tag, "bundle_sha256": bundle_sha})
-        _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
-        url = f"http://127.0.0.1:{local_port}/setup.html"
-        _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha})
-        if open_browser:
-            webbrowser.open(url)
-        return {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha, "serial": serial, "url": url}
+        return _complete_install(adb_bin, serial, cache_root, release_dir, manifest, target, setup, adb_timeout,
+                                 local_port, open_browser, state_path, release_tag, bundle_sha)
 
 
 def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> int | None:
@@ -2001,6 +1999,7 @@ def continue_one_shot(
     repair_userdata: bool = False,
     install_host_deps: bool = False,
     target: str | None = None,
+    setup: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
@@ -2021,6 +2020,7 @@ def continue_one_shot(
             )
         if state["phase"] not in {"AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "ADB_READY",
                                   "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED",
+                                  "SETUP_DELIVERED", "INSTALL_COMPLETE",
                                   "BRICK_SUBMITTED", "AMONET_VERIFIED"}:
             raise InstallerError(f"cannot continue before Amonet handoff: {state['phase']}")
         bound_serial = state.get("device_serial")
@@ -2056,7 +2056,7 @@ def continue_one_shot(
         selected = ("a", "b") if slots == "both" else (slots,)
         phase = state["phase"]
         userdata_formatted = state.get("userdata_formatted", False)
-        staged = phase in {"FEATURES_STAGED", "WEBUI_FORWARDED"}
+        staged = phase in {"FEATURES_STAGED", "WEBUI_FORWARDED", "SETUP_DELIVERED", "INSTALL_COMPLETE"}
         if staged and not userdata_formatted:
             raise InstallerError("completed staging lacks userdata-format evidence; refusing destructive repair")
         needs_repair = phase in {"BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted
@@ -2199,8 +2199,13 @@ def continue_one_shot(
                 verify_adb_payload_readback(adb_bin, serial, slot, manifest["boot"]["sha256"], adb_timeout)
             _write_state(state_path, {**state, "phase": phase if staged else "READBACK_VERIFIED",
                                       "device_serial": serial, "slots": slots})
+        v3 = load_v3_target(release_sources, release, saved_target)
+        published = phase in {"SETUP_DELIVERED", "INSTALL_COMPLETE"} or (
+            staged and v3 is not None and verify_v3_generation(adb_bin, serial, v3, min(adb_timeout, 60)))
         try:
-            if staged:
+            if published:
+                print("PAYLOAD STAGE: signed generation already current; leaving features untouched.", flush=True)
+            elif staged:
                 # Never overwrite an already configured/running feature just to reopen a forward.
                 for feature in manifest["features"]:
                     _run_command([adb_bin, "-s", serial, "shell", "test", "!", "-e",
@@ -2212,14 +2217,30 @@ def continue_one_shot(
             print("PAYLOAD STAGE: failed; collecting read-only ADB diagnostics.", flush=True)
             collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "feature staging failure")
             raise
-        _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release,
-                                  "bundle_sha256": state["bundle_sha256"]})
-        _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
-        url = f"http://127.0.0.1:{local_port}/setup.html"
-        _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
-        if open_browser:
-            webbrowser.open(url)
-        return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+        if not published:
+            _write_state(state_path, {"phase": "FEATURES_STAGED", "release": release,
+                                      "bundle_sha256": state["bundle_sha256"]})
+        return _complete_install(adb_bin, serial, cache_root, release_sources, manifest, saved_target, setup,
+                                 adb_timeout, local_port, open_browser, state_path, release, state["bundle_sha256"])
+
+
+def _complete_install(
+    adb_bin: str, serial: str, cache_root: Path | str, release_dir: Path | str, manifest: dict[str, Any],
+    target: str, setup: dict[str, Any] | None, adb_timeout: float, local_port: int, open_browser: bool,
+    state_path: Path, release: str, bundle_sha: str,
+) -> dict[str, str]:
+    """Publish the generation, apply CLI setup or forward the web setup page, and wait for startup-ready."""
+    result = finish_install(adb_bin, serial, cache_root, release_dir, manifest, target, setup, adb_timeout)
+    if setup is not None:
+        phase = "SETUP_DELIVERED" if result == "delivered" else "INSTALL_COMPLETE"
+        _write_state(state_path, {"phase": phase, "release": release, "bundle_sha256": bundle_sha})
+        return {"phase": phase, "release": release, "bundle_sha256": bundle_sha, "serial": serial}
+    _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
+    url = f"http://127.0.0.1:{local_port}/setup.html"
+    _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": bundle_sha})
+    if open_browser:
+        webbrowser.open(url)
+    return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": bundle_sha, "serial": serial, "url": url}
 
 
 def stage_device_features(
@@ -2289,6 +2310,436 @@ def verify_device_features(
             digest = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?" + re.escape(path), output)
             if digest is None or digest.group(1).lower() != feature[kind]["sha256"].lower():
                 raise InstallerError(f"feature {feature['name']} installed {kind} hash mismatch")
+
+
+V3_FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
+V3_TRANSACTION_ID = re.compile(r"[A-Za-z0-9._+~:-]{1,96}")
+
+
+def load_v3_target(release_dir: Path | str, release: str, target: str) -> dict[str, Any] | None:
+    """The signed v3 target manifest and signature from the verified release OTA, or None for pre-v3.
+
+    A v3 image only starts services from a whole signed generation, so the same
+    signed bytes the OTA and recovery routes use are the only acceptable input.
+    The OTA asset was already checksum-verified against the release inventory.
+    """
+    ota = Path(release_dir) / f"{target_asset_prefix(release, target)}.ota.tar"
+    if not ota.exists():
+        return None
+    _safe_regular(ota)
+    if not tarfile.is_tarfile(ota):
+        return None
+    with tarfile.open(ota, "r:") as archive:
+        members = archive.getmembers()
+        names = [m.name for m in members]
+        if names[:2] != ["manifest", "manifest.sig"] or any(not m.isfile() for m in members[:2]):
+            return None
+        if members[0].size > 65536 or members[1].size > 4096:
+            raise InstallerError("OTA control members are oversized")
+        manifest_stream = archive.extractfile(members[0])
+        signature_stream = archive.extractfile(members[1])
+        if manifest_stream is None or signature_stream is None:
+            raise InstallerError("OTA control members cannot be read")
+        raw = manifest_stream.read()
+        signature = signature_stream.read()
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise InstallerError("OTA manifest is not ASCII") from error
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if not sep or key in values:
+            raise InstallerError("OTA manifest grammar is invalid")
+        values[key] = value
+    if values.get("format") != "libreecho-ota-v3":
+        return None
+    if values.get("board") != target or values.get("release") != release:
+        raise InstallerError("signed v3 target is bound to another board or release")
+    transaction = values.get("transaction_id", "")
+    if not V3_TRANSACTION_ID.fullmatch(transaction) or transaction in {".", ".."}:
+        raise InstallerError("signed v3 target has an invalid transaction id")
+    if values.get("feature_ids") != ",".join(V3_FEATURES):
+        raise InstallerError("signed v3 target must carry all five features")
+    features = {}
+    for feature in V3_FEATURES:
+        record = {}
+        for key in ("sha256", "size", "manifest_sha256", "manifest_size"):
+            value = values.get(f"feature_{feature}_{key}", "")
+            if key.endswith("sha256") and not SHA256.fullmatch(value):
+                raise InstallerError(f"signed v3 target has an invalid {feature} digest")
+            if key.endswith("size") and not re.fullmatch(r"[1-9][0-9]{0,18}", value):
+                raise InstallerError(f"signed v3 target has an invalid {feature} size")
+            record[key] = value if key.endswith("sha256") else int(value)
+        features[feature] = record
+    if not SHA256.fullmatch(values.get("boot_sha256", "")):
+        raise InstallerError("signed v3 target has an invalid boot digest")
+    return {"transaction_id": transaction, "manifest": raw, "signature": signature,
+            "manifest_sha256": hashlib.sha256(raw).hexdigest(), "boot_sha256": values["boot_sha256"],
+            "features": features}
+
+
+def _v3_matches_bundle(v3: dict[str, Any], manifest: dict[str, Any]) -> None:
+    """The staged bundle payloads must be byte-for-byte the signed generation's payloads."""
+    if v3["boot_sha256"] != manifest["boot"]["sha256"]:
+        raise InstallerError("signed v3 target boot differs from the installed boot image")
+    staged = {feature["name"]: feature for feature in manifest["features"]}
+    if set(staged) != set(V3_FEATURES):
+        raise InstallerError("bundle features differ from the signed v3 target")
+    for name, record in v3["features"].items():
+        feature = staged[name]
+        if (feature["payload"]["sha256"] != record["sha256"] or feature["payload"]["size"] != record["size"]
+                or feature["manifest"]["sha256"] != record["manifest_sha256"]
+                or feature["manifest"]["size"] != record["manifest_size"]):
+            raise InstallerError(f"bundle feature {name} differs from the signed v3 target")
+
+
+def publish_v3_generation(
+    adb_bin: str, serial: str, cache_root: Path | str, manifest: dict[str, Any], v3: dict[str, Any],
+    timeout: float = 180,
+) -> None:
+    """Assemble the staged payloads into the signed whole generation and publish update/current.
+
+    Without this a v3 image has verified payloads on disk but nothing it will
+    mount: every feature reconciles as payload-missing, startup-ready is never
+    written and the boot animation never ends.
+    """
+    _v3_matches_bundle(v3, manifest)
+    cache_root = Path(cache_root)
+    work = cache_root / manifest["release"] / "v3-generation"
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "target.manifest").write_bytes(v3["manifest"])
+    (work / "target.manifest.sig").write_bytes(v3["signature"])
+    script = work / "publish-generation.sh"
+    script.write_text(ROOT_GENERATION_PUBLISHER, encoding="utf-8")
+    config = work / "publish-generation.conf"
+    config.write_text(f"TX={v3['transaction_id']}\nMANIFEST_SHA256={v3['manifest_sha256']}\n", encoding="ascii")
+    config.chmod(0o600)
+    for local, remote in ((work / "target.manifest", "/tmp/libreecho-target.manifest"),
+                          (work / "target.manifest.sig", "/tmp/libreecho-target.manifest.sig"),
+                          (script, "/tmp/libreecho-publish-generation.sh"),
+                          (config, "/tmp/libreecho-publish-generation.conf")):
+        _run_command([adb_bin, "-s", serial, "push", str(local), remote], timeout)
+    print(f"GENERATION STAGE: publishing signed generation {v3['transaction_id']}.", flush=True)
+    result = _run_command([adb_bin, "-s", serial, "shell", "sh", "/tmp/libreecho-publish-generation.sh"],
+                          timeout, check=False)
+    if result.returncode != 0 or f"GENERATION_OK:{v3['transaction_id']}" not in result.stdout:
+        detail = (result.stderr or result.stdout).strip()[-500:]
+        raise InstallerError(f"signed generation publication failed: {detail}")
+    print("GENERATION STAGE: generation verified by the device and published as current.", flush=True)
+
+
+def verify_v3_generation(adb_bin: str, serial: str, v3: dict[str, Any], timeout: float = 60) -> bool:
+    """True only when the device's own verifier accepts the published current generation."""
+    tx = v3["transaction_id"]
+    result = _run_command(
+        [adb_bin, "-s", serial, "shell",
+         f"[ \"$(cat /data/libreecho/update/current 2>/dev/null)\" = '{tx}' ] && "
+         f"/usr/local/sbin/libreecho-generation verify /data/libreecho/generations/{tx} && echo GENERATION_CURRENT_OK"],
+        timeout, check=False)
+    return result.returncode == 0 and "GENERATION_CURRENT_OK" in result.stdout
+
+
+def wait_for_startup_ready(adb_bin: str, serial: str, timeout: float) -> None:
+    """After the final reboot, wait for the device's own all-services-ready marker."""
+    wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", timeout, "ADB")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = _adb_shell_text(adb_bin, serial, "cat /run/libreecho/startup-ready 2>/dev/null")
+        if state.splitlines()[:1] == ["schema=1"]:
+            return
+        time.sleep(2)
+    detail = _adb_shell_text(
+        adb_bin, serial, "grep -E 'feature-reconcile|feature-transaction|startup' /tmp/init.log 2>/dev/null | tail -8")
+    raise InstallerError(f"device booted but did not report startup-ready within {timeout:g}s: {detail}")
+
+
+ROOT_GENERATION_PUBLISHER = r"""#!/bin/busybox sh
+BB=/bin/busybox
+CONFIG=/tmp/libreecho-publish-generation.conf
+MANIFEST=/tmp/libreecho-target.manifest
+SIGNATURE=/tmp/libreecho-target.manifest.sig
+LIBRE=/data/libreecho
+UPDATE=$LIBRE/update
+GENERATIONS=$LIBRE/generations
+LEGACY=$LIBRE/features
+fail() { echo "GENERATION_$1"; $BB rm -f "$CONFIG" "$MANIFEST" "$SIGNATURE"; exit 1; }
+TX=$($BB sed -n 's/^TX=//p' "$CONFIG" 2>/dev/null)
+WANT=$($BB sed -n 's/^MANIFEST_SHA256=//p' "$CONFIG" 2>/dev/null)
+case "$TX" in ''|.|..|*[!A-Za-z0-9._+~:-]*) fail TX_INVALID ;; esac
+case "$WANT" in ''|*[!0-9a-f]*) fail MANIFEST_HASH_INVALID ;; esac
+$BB grep -q ' /data ' /proc/mounts || fail DATA_NOT_MOUNTED
+for path in "$LIBRE" "$UPDATE" "$GENERATIONS" "$LEGACY"; do [ ! -L "$path" ] || fail SYMLINK; done
+[ "$($BB sha256sum "$MANIFEST" | $BB awk '{print $1}')" = "$WANT" ] || fail MANIFEST_HASH_MISMATCH
+/usr/local/sbin/libreecho-target-manifest check "$MANIFEST" "$SIGNATURE" || fail SIGNATURE_INVALID
+DEST=$GENERATIONS/$TX
+PARTIAL=$GENERATIONS/$TX.partial
+if [ -e "$UPDATE/current" ]; then
+    [ "$($BB cat "$UPDATE/current")" = "$TX" ] || fail CURRENT_CONFLICT
+    /usr/local/sbin/libreecho-generation verify "$DEST" || fail CURRENT_INVALID
+    $BB rm -f "$CONFIG" "$MANIFEST" "$SIGNATURE"
+    echo "GENERATION_OK:$TX"
+    exit 0
+fi
+[ ! -e "$UPDATE/pending" ] || fail PENDING_PRESENT
+$BB mkdir -p "$UPDATE" "$GENERATIONS" || fail DIRECTORY
+if [ -e "$DEST" ]; then
+    /usr/local/sbin/libreecho-generation verify "$DEST" || fail EXISTING_INVALID
+else
+    $BB rm -rf "$PARTIAL"
+    for feature in airplay2 tts wakeword stt assistant; do
+        for file in payload.squashfs manifest.json; do
+            source=$LEGACY/$feature/$file
+            [ -f "$source" ] && [ ! -L "$source" ] || fail "STAGED_MISSING:$feature/$file"
+            $BB mkdir -p "$PARTIAL/features/$feature" || fail DIRECTORY
+            $BB ln "$source" "$PARTIAL/features/$feature/$file" 2>/dev/null ||
+                $BB cp "$source" "$PARTIAL/features/$feature/$file" || fail "LINK:$feature/$file"
+        done
+    done
+    $BB cp "$MANIFEST" "$PARTIAL/target.manifest" || fail MANIFEST_COPY
+    $BB cp "$SIGNATURE" "$PARTIAL/target.manifest.sig" || fail SIGNATURE_COPY
+    printf '%s\n' "$WANT" > "$PARTIAL/COMPLETE.tmp" || fail COMPLETE_WRITE
+    $BB sync || fail SYNC
+    $BB mv "$PARTIAL/COMPLETE.tmp" "$PARTIAL/COMPLETE" || fail COMPLETE_RENAME
+    $BB find "$PARTIAL" -type f -exec $BB chmod 0400 '{}' ';' || fail FILE_MODE
+    $BB find "$PARTIAL" -type d -exec $BB chmod 0500 '{}' ';' || fail DIRECTORY_MODE
+    $BB sync || fail SYNC
+    $BB mv "$PARTIAL" "$DEST" || fail PUBLISH
+    $BB sync || fail SYNC
+    if ! /usr/local/sbin/libreecho-generation verify "$DEST"; then
+        $BB chmod -R u+w "$DEST"; $BB rm -rf "$DEST"; $BB sync
+        fail VERIFY_FAILED
+    fi
+fi
+printf '%s\n' "$TX" > "$UPDATE/current.tmp" || fail CURRENT_WRITE
+$BB chmod 0600 "$UPDATE/current.tmp" || fail CURRENT_MODE
+$BB sync || fail SYNC
+$BB mv "$UPDATE/current.tmp" "$UPDATE/current" || fail CURRENT_PUBLISH
+$BB sync || fail SYNC
+# The generation now owns the payloads (hard links); the v2 tree is never consulted by v3.
+$BB rm -rf "$LEGACY"
+$BB sync
+$BB rm -f "$CONFIG" "$MANIFEST" "$SIGNATURE"
+echo "GENERATION_OK:$TX"
+"""
+
+
+# --- CLI first-boot setup (parity with the web installer's provision contract v1) ---
+PROVISION_SCHEMA = "libreecho-provision/1"
+PROVISION_PATH = "/data/libreecho/config/provision.json"
+PROVISION_MAX_BYTES = 4096
+PROVISION_WAKE_WORDS = ("Alexa",)
+PROVISION_DEFAULTS = {"hostname": "libreecho", "volume": 64, "wake_word": "Alexa", "wake_sensitivity": 68,
+                      "security": "wpa2", "local_only": True, "telemetry": False}
+_USERNAME = re.compile(r"[A-Za-z0-9._-]+")
+_HOSTNAME = re.compile(r"[A-Za-z0-9-]+")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _utf8_len(value: Any) -> int:
+    return len(str(value).encode("utf-8"))
+
+
+def validate_provision(form: dict[str, Any]) -> list[tuple[str, str]]:
+    """Every reason the answers are not deliverable; the device's own rules, as the web installer applies them."""
+    errors: list[tuple[str, str]] = []
+    username, password = form.get("username"), form.get("password")
+    if not isinstance(username, str) or not 1 <= _utf8_len(username) <= 31 or not _USERNAME.fullmatch(username):
+        errors.append(("username", "Choose an admin username of 1-31 characters using only letters, numbers, dot, underscore and hyphen."))
+    if not isinstance(password, str) or not 8 <= _utf8_len(password) <= 128:
+        errors.append(("password", "The admin password must be 8-128 characters."))
+    if password != form.get("password_confirm"):
+        errors.append(("password_confirm", "The two admin passwords do not match."))
+    ssid, security, wifi_password = form.get("ssid", ""), form.get("security"), form.get("wifi_password", "")
+    if ssid:
+        if not isinstance(ssid, str) or not 1 <= _utf8_len(ssid) <= 32 or _CONTROL.search(ssid):
+            errors.append(("ssid", "The network name must be 1-32 characters with no control characters."))
+        if security not in ("open", "wpa2"):
+            errors.append(("security", "Choose WPA2 or open. There is no other security type this device accepts."))
+        elif security == "open" and wifi_password != "":
+            errors.append(("wifi_password", "An open network must not carry a Wi-Fi password."))
+        elif security == "wpa2" and not (isinstance(wifi_password, str) and 8 <= _utf8_len(wifi_password) <= 63):
+            errors.append(("wifi_password", "A WPA2 passphrase must be 8-63 characters."))
+    hostname = form.get("hostname")
+    if (not isinstance(hostname, str) or not 1 <= _utf8_len(hostname) <= 63 or not _HOSTNAME.fullmatch(hostname)
+            or hostname.startswith("-") or hostname.endswith("-")):
+        errors.append(("hostname", "The hostname must be 1-63 letters, numbers or hyphens, and cannot start or end with a hyphen."))
+    elif any(isinstance(s, str) and s and s.lower() == hostname.lower() for s in (password, wifi_password)):
+        errors.append(("hostname", "The hostname is the same as one of your passwords, and it is visible to everything on your network."))
+    for key, label in (("volume", "Volume"), ("wake_sensitivity", "Wake sensitivity")):
+        value = form.get(key)
+        if type(value) is not int or not 0 <= value <= 100:
+            errors.append((key, f"{label} must be a whole number from 0 to 100."))
+    if form.get("wake_word") not in PROVISION_WAKE_WORDS:
+        errors.append(("wake_word", f"Choose a wake word this build ships ({', '.join(PROVISION_WAKE_WORDS)})."))
+    for key in ("local_only", "telemetry"):
+        if type(form.get(key)) is not bool:
+            errors.append((key, f"{key} must be chosen."))
+    return errors
+
+
+def build_users_line(username: str, password: str, salt: str | None = None) -> str:
+    """`folded:sha256:<salt>:<sha256(salt:password)>`, the daemon's own users-file record."""
+    salt = salt if salt is not None else secrets.token_hex(32)
+    if not SHA256.fullmatch(salt):
+        raise InstallerError("credential salt is not 64 lowercase hex characters")
+    digest = hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+    return f"{username.lower()}:sha256:{salt}:{digest}"
+
+
+def build_provision_document(form: dict[str, Any], release: str, target: str, *, salt: str | None = None) -> bytes:
+    errors = validate_provision(form)
+    if errors:
+        raise InstallerError(f"fix the setup answers first: {errors[0][1]}")
+    if not RELEASE.fullmatch(release) or target not in TARGET_INDEX:
+        raise InstallerError("setup must be bound to an exact release and target")
+    document: dict[str, Any] = {
+        "schema": PROVISION_SCHEMA,
+        "binding": {"release": release, "target": TARGET_INDEX[target]["release_slug"]},
+        "admin": {"users_line": build_users_line(form["username"], form["password"], salt)},
+    }
+    if form.get("ssid"):
+        document["wifi"] = {"ssid": form["ssid"], "security": form["security"],
+                            "password": "" if form["security"] == "open" else form["wifi_password"]}
+    document["settings"] = {
+        "hostname": form["hostname"], "volume": form["volume"], "wake_word": form["wake_word"],
+        "wake_sensitivity": form["wake_sensitivity"], "privacy_local_only": form["local_only"],
+        "privacy_telemetry": form["telemetry"],
+    }
+    raw = json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if len(raw) > PROVISION_MAX_BYTES:
+        raise InstallerError(f"setup document is {len(raw)} bytes; the device accepts at most {PROVISION_MAX_BYTES}")
+    return raw
+
+
+def _ask_yes(prompt: str, default: bool, ask=input) -> bool:
+    while True:
+        answer = ask(f"{prompt} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
+        if answer == "":
+            return default
+        if answer in ("y", "yes", "n", "no"):
+            return answer.startswith("y")
+
+
+def collect_setup_answers(ask=input, ask_secret=None, out=print) -> dict[str, Any]:
+    """Interactive terminal version of the web installer's Configure step. Re-asks until valid."""
+    import getpass
+    ask_secret = ask_secret or getpass.getpass
+
+    def text(prompt: str, default: str | None = None) -> str:
+        answer = ask(f"{prompt}{f' [{default}]' if default is not None else ''}: ").strip()
+        return default if answer == "" and default is not None else answer
+
+    def yes(prompt: str, default: bool) -> bool:
+        return _ask_yes(prompt, default, ask)
+
+    def number(prompt: str, default: int) -> int | str:
+        answer = text(prompt, str(default))
+        return int(answer) if re.fullmatch(r"[0-9]{1,3}", answer) else answer
+
+    out("\nFirst-boot setup (the same settings as the web installer). Passwords are not echoed or logged.")
+    form: dict[str, Any] = {}
+    while True:
+        form["username"] = text("Admin username", form.get("username") or "admin")
+        form["password"] = ask_secret("Admin password (8-128 characters): ")
+        form["password_confirm"] = ask_secret("Confirm admin password: ")
+        form["ssid"] = text("Wi-Fi network name (blank to join Wi-Fi later from the device)", form.get("ssid", ""))
+        form["security"], form["wifi_password"] = PROVISION_DEFAULTS["security"], ""
+        if form["ssid"]:
+            form["security"] = "wpa2" if yes("Is the network secured with WPA2?", True) else "open"
+            if form["security"] == "wpa2":
+                form["wifi_password"] = ask_secret("Wi-Fi passphrase (8-63 characters): ")
+        form["hostname"] = text("Device hostname", form.get("hostname") or PROVISION_DEFAULTS["hostname"])
+        form["volume"] = number("Speaker volume 0-100", PROVISION_DEFAULTS["volume"])
+        form["wake_word"] = text(f"Wake word ({', '.join(PROVISION_WAKE_WORDS)})", PROVISION_DEFAULTS["wake_word"])
+        form["wake_sensitivity"] = number("Wake sensitivity 0-100", PROVISION_DEFAULTS["wake_sensitivity"])
+        form["local_only"] = yes("Keep all processing local-only?", PROVISION_DEFAULTS["local_only"])
+        form["telemetry"] = yes("Send anonymous diagnostic telemetry?", PROVISION_DEFAULTS["telemetry"])
+        errors = validate_provision(form)
+        if not errors:
+            wifi = f"{form['ssid']} ({form['security']})" if form["ssid"] else "not configured (set up on the device later)"
+            out(f"Setup: admin={form['username']} wifi={wifi} hostname={form['hostname']} volume={form['volume']} "
+                f"wake={form['wake_word']}@{form['wake_sensitivity']} local_only={form['local_only']} "
+                f"telemetry={form['telemetry']}")
+            if yes("Use these settings?", True):
+                return form
+            continue
+        for _field, message in errors:
+            out(f"  - {message}")
+        out("Please answer again.")
+
+
+def deliver_provision(adb_bin: str, serial: str, document: bytes, cache_root: Path | str, timeout: float = 60) -> str:
+    """Atomically write provision.json (mode 0600) for the device daemon to apply on its next boot.
+
+    Returns "delivered", or "already-complete" when the owner has finished setup
+    and the device would discard it. Refuses an image that cannot apply it, so a
+    plaintext Wi-Fi passphrase is never left on a device that would not consume it.
+    """
+    probe = _run_command([adb_bin, "-s", serial, "shell",
+                          "grep -q ' /data ' /proc/mounts && echo DATA_OK; "
+                          "grep -c libreecho-provision/1 /usr/local/sbin/libreecho-web 2>/dev/null; "
+                          "[ -e /data/libreecho/config/web-config.json.setup-complete ] && echo SETUP_DONE"],
+                         timeout, check=False)
+    lines = probe.stdout.split()
+    if "DATA_OK" not in lines:
+        raise InstallerError("/data is not mounted; setup was not delivered")
+    if "SETUP_DONE" in lines:
+        return "already-complete"
+    if not any(re.fullmatch(r"[1-9][0-9]*", token) for token in lines):
+        raise InstallerError("this LibreEcho image cannot apply CLI setup; use the web setup page instead")
+    work = Path(cache_root) / "provision"
+    work.mkdir(parents=True, exist_ok=True)
+    os.chmod(work, 0o700)
+    local = work / "provision.json"
+    fd = os.open(local, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(document)
+        tmp = PROVISION_PATH + ".tmp"
+        _run_command([adb_bin, "-s", serial, "shell", "mkdir -p /data/libreecho/config"], timeout)
+        _run_command([adb_bin, "-s", serial, "push", str(local), tmp], timeout)
+        _run_command([adb_bin, "-s", serial, "shell", f"chmod 600 {tmp} && mv -f {tmp} {PROVISION_PATH} && sync"], timeout)
+        size = _adb_shell_text(adb_bin, serial, f"wc -c < {PROVISION_PATH}")
+    finally:
+        local.unlink(missing_ok=True)
+    if size != str(len(document)):
+        raise InstallerError("setup file did not read back at its full size; treat it as NOT delivered")
+    return "delivered"
+
+
+def finish_install(
+    adb_bin: str, serial: str, cache_root: Path | str, release_dir: Path | str, manifest: dict[str, Any],
+    target: str, setup: dict[str, Any] | None, adb_timeout: float,
+) -> str:
+    """Publish the v3 generation, deliver CLI setup, reboot and wait for startup-ready."""
+    v3 = load_v3_target(release_dir, manifest["release"], target)
+    reboot = False
+    if v3 is not None and not verify_v3_generation(adb_bin, serial, v3, min(adb_timeout, 60)):
+        publish_v3_generation(adb_bin, serial, cache_root, manifest, v3, adb_timeout)
+        reboot = True
+    setup_result = "web"
+    if setup is not None:
+        document = build_provision_document(setup, manifest["release"], target)
+        setup_result = deliver_provision(adb_bin, serial, document, cache_root, min(adb_timeout, 60))
+        if setup_result == "already-complete":
+            print("SETUP STAGE: the device has already completed setup; your answers were not applied.", flush=True)
+        else:
+            print("SETUP STAGE: setup delivered; the device applies it on the next boot.", flush=True)
+            reboot = True
+    if reboot:
+        print("FINAL STAGE: rebooting into the completed installation.", flush=True)
+        _run_command([adb_bin, "-s", serial, "reboot"], 30, check=False)
+        time.sleep(5)
+    if v3 is None:
+        # Pre-v3 images have no generation gate; keep their historical hand-off.
+        if reboot:
+            wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", max(adb_timeout, 300), "ADB")
+        return setup_result
+    print("FINAL STAGE: waiting for every LibreEcho service to report ready.", flush=True)
+    wait_for_startup_ready(adb_bin, serial, max(adb_timeout, 300))
+    print("FINAL STAGE: startup-ready reported; the boot animation has finished.", flush=True)
+    return setup_result
 
 
 ROOT_FEATURE_STAGER = r"""#!/bin/busybox sh
@@ -2398,6 +2849,10 @@ def main() -> None:
     parser.add_argument("--fastboot-timeout", type=float, default=120)
     parser.add_argument("--adb-timeout", type=float, default=180)
     parser.add_argument("--no-open-browser", action="store_true")
+    setup_mode = parser.add_mutually_exclusive_group()
+    setup_mode.add_argument("--cli-setup", action="store_true",
+                            help="answer first-boot setup in this terminal instead of the web setup page")
+    setup_mode.add_argument("--web-setup", action="store_true", help="always use the forwarded web setup page")
     parser.add_argument("--execute-hardware", action="store_true")
     parser.add_argument(
         "--install-host-deps", action="store_true",
@@ -2443,6 +2898,14 @@ def main() -> None:
                 print_banner()
                 print(f"Installer log: {ACTIVE_LOG_PATH}", flush=True)
                 try:
+                    setup = None
+                    if args.action in ("one-shot", "continue-one-shot") and args.execute_hardware and not args.web_setup:
+                        interactive = sys.stdin.isatty()
+                        if args.cli_setup and not interactive:
+                            raise InstallerError("--cli-setup needs an interactive terminal")
+                        if args.cli_setup or (interactive and _ask_yes(
+                                "Configure first-boot setup here in the terminal? (No = use the web setup page)", True)):
+                            setup = collect_setup_answers()
                     if args.action == "install":
                         if args.release_dir is None or args.release_tag is None:
                             raise InstallerError("install requires --release-dir and --release-tag")
@@ -2466,6 +2929,7 @@ def main() -> None:
                             emulator_root=args.emulator_root,
                             emulator_kernel=args.emulator_kernel,
                             emulator_initramfs=args.emulator_initramfs,
+                            setup=setup,
                         )
                     elif args.action == "continue-one-shot":
                         result = continue_one_shot(
@@ -2480,6 +2944,7 @@ def main() -> None:
                             repair_userdata=args.repair_userdata,
                             target=args.target,
                             install_host_deps=args.install_host_deps,
+                            setup=setup,
                         )
                     elif args.action == "resume":
                         result = resume(args.cache_root, args.state_root, args.install_id)
