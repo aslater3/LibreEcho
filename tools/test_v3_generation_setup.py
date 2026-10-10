@@ -306,6 +306,29 @@ class ProvisionParityTests(unittest.TestCase):
                             in argv[-1] for argv in calls))
 
 
+class CompletedTransportTests(unittest.TestCase):
+    def test_completed_fastboot_returns_to_system_without_writes(self):
+        with mock.patch.object(installer, "adb_devices_safe", return_value=[]), \
+                mock.patch.object(installer, "fastboot_devices_safe", return_value=["S"]), \
+                mock.patch.object(installer, "verify_fastboot_product") as identity, \
+                mock.patch.object(installer, "fastboot_getvar", return_value="true"), \
+                mock.patch.object(installer, "_run_command") as run, \
+                mock.patch.object(installer, "wait_for_transport") as wait:
+            installer.resume_completed_transport("fastboot", "adb", "S", "radar_puffin", 30)
+        identity.assert_called_once_with("fastboot", "S", "radar_puffin", None)
+        run.assert_called_once_with(["fastboot", "-s", "S", "continue"], 30, check=False)
+        wait.assert_called_once()
+
+    def test_completed_fastboot_refuses_locked_device(self):
+        with mock.patch.object(installer, "adb_devices_safe", return_value=[]), \
+                mock.patch.object(installer, "fastboot_devices_safe", return_value=["S"]), \
+                mock.patch.object(installer, "verify_fastboot_product"), \
+                mock.patch.object(installer, "fastboot_getvar", return_value="false"), \
+                mock.patch.object(installer, "_run_command") as run:
+            with self.assertRaises(installer.InstallerError):
+                installer.resume_completed_transport("fastboot", "adb", "S", "radar_puffin", 30)
+        run.assert_not_called()
+
 class FinishInstallTests(unittest.TestCase):
     def test_pre_v3_image_keeps_the_historical_handoff(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, \

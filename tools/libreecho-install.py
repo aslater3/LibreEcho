@@ -1981,6 +1981,22 @@ def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> str:
     raise InstallerError(f"boot payload partitions match no reviewed layout: {sizes}")
 
 
+def resume_completed_transport(fastboot_bin: str, adb_bin: str, serial: str, target: str, timeout: float) -> None:
+    """Return a bound, completed installation from fastboot to system without writes."""
+    if serial in adb_devices_safe(adb_bin):
+        return
+    if serial not in fastboot_devices_safe(fastboot_bin):
+        raise InstallerError("saved device is absent from ADB and fastboot; refusing to select another device")
+    verify_fastboot_product(fastboot_bin, serial, target, None)
+    if fastboot_getvar(fastboot_bin, serial, "unlock_status").strip().lower() not in {"true", "unlocked", "yes", "1"}:
+        raise InstallerError("completed installation is on a locked bootloader; refusing resume")
+    print("RESUME STAGE: verified bound fastboot device; returning to installed system without writes.", flush=True)
+    # Kaeru's persistent mode marker survives a reboot. Continue boots the
+    # selected slot directly and does not write or clear any partition.
+    _run_command([fastboot_bin, "-s", serial, "continue"], 30, check=False)
+    wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", timeout, "ADB")
+
+
 def continue_one_shot(
     *,
     cache_root: Path | str,
@@ -2061,6 +2077,11 @@ def continue_one_shot(
             raise InstallerError("completed staging lacks userdata-format evidence; refusing destructive repair")
         needs_repair = phase in {"BOOT_WRITTEN", "ADB_READY", "READBACK_VERIFIED"} and not userdata_formatted
         require_host_commands(adb_bin)
+        if staged:
+            bound_serial = state.get("device_serial") or (fastboot_serial if fastboot_serial != "auto" else None)
+            if not bound_serial:
+                raise InstallerError("completed installation lacks a device binding")
+            resume_completed_transport(fastboot_bin, adb_bin, bound_serial, saved_target, adb_timeout)
         # `BOOT_WRITTEN` is saved immediately before `fastboot reboot`. If the
         # installer exited before that reboot completed, the device is still in
         # fastboot and an ADB-only resume can never recover it. Probe for a
