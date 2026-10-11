@@ -654,6 +654,43 @@ def extract_amonet_payload(archive: Path, target: str, payload: dict[str, Any], 
 BRICK_DEFAULT_TIMEOUT_SECONDS = 120
 
 
+def brick_latch_path(state_root: Path, serial: str, target: str) -> Path:
+    """Device-bound single-submission latch, independent of install-id.
+
+    The per-install state file cannot stop a second brick: a new --install-id starts a
+    fresh state file while the device may still be locked. This latch is keyed by the
+    target and the fastboot serial, like the web installer's localStorage guard, so a
+    second submission to the same unit is refused whatever install-id is used.
+    """
+    key = hashlib.sha256(f"{target}:{serial}".encode("utf-8")).hexdigest()
+    return Path(state_root) / "brick-latches" / f"{key}.json"
+
+
+def claim_brick_latch(state_root: Path, serial: str, target: str, release_tag: str, bundle_sha: str) -> None:
+    """Persist the device-bound latch before the first brick byte leaves; refuse a repeat.
+
+    Writes atomically with owner-only permissions. Nothing clears this latch automatically.
+    An operator clears it only after reconciling the device, never to force a re-send.
+    """
+    path = brick_latch_path(state_root, serial, target)
+    if path.exists():
+        raise InstallerError(
+            f"a brick was already submitted to this {target} unit (latch {path.name}); "
+            "not re-sending. Reconcile the device with continue-one-shot first. Only after the device "
+            "state is reconciled may the operator remove that latch file."
+        )
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    temporary = path.with_name(path.name + ".part")
+    with temporary.open("w", encoding="utf-8") as stream:
+        json.dump({"release": release_tag, "bundle_sha256": bundle_sha, "target": target}, stream, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
 def brick_fastboot_payload(fastboot_bin: str, serial: str, payload: Path, budget: float = 0) -> str:
     """Send the pinned fastbrick payload exactly once and return "unknown".
 
@@ -1895,6 +1932,8 @@ def one_shot(
                 if amonet_zip is None:
                     raise InstallerError("a fastbrick plan requires the pinned Amonet archive")
                 brick_fastboot = str(stage_amonet_host_fastboot(Path(amonet_zip), target, Path(cache_root)))
+                # Device-bound latch first: refuses any second brick to this unit, whatever install-id.
+                claim_brick_latch(state_root, serial, target, release_tag, bundle_sha)
                 # Durable latch: written and fsynced before the first brick byte leaves.
                 _write_state(state_path, {"phase": "BRICK_SUBMITTED", "release": release_tag, "bundle_sha256": bundle_sha,
                                           "board": target, "device_serial": serial, "payload_sha256": payload_sha,

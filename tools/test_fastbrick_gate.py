@@ -289,6 +289,28 @@ class ZipHardeningTests(unittest.TestCase):
             self.run_extract(archive, "radar_puffin", entry)
 
 
+class BrickLatchTests(unittest.TestCase):
+    def test_second_claim_for_same_device_is_refused_across_install_ids(self):
+        root = Path(tempfile.mkdtemp())
+        INSTALLER.claim_brick_latch(root, "SERIAL1", "radar_puffin", "rel-a", "a" * 64)
+        # A different install-id is irrelevant: the latch is keyed by target and serial only.
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "not re-sending"):
+            INSTALLER.claim_brick_latch(root, "SERIAL1", "radar_puffin", "rel-b", "b" * 64)
+
+    def test_different_device_is_not_blocked(self):
+        root = Path(tempfile.mkdtemp())
+        INSTALLER.claim_brick_latch(root, "SERIAL1", "radar_puffin", "rel-a", "a" * 64)
+        INSTALLER.claim_brick_latch(root, "SERIAL2", "radar_puffin", "rel-a", "a" * 64)
+
+    def test_latch_file_is_owner_only_and_written_before_return(self):
+        root = Path(tempfile.mkdtemp())
+        INSTALLER.claim_brick_latch(root, "SERIAL1", "biscuit_puffin", "rel-a", "a" * 64)
+        path = INSTALLER.brick_latch_path(root, "SERIAL1", "biscuit_puffin")
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("SERIAL1", path.read_text(encoding="utf-8"))  # serial is hashed in the name only
+
+
 class BrickOutcomeTests(unittest.TestCase):
     def brick(self, outcomes, budget=0):
         payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
