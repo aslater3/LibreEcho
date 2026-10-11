@@ -651,21 +651,30 @@ def extract_amonet_payload(archive: Path, target: str, payload: dict[str, Any], 
     return destination
 
 
+BRICK_DEFAULT_TIMEOUT_SECONDS = 120
+
+
 def brick_fastboot_payload(fastboot_bin: str, serial: str, payload: Path, budget: float = 0) -> str:
     """Send the pinned fastbrick payload exactly once and return "unknown".
 
+    The 114 MB payload must transfer in full. `budget` is the whole-transfer timeout
+    (the --brick-timeout value); a non-positive budget falls back to
+    BRICK_DEFAULT_TIMEOUT_SECONDS. A short per-command timeout cuts the send off mid-image
+    and leaves the device in locked fastboot, so no short cap is applied here.
+
     The return value is never proof of success: a timeout, a nonzero transport reply, or
     any other inconclusive answer is "unknown", and the caller must reconcile from device
-    facts before trusting it. There is no automatic re-send. `budget` is retained for call
-    compatibility only. eMMC read-only, device-mismatch, and bootloader-refusal replies are
-    terminal. Every attempt, including partial output from a timeout, is appended to the log.
+    facts before trusting it. There is no automatic re-send. eMMC read-only, device-mismatch,
+    and bootloader-refusal replies are terminal. Every attempt, including partial output from
+    a timeout, is appended to the log.
     """
     _safe_regular(payload)
     argv = [fastboot_bin, "-s", serial, "flash", "brick", str(payload)]
+    send_timeout = float(budget) if budget and budget > 0 else float(BRICK_DEFAULT_TIMEOUT_SECONDS)
     try:
-        result = subprocess.run(argv, text=True, capture_output=True, timeout=8)
-    except subprocess.TimeoutExpired as timeout:
-        partial = _decode_partial(timeout.stdout) + "\n" + _decode_partial(timeout.stderr)
+        result = subprocess.run(argv, text=True, capture_output=True, timeout=send_timeout)
+    except subprocess.TimeoutExpired as expired:
+        partial = _decode_partial(expired.stdout) + "\n" + _decode_partial(expired.stderr)
         _append_log(f"BRICK attempt 1 timeout; partial output:\n{partial}")
         print("FASTBOOT STAGE: brick payload timed out; device outcome unknown until reconciled.", flush=True)
         return "unknown"

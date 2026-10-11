@@ -312,6 +312,37 @@ class BrickOutcomeTests(unittest.TestCase):
         self.assertIn("outcome unknown", out)
         self.assertNotIn("expected", out)
 
+    def test_brick_send_uses_the_whole_transfer_budget_not_an_8_second_cap(self):
+        seen = []
+
+        def fake_run(argv, timeout=None, **kwargs):
+            seen.append(timeout)
+            return completed([], 0, "", "")
+
+        payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        payload.write_bytes(b"x")
+        with mock.patch.object(INSTALLER.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "did not leave fastboot"):
+                INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 120)
+        self.assertEqual(seen, [120.0])
+
+    def test_brick_send_defaults_to_a_transfer_safe_timeout_when_budget_is_unset(self):
+        seen = []
+
+        def fake_run(argv, timeout=None, **kwargs):
+            seen.append(timeout)
+            return completed([], 0, "", "")
+
+        payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        payload.write_bytes(b"x")
+        with mock.patch.object(INSTALLER.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(INSTALLER.InstallerError):
+                INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 0)
+        self.assertEqual(seen, [float(INSTALLER.BRICK_DEFAULT_TIMEOUT_SECONDS)])
+        self.assertGreater(seen[0], 8)
+
     def test_emmc_ro_is_terminal_and_never_retried(self):
         outcomes = [completed([], 1, "", "FAILeMMC-RO"), completed([], 0, "", "")]
         with self.assertRaisesRegex(INSTALLER.InstallerError, "read-only"):
