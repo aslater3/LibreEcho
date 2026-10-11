@@ -250,6 +250,29 @@ class OneShotFastbootTests(unittest.TestCase):
             INSTALLER.wait_for_transport(["probe"], "device", 60, "ADB")
         self.assertGreater(run.call_args.kwargs["timeout"], 10)
 
+    def test_first_boot_adb_wait_allows_slow_boot_and_explains_resume(self) -> None:
+        # Platform#232: a slow first boot outlived the 180 s ADB wait with no hint to resume.
+        with mock.patch.object(INSTALLER, "wait_for_transport") as wait:
+            INSTALLER.wait_for_first_boot_adb("adb", "SER", 180, "radar-puffin-v0.14.0", "both")
+        self.assertEqual(wait.call_args.args[2], INSTALLER.FIRST_BOOT_ADB_TIMEOUT)
+        self.assertGreaterEqual(INSTALLER.FIRST_BOOT_ADB_TIMEOUT, 300)
+        with mock.patch.object(INSTALLER, "wait_for_transport") as wait:
+            INSTALLER.wait_for_first_boot_adb("adb", "SER", 900, "radar-puffin-v0.14.0", "both")
+        self.assertEqual(wait.call_args.args[2], 900)  # an explicit longer --adb-timeout is honoured
+        failure = INSTALLER.InstallerError("timed out waiting for ADB")
+        with mock.patch.object(INSTALLER, "wait_for_transport", side_effect=failure), \
+                self.assertRaises(INSTALLER.InstallerError) as raised:
+            INSTALLER.wait_for_first_boot_adb("adb", "SER", 180, "radar-puffin-v0.14.0", "a")
+        message = str(raised.exception)
+        self.assertIn("timed out waiting for ADB", message)
+        self.assertIn("BOOT_WRITTEN", message)
+        self.assertIn("./run-one-shot.sh radar-puffin-v0.14.0 --continue --fastboot-serial SER "
+                      "--slots a --execute-hardware", message)
+
+    def test_post_flash_adb_waits_use_first_boot_wait(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("wait_for_first_boot_adb("), 4)  # definition + three post-flash waits
+
     def test_source_announces_fastboot_and_payload_boundaries(self) -> None:
         source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
         for marker in (
@@ -1124,6 +1147,18 @@ class OneShotContinuationTests(unittest.TestCase):
         self.assertFalse(any(set(c) & {"flash", "erase", "reboot"} for c in self.calls))
         self.format.assert_not_called()
         self.tools.assert_not_called()
+
+    def test_first_boot_adb_timeout_leaves_boot_written_for_continuation(self):
+        # Platform#232: the timeout must not advance or discard state, so --continue can finish.
+        self.state_path.unlink(missing_ok=True)
+        with mock.patch.object(INSTALLER, "wait_for_transport",
+                               side_effect=INSTALLER.InstallerError("timed out waiting for ADB")), \
+                self.assertRaisesRegex(INSTALLER.InstallerError, "--continue --fastboot-serial SERIAL"):
+            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache,
+                               state_root=self.state_root, install_id="test", release_tag=self.tag,
+                               fastboot_bin="fake-fastboot", adb_bin="fake-adb", fastboot_serial="auto",
+                               execute_hardware=True, open_browser=False, target="radar_puffin")
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BOOT_WRITTEN")
 
     def test_fastboot_ready_reuses_the_recorded_userdata_format(self):
         self.save_state(phase="FASTBOOT_READY")

@@ -1288,6 +1288,25 @@ def wait_for_transport(probe: list[str], expected: str, timeout: float, label: s
     raise InstallerError(f"timed out waiting for {label}")
 
 
+# The first boot of a freshly written image can take longer than a normal ADB
+# reconnect (seen on 0.13.19: ADB arrived after the installer gave up).
+FIRST_BOOT_ADB_TIMEOUT = 300
+
+
+def wait_for_first_boot_adb(adb_bin: str, serial: str, timeout: float, release: str, slots: str) -> None:
+    """Wait for ADB after the boot image is written; on timeout explain how to resume."""
+    try:
+        wait_for_transport([adb_bin, "-s", serial, "get-state"], "device",
+                           max(timeout, FIRST_BOOT_ADB_TIMEOUT), "ADB")
+    except InstallerError as error:
+        raise InstallerError(
+            f"{error} after the first boot. The boot image is already written (phase BOOT_WRITTEN), "
+            "and the first boot can be slow. Nothing needs reflashing. Once `adb devices` lists the "
+            f"Echo, resume with: ./run-one-shot.sh {release} --continue --fastboot-serial {serial} "
+            f"--slots {slots} --execute-hardware"
+        ) from error
+
+
 def adb_forward_command(adb_bin: str, serial: str, local_port: int) -> list[str]:
     if not 1024 <= local_port <= 65535:
         raise InstallerError("local port must be between 1024 and 65535")
@@ -1932,7 +1951,7 @@ def one_shot(
         except subprocess.TimeoutExpired:
             print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
         print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
-        wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+        wait_for_first_boot_adb(adb_bin, serial, adb_timeout, release_tag, slots)
         print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
         collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
         _write_state(state_path, {"phase": "ADB_READY", "release": release_tag, "bundle_sha256": bundle_sha})
@@ -2195,7 +2214,7 @@ def continue_one_shot(
             except subprocess.TimeoutExpired:
                 print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
             print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
-            wait_for_transport([adb_bin, "-s", serial, "get-state"], "device", adb_timeout, "ADB")
+            wait_for_first_boot_adb(adb_bin, serial, adb_timeout, release, slots)
             print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
             collect_adb_diagnostics(adb_bin, serial, min(adb_timeout, 30), "post-ADB bring-up")
             _write_state(state_path, {"phase": "ADB_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
@@ -2220,9 +2239,7 @@ def continue_one_shot(
                 except subprocess.TimeoutExpired:
                     print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
                 print("FASTBOOT STAGE: waiting for ADB after the pending reboot.", flush=True)
-                wait_for_transport(
-                    [adb_bin, "-s", pending_serial, "get-state"], "device", adb_timeout, "ADB"
-                )
+                wait_for_first_boot_adb(adb_bin, pending_serial, adb_timeout, release, slots)
             serial = select_adb_serial(adb_bin, fastboot_serial)
             _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
             print(
