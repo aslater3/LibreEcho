@@ -289,6 +289,28 @@ class ZipHardeningTests(unittest.TestCase):
             self.run_extract(archive, "radar_puffin", entry)
 
 
+class BrickLatchTests(unittest.TestCase):
+    def test_second_claim_for_same_device_is_refused_across_install_ids(self):
+        root = Path(tempfile.mkdtemp())
+        INSTALLER.claim_brick_latch(root, "SERIAL1", "radar_puffin", "rel-a", "a" * 64)
+        # A different install-id is irrelevant: the latch is keyed by target and serial only.
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "not re-sending"):
+            INSTALLER.claim_brick_latch(root, "SERIAL1", "radar_puffin", "rel-b", "b" * 64)
+
+    def test_different_device_is_not_blocked(self):
+        root = Path(tempfile.mkdtemp())
+        INSTALLER.claim_brick_latch(root, "SERIAL1", "radar_puffin", "rel-a", "a" * 64)
+        INSTALLER.claim_brick_latch(root, "SERIAL2", "radar_puffin", "rel-a", "a" * 64)
+
+    def test_latch_file_is_owner_only_and_written_before_return(self):
+        root = Path(tempfile.mkdtemp())
+        INSTALLER.claim_brick_latch(root, "SERIAL1", "biscuit_puffin", "rel-a", "a" * 64)
+        path = INSTALLER.brick_latch_path(root, "SERIAL1", "biscuit_puffin")
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("SERIAL1", path.read_text(encoding="utf-8"))  # serial is hashed in the name only
+
+
 class BrickOutcomeTests(unittest.TestCase):
     def brick(self, outcomes, budget=0):
         payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
@@ -311,6 +333,37 @@ class BrickOutcomeTests(unittest.TestCase):
         out = self.brick([subprocess.TimeoutExpired("fb", 8)])
         self.assertIn("outcome unknown", out)
         self.assertNotIn("expected", out)
+
+    def test_brick_send_uses_the_whole_transfer_budget_not_an_8_second_cap(self):
+        seen = []
+
+        def fake_run(argv, timeout=None, **kwargs):
+            seen.append(timeout)
+            return completed([], 0, "", "")
+
+        payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        payload.write_bytes(b"x")
+        with mock.patch.object(INSTALLER.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "did not leave fastboot"):
+                INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 120)
+        self.assertEqual(seen, [120.0])
+
+    def test_brick_send_defaults_to_a_transfer_safe_timeout_when_budget_is_unset(self):
+        seen = []
+
+        def fake_run(argv, timeout=None, **kwargs):
+            seen.append(timeout)
+            return completed([], 0, "", "")
+
+        payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        payload.write_bytes(b"x")
+        with mock.patch.object(INSTALLER.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(INSTALLER.InstallerError):
+                INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 0)
+        self.assertEqual(seen, [float(INSTALLER.BRICK_DEFAULT_TIMEOUT_SECONDS)])
+        self.assertGreater(seen[0], 8)
 
     def test_emmc_ro_is_terminal_and_never_retried(self):
         outcomes = [completed([], 1, "", "FAILeMMC-RO"), completed([], 0, "", "")]
