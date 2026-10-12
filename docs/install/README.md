@@ -176,6 +176,20 @@ partition.
 
    If the browser did not open automatically, enter that URL manually while
    the USB forward is active.
+
+   If setup asks you to reboot, for example after **Accept device firmware**
+   when it reports *Unrecognised Wi-Fi firmware detected*, use the setup
+   page's **Reboot now** button or run `adb reboot`. The USB forward is lost
+   when the Echo restarts, so restore it before reopening the setup page:
+
+   ```sh
+   adb wait-for-device
+   adb forward tcp:18080 tcp:8080
+   ```
+
+   Then open `http://127.0.0.1:18080/setup.html` again. If the board does not
+   come back within a few minutes, disconnect and reconnect power without
+   touching any flex cable, then run the same two commands.
 4. Complete the account and setup wizard. After Wi-Fi is applied, disconnect
    power before reconnecting any flex cables or closing the enclosure. Reconnect
    cables only while unpowered, then power on again.
