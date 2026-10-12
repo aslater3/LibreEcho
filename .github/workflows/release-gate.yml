@@ -23,6 +23,7 @@ on:
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'tools/test_installer_setup_reconnect.py'
       - 'tools/test_feature_upload_timeout.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
@@ -49,6 +50,7 @@ on:
       - 'tools/test_initial_installer_publication.py'
       - 'tools/test_brom_preflight.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'tools/test_installer_setup_reconnect.py'
       - 'tools/test_feature_upload_timeout.py'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
@@ -86,7 +88,8 @@ jobs:
             tools/libreecho-install.py \
             tools/test_initial_installer_publication.py \
             tools/test_brom_preflight.py \
-            tools/test_oneshot_host_preflight.py
+            tools/test_oneshot_host_preflight.py \
+            tools/test_installer_setup_reconnect.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
       - name: Enforce full component and SBOM gate
@@ -106,5 +109,7 @@ jobs:
         run: python -B -m unittest tools.test_brom_preflight -v
       - name: Verify host fastboot preflight suite
         run: python -B -m unittest tools.test_oneshot_host_preflight -v
+      - name: Verify installer setup reconnect after device reboot
+        run: python -B -m unittest tools.test_installer_setup_reconnect -v
       - name: Verify bounded feature upload regressions
         run: python -B -m unittest tools.test_feature_upload_timeout -v

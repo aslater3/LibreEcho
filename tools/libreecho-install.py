@@ -1417,6 +1417,116 @@ def adb_forward_command(adb_bin: str, serial: str, local_port: int) -> list[str]
     return [adb_bin, "-s", serial, "forward", f"tcp:{local_port}", "tcp:8080"]
 
 
+SETUP_RECONNECT_TIMEOUT = 600.0
+SETUP_SUPERVISE_LIMIT = 4 * 60 * 60.0
+SETUP_POLL_INTERVAL = 3.0
+
+
+def probe_setup_state(local_port: int, timeout: float = 4.0) -> bool | None:
+    """Return the device's setup_completed flag through the USB forward, or None if unreachable."""
+    url = f"http://127.0.0.1:{local_port}/api/v1/config"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - loopback forward only
+            document = json.loads(response.read(65536).decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+    data = document.get("data") if isinstance(document, dict) else None
+    if not isinstance(data, dict) or not isinstance(data.get("setup_completed"), bool):
+        return None
+    return data["setup_completed"]
+
+
+def adb_device_online(adb_bin: str, serial: str, timeout: float = 10.0) -> bool:
+    try:
+        result = subprocess.run([adb_bin, "-s", serial, "get-state"], text=True,
+                                capture_output=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "device"
+
+
+def restore_setup_forward(adb_bin: str, serial: str, local_port: int) -> bool:
+    try:
+        result = subprocess.run(adb_forward_command(adb_bin, serial, local_port), text=True,
+                                capture_output=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def reconnect_hint(serial: str, local_port: int) -> str:
+    return (f"adb -s {serial} wait-for-device && adb -s {serial} forward tcp:{local_port} tcp:8080, "
+            f"then open http://127.0.0.1:{local_port}/setup.html")
+
+
+def supervise_setup(
+    adb_bin: str,
+    serial: str,
+    local_port: int,
+    open_browser: bool,
+    *,
+    reconnect_timeout: float = SETUP_RECONNECT_TIMEOUT,
+    limit: float = SETUP_SUPERVISE_LIMIT,
+    poll_interval: float = SETUP_POLL_INTERVAL,
+    probe=probe_setup_state,
+    online=adb_device_online,
+    forward=restore_setup_forward,
+    browser=webbrowser.open,
+    sleep=time.sleep,
+    clock=time.monotonic,
+) -> str:
+    """Keep the setup page reachable until first-run setup completes.
+
+    The adb forward lives on this computer and is dropped whenever the Echo
+    reboots (for example after accepting device Wi-Fi firmware). Watch the
+    bound serial, restore the forward when the device returns, and reopen the
+    setup page. Never writes to the device.
+    """
+    url = f"http://127.0.0.1:{local_port}/setup.html"
+    print("SETUP: keeping the setup page connected until setup is finished. "
+          "Leave this window open; press Ctrl-C to stop (the device is not affected).", flush=True)
+    start = clock()
+    lost_since: float | None = None
+    rebooted = False
+    try:
+        while True:
+            state = probe(local_port)
+            if state is True:
+                print("SETUP: first-run setup is complete; the installer is done.", flush=True)
+                return "completed"
+            now = clock()
+            if state is False:
+                if lost_since is not None:
+                    print(f"SETUP: device is back; setup page reconnected at {url}", flush=True)
+                    if open_browser and rebooted:
+                        browser(url)
+                    lost_since = None
+                    rebooted = False
+            else:
+                device_up = online(adb_bin, serial)
+                if lost_since is None:
+                    lost_since = now
+                    if not device_up:
+                        print("SETUP: device is rebooting; waiting for it to come back...", flush=True)
+                if not device_up:
+                    rebooted = True
+                elif not forward(adb_bin, serial, local_port):
+                    print("SETUP: could not restore the USB forward yet; retrying.", flush=True)
+                if now - lost_since >= reconnect_timeout:
+                    raise InstallerError(
+                        f"the device did not come back within {int(reconnect_timeout)} seconds. "
+                        f"When it is back, run: {reconnect_hint(serial, local_port)}")
+            if now - start >= limit:
+                print("SETUP: stopped waiting for setup to finish. To reconnect later run: "
+                      + reconnect_hint(serial, local_port), flush=True)
+                return "timed-out"
+            sleep(poll_interval)
+    except KeyboardInterrupt:
+        print("\nSETUP: stopped watching. If the device reboots before setup is finished, run: "
+              + reconnect_hint(serial, local_port), flush=True)
+        return "detached"
+
+
 def validate_public_boot_image(path: Path, expected_sha256: str) -> None:
     """Accept only the complete verified ARMv7 6.1 Android-v0 image."""
     _safe_regular(path)
@@ -1799,6 +1909,7 @@ def one_shot(
     emulator_root: Path | str | None = None,
     emulator_kernel: Path | str | None = None,
     emulator_initramfs: Path | str | None = None,
+    wait_for_setup: bool = False,
 ) -> dict[str, str]:
     """Run Amonet, install logical boot payloads, and open first-boot setup."""
     if not execute_hardware:
@@ -1924,7 +2035,10 @@ def one_shot(
         _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha})
         if open_browser:
             webbrowser.open(url)
-        return {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha, "serial": serial, "url": url}
+        result = {"phase": "WEBUI_FORWARDED", "release": release_tag, "bundle_sha256": bundle_sha, "serial": serial, "url": url}
+        if wait_for_setup:
+            result["setup"] = supervise_setup(adb_bin, serial, local_port, open_browser)
+        return result
 
 
 def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> int:
@@ -1960,6 +2074,7 @@ def continue_one_shot(
     execute_hardware: bool,
     repair_userdata: bool = False,
     install_host_deps: bool = False,
+    wait_for_setup: bool = False,
 ) -> dict[str, str]:
     if not execute_hardware:
         raise InstallerError("continuation requires --execute-hardware")
@@ -2162,7 +2277,51 @@ def continue_one_shot(
         _write_state(state_path, {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"]})
         if open_browser:
             webbrowser.open(url)
-        return {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+        result = {"phase": "WEBUI_FORWARDED", "release": release, "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+        if wait_for_setup:
+            result["setup"] = supervise_setup(adb_bin, serial, local_port, open_browser)
+        return result
+
+
+def reconnect_setup(
+    *,
+    state_root: Path | str,
+    install_id: str,
+    adb_bin: str = "adb",
+    fastboot_serial: str = "auto",
+    adb_timeout: float = 180,
+    local_port: int = 18080,
+    open_browser: bool = True,
+    wait_for_setup: bool = True,
+) -> dict[str, str]:
+    """Re-attach to an installed device after a reboot during setup.
+
+    Only checks that the saved device is online, restores the USB forward and
+    reopens setup; it never flashes, formats, reboots or stages payloads.
+    """
+    state_path = _state_path(Path(state_root), install_id)
+    if not state_path.exists():
+        raise InstallerError("no saved installation; run the one-shot installer first")
+    state = _read_state(state_path)
+    if state["phase"] != "WEBUI_FORWARDED":
+        raise InstallerError(
+            f"installation stopped at {state['phase']}; use continue-one-shot instead of reconnect")
+    requested = fastboot_serial if fastboot_serial != "auto" else state.get("device_serial", "auto")
+    adb_forward_command(adb_bin, requested, local_port)
+    if requested != "auto":
+        print(f"RECONNECT: waiting for device {requested}...", flush=True)
+        wait_for_transport([adb_bin, "-s", requested, "get-state"], "device", adb_timeout, "ADB")
+    serial = select_adb_serial(adb_bin, requested)
+    _run_command(adb_forward_command(adb_bin, serial, local_port), 20)
+    url = f"http://127.0.0.1:{local_port}/setup.html"
+    print(f"RECONNECT: setup page forwarded at {url}", flush=True)
+    if open_browser:
+        webbrowser.open(url)
+    result = {"phase": "WEBUI_FORWARDED", "release": state["release"],
+              "bundle_sha256": state["bundle_sha256"], "serial": serial, "url": url}
+    if wait_for_setup:
+        result["setup"] = supervise_setup(adb_bin, serial, local_port, open_browser)
+    return result
 
 
 def stage_device_features(
@@ -2329,7 +2488,7 @@ def status(state_root: Path | str = Path.home() / ".local/state/libreecho-instal
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("install", "resume", "status", "one-shot", "continue-one-shot"))
+    parser.add_argument("action", choices=("install", "resume", "status", "one-shot", "continue-one-shot", "reconnect"))
     parser.add_argument("--release-dir", type=Path)
     parser.add_argument("--release-tag")
     parser.add_argument("--release-repository", default=RELEASE_REPOSITORY)
@@ -2344,6 +2503,10 @@ def main() -> None:
     parser.add_argument("--fastboot-timeout", type=float, default=120)
     parser.add_argument("--adb-timeout", type=float, default=180)
     parser.add_argument("--no-open-browser", action="store_true")
+    parser.add_argument(
+        "--no-wait-for-setup", action="store_true",
+        help="exit after opening setup instead of reconnecting it when the device reboots",
+    )
     parser.add_argument("--execute-hardware", action="store_true")
     parser.add_argument(
         "--install-host-deps", action="store_true",
@@ -2406,6 +2569,7 @@ def main() -> None:
                             slots=args.slots, local_port=args.local_port,
                             amonet_timeout=args.amonet_timeout, fastboot_timeout=args.fastboot_timeout,
                             adb_timeout=args.adb_timeout, open_browser=not args.no_open_browser,
+                            wait_for_setup=not args.no_wait_for_setup,
                             execute_hardware=args.execute_hardware or args.emulator_root is not None,
                             install_host_deps=args.install_host_deps,
                             emulator_root=args.emulator_root,
@@ -2421,9 +2585,18 @@ def main() -> None:
                             slots=args.slots, fastboot_timeout=args.fastboot_timeout,
                             adb_timeout=args.adb_timeout, local_port=args.local_port,
                             open_browser=not args.no_open_browser,
+                            wait_for_setup=not args.no_wait_for_setup,
                             execute_hardware=args.execute_hardware,
                             repair_userdata=args.repair_userdata,
                             install_host_deps=args.install_host_deps,
+                        )
+                    elif args.action == "reconnect":
+                        result = reconnect_setup(
+                            state_root=args.state_root, install_id=args.install_id,
+                            adb_bin=args.adb_bin, fastboot_serial=args.fastboot_serial,
+                            adb_timeout=args.adb_timeout, local_port=args.local_port,
+                            open_browser=not args.no_open_browser,
+                            wait_for_setup=not args.no_wait_for_setup,
                         )
                     elif args.action == "resume":
                         result = resume(args.cache_root, args.state_root, args.install_id)

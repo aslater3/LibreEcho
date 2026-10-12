@@ -571,6 +571,8 @@ class SetupRebootGuidanceTest(unittest.TestCase):
         reboot = section.index("adb forward tcp:18080 tcp:8080")
         self.assertIn("adb wait-for-device", section[reboot - 120:reboot])
         self.assertIn("http://127.0.0.1:18080/setup.html", section[reboot:])
+        self.assertIn("installer.py\" reconnect", section)
+        self.assertIn("Keep the installer window", section)
 
 
 if __name__ == "__main__":

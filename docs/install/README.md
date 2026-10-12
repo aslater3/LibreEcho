@@ -179,8 +179,20 @@ partition.
 
    If setup asks you to reboot, for example after **Accept device firmware**
    when it reports *Unrecognised Wi-Fi firmware detected*, use the setup
-   page's **Reboot now** button or run `adb reboot`. The USB forward is lost
-   when the Echo restarts, so restore it before reopening the setup page:
+   page's **Reboot now** button or run `adb reboot`. The USB forward lives on
+   your computer and is lost when the Echo restarts. Keep the installer window
+   open: it stays attached until setup is finished, waits for the same Echo to
+   come back, restores the forward, and reopens the setup page by itself.
+
+   If you already closed the installer, reconnect with the same command you
+   installed with, using `reconnect` instead of `one-shot`:
+
+   ```sh
+   python3 "libreecho-${TAG}-installer.py" reconnect
+   ```
+
+   Or restore the forward by hand (add `-s <serial>` from `adb devices -l` to
+   both commands if more than one Android device is connected):
 
    ```sh
    adb wait-for-device
@@ -189,7 +201,7 @@ partition.
 
    Then open `http://127.0.0.1:18080/setup.html` again. If the board does not
    come back within a few minutes, disconnect and reconnect power without
-   touching any flex cable, then run the same two commands.
+   touching any flex cable, then reconnect as above.
 4. Complete the account and setup wizard. After Wi-Fi is applied, disconnect
    power before reconnecting any flex cables or closing the enclosure. Reconnect
    cables only while unpowered, then power on again.
