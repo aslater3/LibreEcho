@@ -2,8 +2,10 @@
 """Ensure the public Product installer mirror is complete and immutable."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -212,6 +214,59 @@ class CompleteInstallBootSlotTests(unittest.TestCase):
         result = self._call(module)
         self.assertEqual(order, ["finish", "verify", "diagnostics"])
         self.assertEqual(result["phase"], "WEBUI_FORWARDED")
+
+
+class StickyFastbootCommandTests(unittest.TestCase):
+    """Leaving fastboot must not strand the device on Amonet's sticky marker.
+
+    Amonet's BROM handoff leaves FASTBOOT_PLEASE in misc and Kaeru keeps
+    honouring it, so a plain `fastboot reboot` re-enters fastboot.  The
+    installer replaces it with Kaeru's one-shot command via `reboot
+    bootloader`, then reboots normally once the device is back in fastboot.
+    """
+
+    def exercise(self, *, returns_to_fastboot: bool):
+        import types
+        installer = load_installer_module()
+        events: list[str] = []
+        polls = {"count": 0}
+
+        def fake_run(command, *args, **kwargs):
+            events.append(" ".join(command[3:]))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def devices(binary):
+            polls["count"] += 1
+            return ["SERIAL123"] if returns_to_fastboot and polls["count"] >= 2 else []
+
+        clock = {"now": 0.0}
+        installer.subprocess = types.SimpleNamespace(run=fake_run, TimeoutExpired=subprocess.TimeoutExpired)
+        installer.fastboot_devices = devices
+        installer.time = types.SimpleNamespace(
+            monotonic=lambda: clock["now"],
+            sleep=lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            installer.reboot_to_installed_system("fastboot", "SERIAL123", 600.0)
+        return events, output.getvalue(), clock["now"]
+
+    def test_one_shot_request_then_normal_reboot(self) -> None:
+        events, output, _ = self.exercise(returns_to_fastboot=True)
+        self.assertEqual(events, ["reboot bootloader", "reboot"])
+        self.assertIn("one-shot command consumed", output)
+
+    def test_device_that_boots_straight_through_is_not_rebooted_again(self) -> None:
+        events, output, elapsed = self.exercise(returns_to_fastboot=False)
+        self.assertEqual(events, ["reboot bootloader"])
+        self.assertIn("did not return to fastboot", output)
+        self.assertLessEqual(elapsed, 95.0)
+
+    def test_every_post_flash_reboot_uses_the_sticky_safe_path(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertNotRegex(source, r'\[fastboot_bin, "-s", \w+, "reboot"\]')
+        self.assertGreaterEqual(source.count("reboot_to_installed_system(fastboot_bin,"), 4)
+        # Only Kaeru's own fastboot commands: never a raw misc or expdb write.
+        self.assertNotRegex(source, r'"(flash|erase)", "(misc|expdb)"')
 
 
 class InstallerPublicationTests(unittest.TestCase):

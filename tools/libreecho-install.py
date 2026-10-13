@@ -554,6 +554,41 @@ def fastboot_getvar(fastboot_bin: str, serial: str, name: str) -> str:
     return match.group(1) if match else ""
 
 
+def _fastboot_reboot(fastboot_bin: str, serial: str, *arguments: str) -> None:
+    try:
+        subprocess.run([fastboot_bin, "-s", serial, "reboot", *arguments], text=True, capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        print("Fastboot reboot did not acknowledge; continuing.", flush=True)
+
+
+def reboot_to_installed_system(fastboot_bin: str, serial: str, timeout: float) -> None:
+    """Leave fastboot for the installed system without a sticky misc command.
+
+    Amonet's BROM handoff writes the sticky ``FASTBOOT_PLEASE`` command into
+    misc; Kaeru keeps honouring it, so a plain ``fastboot reboot`` lands in
+    fastboot again.  Kaeru's ``reboot-bootloader`` overwrites that command
+    with the one-shot ``bootonce-bootloader``, which Kaeru consumes on the next
+    boot.  Only Kaeru's own fastboot commands are used: no raw misc write, and
+    the BCB slot record at misc offset 0x360 is untouched.  If the device does
+    not come back to fastboot, it is already booting the installed system.
+    """
+    print("FASTBOOT STAGE: replacing any sticky bootloader command with a one-shot request.", flush=True)
+    _fastboot_reboot(fastboot_bin, serial, "bootloader")
+    deadline = time.monotonic() + min(timeout, 90.0)
+    time.sleep(3)
+    while time.monotonic() < deadline:
+        try:
+            present = serial in fastboot_devices(fastboot_bin)
+        except InstallerError:
+            present = False
+        if present:
+            print("FASTBOOT STAGE: one-shot command consumed; rebooting into LibreEcho.", flush=True)
+            _fastboot_reboot(fastboot_bin, serial)
+            return
+        time.sleep(1)
+    print("FASTBOOT STAGE: device did not return to fastboot; waiting for ADB.", flush=True)
+
+
 def select_amonet_payload(target: str, lk_build: str) -> dict[str, Any]:
     pin = AMONET_PINS.get(target)
     if pin is None:
@@ -2243,10 +2278,7 @@ def one_shot(
             _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
         _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release_tag, "bundle_sha256": bundle_sha})
         print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
-        try:
-            subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
-        except subprocess.TimeoutExpired:
-            print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+        reboot_to_installed_system(fastboot_bin, serial, fastboot_timeout)
         print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
         wait_for_first_boot_adb(adb_bin, serial, adb_timeout, release_tag, slots)
         print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
@@ -2477,10 +2509,7 @@ def continue_one_shot(
             format_userdata_in_fastboot(fastboot_bin, fastboot, fastboot_timeout)
             _write_state(state_path, {"phase": "READBACK_VERIFIED", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
             print("FASTBOOT STAGE: rebooting after userdata repair.", flush=True)
-            try:
-                subprocess.run([fastboot_bin, "-s", fastboot, "reboot"], text=True, capture_output=True, timeout=20)
-            except subprocess.TimeoutExpired:
-                print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+            reboot_to_installed_system(fastboot_bin, fastboot, fastboot_timeout)
             print("ADB STAGE: waiting for ADB after userdata repair.", flush=True)
             wait_for_transport([adb_bin, "-s", fastboot, "get-state"], "device", adb_timeout, "ADB")
             serial = select_adb_serial(adb_bin, fastboot)
@@ -2507,10 +2536,7 @@ def continue_one_shot(
                 _run_command([fastboot_bin, "-s", serial, "flash", f"boot_{slot}", str(boot)], fastboot_timeout)
             _write_state(state_path, {"phase": "BOOT_WRITTEN", "release": release, "bundle_sha256": state["bundle_sha256"]})
             print("FASTBOOT STAGE: rebooting into the installed LibreEcho boot image.", flush=True)
-            try:
-                subprocess.run([fastboot_bin, "-s", serial, "reboot"], text=True, capture_output=True, timeout=20)
-            except subprocess.TimeoutExpired:
-                print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+            reboot_to_installed_system(fastboot_bin, serial, fastboot_timeout)
             print("FASTBOOT STAGE: waiting for ADB after reboot.", flush=True)
             wait_for_first_boot_adb(adb_bin, serial, adb_timeout, release, slots)
             print("ADB STAGE: device online; collecting read-only post-bring-up diagnostics.", flush=True)
@@ -2529,13 +2555,7 @@ def continue_one_shot(
                     flush=True,
                 )
                 pending_serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
-                try:
-                    subprocess.run(
-                        [fastboot_bin, "-s", pending_serial, "reboot"],
-                        text=True, capture_output=True, timeout=20,
-                    )
-                except subprocess.TimeoutExpired:
-                    print("Fastboot reboot did not acknowledge; waiting for ADB anyway.", flush=True)
+                reboot_to_installed_system(fastboot_bin, pending_serial, fastboot_timeout)
                 print("FASTBOOT STAGE: waiting for ADB after the pending reboot.", flush=True)
                 wait_for_first_boot_adb(adb_bin, pending_serial, adb_timeout, release, slots)
             serial = select_adb_serial(adb_bin, fastboot_serial)
