@@ -203,7 +203,10 @@ another local port when the original is occupied. A changed device, slot
 selection, bundle, installed hash, or outstanding staging marker fails closed.
 
 `BOOT_WRITTEN` can continue once the device is online in ADB, without
-reflashing. `FASTBOOT_READY` can complete the boot writes without formatting
+reflashing. The first boot after the flash can be slow, so the installer waits at
+least 300 seconds for ADB there (longer if `--adb-timeout` is larger). If it
+still times out, the error prints the exact `--continue` command to run once
+`adb devices` lists the Echo. `FASTBOOT_READY` can complete the boot writes without formatting
 userdata again when the original successful format is recorded. Do not guess a
 phase or edit state to force it. Concurrent one-shot and continuation runs share
 the same cache lock.
