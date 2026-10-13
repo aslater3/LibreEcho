@@ -970,5 +970,20 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertEqual("stage", ambiguous["events"][-1])
 
 
+
+class SetupRebootGuidanceTest(unittest.TestCase):
+    def test_guide_restores_usb_forward_after_setup_reboot(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        section = re.split(r"\n## \d+\. First boot and setup\n", guide, maxsplit=1)[1].split("\n## ", 1)[0]
+        self.assertIn("Unrecognised Wi-Fi firmware detected", section)
+        self.assertIn("Reboot now", section)
+        self.assertIn("adb forward tcp:18080 tcp:8080", section)
+        reboot = section.index("adb forward tcp:18080 tcp:8080")
+        self.assertIn("adb wait-for-device", section[reboot - 120:reboot])
+        self.assertIn("http://127.0.0.1:18080/setup.html", section[reboot:])
+        self.assertIn("installer.py\" reconnect", section)
+        self.assertIn("Keep the installer window", section)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
