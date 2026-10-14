@@ -50,9 +50,15 @@ later OTA v3 releases through Settings.
 The Wyoming satellite is replaced by a native ESPHome API satellite. Home
 Assistant adopts the device through the ESPHome integration, with encrypted API
 transport, discovery, voice, media, announcements and timers. Local and Custom
-voice modes remain; Custom can still use Wyoming STT/TTS servers. Discovery no
-longer depends on AirPlay being installed: one shared mDNS runtime is built into
-every image.
+voice modes remain; Custom can still use Wyoming STT/TTS servers.
+
+### Home Assistant discovery no longer requires an AirPlay installation
+
+Home Assistant and ESPHome discovery no longer require an AirPlay payload to be
+installed. Every image carries one shared Avahi/D-Bus discovery runtime, built
+from pinned, checksummed Ubuntu ARMHF packages regardless of which features are
+selected. Avahi/D-Bus copies inside older AirPlay payloads
+stay inert; they are kept for rollback and are not a second responder.
 
 ### Audio, media and the speaker
 
