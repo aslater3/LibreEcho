@@ -1,9 +1,9 @@
 # LibreEcho radar-puffin v0.14.0
 
 LibreEcho 0.14.0 is the first release built on immutable, signed OTA v3
-target-state generations, and the first release that supports two Echo models
-from one release: the Amazon Echo (2nd Gen, `radar_puffin`) and the Amazon Echo
-Dot (2nd Gen, `biscuit`).
+target-state generations. It supports the Amazon Echo (2nd Gen,
+`radar_puffin`), and adds experimental support for the Amazon Echo Dot (2nd Gen,
+`biscuit`) from the same release.
 
 ## Upgrading from 0.13: reinstall required
 
@@ -34,7 +34,7 @@ later OTA v3 releases through Settings.
 - Settings shows boot-slot confirmation state, and can restart the device into
   the installer (fastboot) without opening it.
 
-### Two Echo models, one release
+### Two Echo models, one release (Echo Dot experimental)
 
 - Per-target images, recovery bundles, OTA packages and update channels for the
   Echo (2nd Gen) and the Echo Dot (2nd Gen).
@@ -118,9 +118,10 @@ Linux `ae49bb09`) was validated on an Echo (2nd Gen):
 - a Settings restart to fastboot and back;
 - `misc` and `expdb` integrity before and after each step.
 
-The Echo Dot (2nd Gen) was validated on an earlier 0.14 candidate (Product
-`cc238ba`): a signed OTA v3 install, boot and slot confirmation. The boot-slot
-changes made after that candidate have been validated on the Echo only.
+Echo Dot (2nd Gen) support is experimental and less thoroughly tested than the
+Echo. The Dot was validated on an earlier 0.14 candidate (Product `cc238ba`): a
+signed OTA v3 install, boot and slot confirmation. The boot-slot changes made
+after that candidate have been validated on the Echo only.
 
 The feature work above is covered by host and CI tests, and was exercised on
 earlier 0.14 candidates. It was not re-run as a full hardware checklist on this
@@ -128,6 +129,12 @@ candidate.
 
 ## Known issues
 
+- Echo Dot (2nd Gen) support is experimental. Report Dot problems with a
+  diagnostic bundle from Settings.
+- The "Signed authorizing authority" panel on the System update page, and the
+  matching `authority_provenance` field in diagnostic exports, shows Unavailable
+  on 0.14 devices. The UI does not yet read the OTA v3 provenance format. Updates
+  and signature checks are not affected. This will be fixed in a later release.
 - 0.13 devices report `downloaded_package_invalid` when they check for updates
   after 0.14.0 is published. Reinstall to move to 0.14 (see above).
 - The diagnostic export reports `network` as unavailable on device builds. The
