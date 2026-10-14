@@ -1,166 +1,128 @@
 # LibreEcho radar-puffin v0.14.0
 
-**UNRELEASED — coordinated candidate; hardware acceptance and publication remain on hold.**
+LibreEcho 0.14.0 is the first release built on immutable, signed OTA v3
+target-state generations, and the first release that supports two Echo models
+from one release: the Amazon Echo (2nd Gen, `radar_puffin`) and the Amazon Echo
+Dot (2nd Gen, `biscuit`). 0.14 replaces the 0.13 line, which is no longer
+supported.
 
-This release combines the 0.14 feature line with maintenance fixes carried by
-0.13.15. The required upgrade acceptance baseline is 0.13.15. This document is
-not evidence that an image has been installed, confirmed, or published.
+## Upgrading from 0.13: reinstall required
 
-## Candidate scope
+**A device running 0.13.x cannot update itself to 0.14.0.** The 0.13 updater
+only accepts OTA v1/v2 packages, and 0.14 ships only OTA v3. After 0.14.0 is
+published, a 0.13 device's update check downloads the new package, rejects it
+and reports `downloaded_package_invalid`. Nothing is installed and the device
+keeps running 0.13 safely, but it will not move to 0.14 on its own.
 
-The candidate retains 0.14's Local LLM endpoint/model controls, weather settings,
-physical button and privacy integration, and USB role-switch support. It carries
-forward the signed OTA v2 transaction and verified provenance implementation
-rather than reverting those paths to the older boot-only updater.
+To move to 0.14.0, reinstall with the installer in the
+[installation guide](../docs/install/README.md). The installer formats
+userdata, so settings, Wi-Fi credentials, accounts and pairings are not kept.
+Run the setup wizard again after the first boot. Devices installed with 0.14.0
+receive later 0.14.x updates over the air.
 
-### Home Assistant: ESPHome satellite and retained Custom voice
+## Highlights
 
-The 0.14 feature migration replaces the Wyoming **satellite** with a native
-ESPHome API satellite. Home Assistant adopts it through the ESPHome integration;
-Local and Custom voice modes and the existing custom web control centre remain.
-Custom may still select Wyoming STT/TTS clients for remote Whisper/Piper: those
-clients are not the retired HA satellite.
+### Updates: immutable signed generations (OTA v3)
 
-The migration has no legacy satellite selector or phased 0.15/0.16 rollout.
-It includes native discovery, voice/media/announcement controls, encrypted API
-transport, and coordinated startup, packaging and OTA-health changes. See the
-[accepted implementation scope](../docs/plans/ha-esphome-0.14.md) for the
-contracts and verification gates. This describes the feature branch's scope,
-not completed image or hardware qualification.
+- Each update installs a complete, signed target state (boot image plus every
+  feature payload) as a new generation. The previous generation stays intact
+  until the new one has booted and confirmed, so a failed update falls back
+  without partial state.
+- The updater records the resolved release tag and OTA hash with each check,
+  clears the reboot-pending state once an update is confirmed, and reclaims its
+  working set after a refused install.
+- Updates are fetched from `dl.libreecho.org`, falling back to GitHub releases.
+- Settings shows boot-slot confirmation state, and can restart the device into
+  the installer (fastboot) without opening it.
 
-Before publication, independently verify repeated capture after TTS (Product
-#104), stable identity (Product #125), actual ESPHome adoption and turns,
-Local/Custom restoration, and ESPHome-mode OTA confirmation. Host protocol or
-packaging checks alone do not establish these outcomes.
+### Two Echo models, one release
 
-### Weekly active-device count and privacy choices
+- Per-target images, recovery bundles, OTA packages and update channels for the
+  Echo (2nd Gen) and the Echo Dot (2nd Gen).
+- Per-target speaker profiles: the Echo keeps its stock-derived crossover,
+  loudness and parametric EQ; the Dot gets a stock-like chain of its own.
+- One-shot installation from stock fastboot. The installer reads the fastboot
+  product to confirm the model, runs the Amonet step only when the bootloader is
+  locked, never erases `expdb`, verifies and confirms the running boot slot, and
+  can resume safely after an interrupted connection.
 
-0.14 adds an anonymous weekly ping to `stats.libreecho.org`, purely to count
-how many devices are running and on which version. It carries only hardware
-model, version, channel, development build hash, and the week/month/year; no
-device ID, serial, MAC or install date. It cannot be turned off and is
-disclosed in setup and on the Privacy page, which shows the exact body sent.
-Setup now offers health/usage and crash-report consent, ticked by default for
-new setups; upgrades keep existing choices. 0.14 sends neither yet. See
+### Home Assistant via ESPHome
+
+The Wyoming satellite is replaced by a native ESPHome API satellite. Home
+Assistant adopts the device through the ESPHome integration, with encrypted API
+transport, discovery, voice, media, announcements and timers. Local and Custom
+voice modes remain; Custom can still use Wyoming STT/TTS servers. Discovery no
+longer depends on AirPlay being installed: one shared mDNS runtime is built into
+every image.
+
+### Audio, media and the speaker
+
+- Internet radio, including HLS/AAC streams such as BBC radio; Opus and Ogg
+  playback; USB storage browsing.
+- White, pink and brown noise and nursery sounds, shown in Now Playing.
+- AirPlay announces the configured device name, follows the master volume,
+  survives a busy or briefly lost controller, and keeps its LED bridge after the
+  LED daemon restarts.
+- Radar speaker protection with multiband dynamics, and a selectable codec
+  profile.
+
+### Voice and assistant
+
+- A local LLM endpoint and model can be set on the Integrations page.
+- Spoken stop requests are handled before any model call; ringing timers keep
+  priority.
+- Wake-word diagnostics separate loaded models from live capture. Owners can
+  stage a wake model and keep a persistent microphone gain.
+- Weather, including Met Office UKMO models and UK postcode lookup, and an
+  optional 12-hour spoken clock.
+
+### Device and web UI
+
+- All four buttons are wired, with press feedback and settings. The mute lamp
+  follows software mute without entering the hardware privacy latch.
+- The idle ring defaults to a dim green front indicator. The visualiser no
+  longer freezes under music.
+- Baby Monitor streams on iPhone Safari.
+- A Download kernel log button on the Logs page, and a diagnostic export that
+  records the update channel and running boot slot.
+- Ambient light from the board's light sensor, thermal zones chosen by rank,
+  and supervised adapter daemons that are restarted when they stop answering.
+- Factory reset stops every persistent-state writer first, and backups refuse
+  symlinked state.
+- Many HTTP, WebSocket, Wi-Fi scan and Bluetooth reliability fixes.
+
+### Privacy
+
+0.14 sends an anonymous weekly ping to `stats.libreecho.org` to count how many
+devices run each version. It carries only the hardware model, version, channel,
+development build hash, the week/month/year and a one-time install flag. It
+carries no device ID, serial, MAC address or install date. Setup and the
+Privacy page disclose it and show the exact body sent. Setup also asks for
+health/usage and crash-report consent. 0.14 sends neither of those yet. See
 [Privacy and telemetry](../docs/privacy.md).
 
-### Maintenance fixes carried forward
+### Safety
 
-- Factory IDME Wi-Fi identity, so a reboot does not generate a new fallback MAC
-  (Linux #30, ported by #31).
-- Atomic vendor revision matching, the additional approved firmware set, and
-  explicit owner acceptance of a structurally compatible unknown set during
-  setup (Platform #133/#134 and UI #227; ports #135/#229). Acceptance remains
-  owner-local; malformed inputs are not implicitly trusted or redistributed.
-- Required Wyoming artifact metadata for Home Assistant discovery (UI #230).
-- AirPlay writable support mounts when the feature transaction has already
-  mounted a payload (UI #231), including propagation of support-mount failures
-  and recovery from partial support mounts.
-- Home Assistant voice-ownership explanation in the effective integrations
-  renderer (UI #236 and the subsequent #237 correction). The local controls
-  remain available when local mode owns voice.
-- OTA v2 as the manual release-dispatch default, with the candidate version
-  derived from the release branch (Product #158). Explicit v1 bridges and
-  non-dispatch/local v1 fallback remain available.
+- Development and release images never write the `expdb` fastboot marker. The
+  build contract and image verifier both enforce this.
+- Optional services can no longer expire a fresh install's only boot slot.
 
-### 0.14 readiness corrections
+## Validation
 
-Local spoken stop requests are handled deterministically before model calls.
-Ringing timers retain priority; local radio, noise and queued speech can be
-stopped without destroying the speech worker or opening another follow-up turn.
-Phone-owned AirPlay/Bluetooth transport must still be stopped on the sender;
-LibreEcho explains that boundary instead of claiming it has stopped the phone.
+The release candidate (Product `3bd26c4`, Platform `122f090f`, UI `e9864654`,
+Linux `ae49bb09`) was validated on an Echo (2nd Gen):
 
-Wake-word diagnostics distinguish loaded models from live capture and inference.
-Missing or stale telemetry is degraded, silence is not a capture failure, and
-intentional disable/mute has a separate state. Playback-attributed wake peaks
-may use one supporting frame while idle detection retains two; threshold, VAD
-and lockout checks remain. Real interruption and false-activation acceptance is
-mandatory before this policy is described as hardware validated. The wake link
-recipe and reduced-dependency cache match the pinned ONNX Runtime archive set,
-rather than requiring an nsync library that the pinned revision does not produce.
+- a fresh install of both slots;
+- setup, Wi-Fi and internet access;
+- repeated reboots with the slot confirmed;
+- a signed OTA v3 update to the inactive slot, with post-update confirmation;
+- a Settings restart to fastboot and back;
+- `misc` and `expdb` integrity before and after each step.
 
-Invalid persisted button actions return to their validated defaults. The full
-UI source suite runs automatically for 0.14 PRs, in addition to browser and
-signed-provenance integration checks. Product's same-owner coordinated PR lane
-resolves the sibling candidates once and uses the identical source SHAs for
-contract checks and image construction. Release publication never uses those
-unmerged fix refs.
+## Known issues
 
-The Platform DTB verifier accepts peripheral-only legacy images and 0.14's
-device-capable OTG mode, while still rejecting host-only mode and retaining
-clock, audio, pin, key, USB-controller and interrupt checks. Image verification
-also retains the boot-time device-role policy required for recovery ADB.
-
-### Home Assistant discovery no longer requires an AirPlay installation
-
-Home Assistant and Wyoming discovery no longer require an AirPlay payload to be
-installed. The 0.14 candidate builds one boot-contained Avahi/D-Bus discovery
-runtime independently of AirPlay feature selection: Product acquires the exact
-ARMHF package versions named by the checked-in package lock from the public
-Ubuntu ports archive, records each archive SHA-256 with its package, version,
-source and architecture, builds the runtime outside the feature-enabled
-conditions, and passes the verified runtime, its manifest identity and its
-provenance record into the recovery-image contract. The corresponding-source and
-distribution-notice closure is a fail-closed gate, so an unproven source offer
-can never be recorded as verified. Avahi/D-Bus bytes retained inside
-compatibility-preserving AirPlay payloads stay inert on a shared-runtime image;
-they are deliberately retained for rollback and are not a second responder.
-
-Discovery ownership, boot ordering and health for the shared runtime also depend
-on the coordinated LibreEcho-UI and LibreEcho-Platform changes, and the shared
-runtime has not yet been included in an integrated image build. Treat this as a
-source and hosted-build correction: HA discovery on a no-AirPlay device, consumer
-coexistence, and rollback compatibility still require the integrated image and
-physical-device acceptance listed below.
-
-### First installation and continuation
-
-Initial setup enables AirPlay before checking feature activation. Asynchronous
-setup completion carries that choice back to the parent HTTP process, so a
-subsequent unrelated settings save does not disable it. An explicit later
-AirPlay disable survives restart; other integration choices are preserved.
-
-One-shot installation starts from stock fastboot. It reads the device's fastboot
-product to confirm the target, and it runs the Amonet brick step only when the
-bootloader is locked. The pinned Amonet ZIP is supplied by the operator with
-`--amonet-zip`. Biscuit accepts any LK build; the default `fastbrick.img` covers builds without a reviewed mapping. `expdb`
-is never erased. One-shot staging checks both payload and manifest integrity,
-including device readback. Continuation is bound to the original release, bundle, device and
-boot slots. Once features are staged, it revalidates them and restores forwarding
-without repeating formatting, flashing, rebooting or payload writes. The retained
-local-release cache includes SHA256SUMS and its covered assets. The wrapper
-requires the original immutable tag for continuation, not mutable `latest`.
-
-These are source corrections backed by host tests, not completed physical
-installation acceptance. Do not describe a candidate as hardware validated from these tests.
-
-## Release gates
-
-The owning changes are Product #156, Platform #135, UI #229 and Linux #31. Merge
-approval is separate from implementation and host verification. Record the
-final four source SHAs and artifact hashes from the successful coordinated
-build; a green result on an earlier source set does not validate a later one.
-
-Before stable publication, require:
-
-1. The complete Product and UI suites, Platform packaging/DTB checks, ARM32
-   kernel build and all feature payload builds on the exact coordinated set.
-2. A normal signed 0.13.15-to-0.14.0 OTA update, candidate health confirmation,
-   committed reboot, retained configuration/features and controlled fallback.
-   Do not force confirmation or remove transaction evidence to pass the gate.
-3. Fresh one-shot installation and setup for both approved vendor sets and an
-   explicitly accepted unknown compatible set; malformed/changed inputs must
-   remain rejected. Verify first-boot feature activation and safe continuation
-   after a forwarding interruption without repeating completed device writes.
-4. AirPlay activation on pre-mounted and normal boots; real Home Assistant
-   satellite addition and local/HA mode switching; local spoken stop, timer
-   priority and continued speech after cancellation.
-5. Warm/cold boot network identity, physical microphone privacy/LED state,
-   Bluetooth/audio, USB recovery-device operation and deliberate role changes.
-6. Normally booted wakeword payload testing during playback, including missed
-   interruptions and false activations, with capture/reference flow verified.
-
-Host fixtures do not establish any of these hardware outcomes. Rebuild the
-assistant and wakeword feature payloads: replacing only boot-resident copies
-would not deploy their daemon changes. No new device model support is claimed.
+- 0.13 devices report `downloaded_package_invalid` when they check for updates
+  after 0.14.0 is published. Reinstall to move to 0.14 (see above).
+- The diagnostic export reports `network` as unavailable on device builds. The
+  Wi-Fi state is shown on the Network page.
+- GPT-Live voice is not part of 0.14 and is hidden in the UI.
