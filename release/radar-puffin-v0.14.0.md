@@ -3,8 +3,7 @@
 LibreEcho 0.14.0 is the first release built on immutable, signed OTA v3
 target-state generations, and the first release that supports two Echo models
 from one release: the Amazon Echo (2nd Gen, `radar_puffin`) and the Amazon Echo
-Dot (2nd Gen, `biscuit`). 0.14 replaces the 0.13 line, which is no longer
-supported.
+Dot (2nd Gen, `biscuit`).
 
 ## Upgrading from 0.13: reinstall required
 
@@ -17,8 +16,8 @@ keeps running 0.13 safely, but it will not move to 0.14 on its own.
 To move to 0.14.0, reinstall with the installer in the
 [installation guide](../docs/install/README.md). The installer formats
 userdata, so settings, Wi-Fi credentials, accounts and pairings are not kept.
-Run the setup wizard again after the first boot. Devices installed with 0.14.0
-receive later 0.14.x updates over the air.
+Run the setup wizard again after the first boot. Once installed, 0.14.0 takes
+later OTA v3 releases through Settings.
 
 ## Highlights
 
@@ -118,6 +117,14 @@ Linux `ae49bb09`) was validated on an Echo (2nd Gen):
 - a signed OTA v3 update to the inactive slot, with post-update confirmation;
 - a Settings restart to fastboot and back;
 - `misc` and `expdb` integrity before and after each step.
+
+The Echo Dot (2nd Gen) was validated on an earlier 0.14 candidate (Product
+`cc238ba`): a signed OTA v3 install, boot and slot confirmation. The boot-slot
+changes made after that candidate have been validated on the Echo only.
+
+The feature work above is covered by host and CI tests, and was exercised on
+earlier 0.14 candidates. It was not re-run as a full hardware checklist on this
+candidate.
 
 ## Known issues
 
