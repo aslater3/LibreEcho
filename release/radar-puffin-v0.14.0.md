@@ -14,7 +14,7 @@ and reports `downloaded_package_invalid`. Nothing is installed and the device
 keeps running 0.13 safely, but it will not move to 0.14 on its own.
 
 To move to 0.14.0, reinstall with the installer in the
-[installation guide](../docs/install/README.md). The installer formats
+[installation guide](https://github.com/aslater3/LibreEcho/blob/radar-puffin-v0.14.0/docs/install/README.md). The installer formats
 userdata, so settings, Wi-Fi credentials, accounts and pairings are not kept.
 Run the setup wizard again after the first boot. Once installed, 0.14.0 takes
 later OTA v3 releases through Settings.
@@ -104,7 +104,7 @@ development build hash, the week/month/year and a one-time install flag. It
 carries no device ID, serial, MAC address or install date. Setup and the
 Privacy page disclose it and show the exact body sent. Setup also asks for
 health/usage and crash-report consent. 0.14 sends neither of those yet. See
-[Privacy and telemetry](../docs/privacy.md).
+[Privacy and telemetry](https://github.com/aslater3/LibreEcho/blob/radar-puffin-v0.14.0/docs/privacy.md).
 
 ### Safety
 
