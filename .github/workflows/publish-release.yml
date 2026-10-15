@@ -310,13 +310,25 @@ jobs:
           mapfile -t requests < <(find verified-build -name release-request.json -type f -print)
           test "${#requests[@]}" -eq 1
           python3 - "${requests[0]}" >>"$GITHUB_OUTPUT" <<'PY'
-          import json, sys
+          import json, os, sys
           data = json.load(open(sys.argv[1], encoding="utf-8"))
-          for key in ("channel", "version", "release_tag", "release_notes", "amonet_repository", "amonet_tag", "amonet_commit", "ssh_enabled"):
+          # release/0.14.0+ pins amonet per target in build/ci/amonet_pins.py and
+          # its request carries no amonet fields; older lines pass them in the
+          # request. Accept exactly one shape for the checked-out source.
+          pinned = os.path.isfile("build/ci/amonet_pins.py")
+          amonet = ("amonet_repository", "amonet_tag", "amonet_commit")
+          keys = ["channel", "version", "release_tag", "release_notes", "ssh_enabled"]
+          if pinned:
+              if any(key in data for key in amonet):
+                  raise SystemExit("request amonet fields conflict with pinned amonet source")
+          else:
+              keys += amonet
+          for key in keys:
               value = data.get(key, "")
               if not value:
                   raise SystemExit(f"missing stable release field: {key}")
               print(f"{key}={value}")
+          print(f"amonet_pinned={'1' if pinned else '0'}")
           if data["channel"] != "stable":
               raise SystemExit("artifact is not a stable release")
           PY
@@ -348,6 +360,7 @@ jobs:
           AMONET_REPOSITORY: ${{ steps.request.outputs.amonet_repository }}
           AMONET_TAG: ${{ steps.request.outputs.amonet_tag }}
           AMONET_COMMIT: ${{ steps.request.outputs.amonet_commit }}
+          AMONET_PINNED: ${{ steps.request.outputs.amonet_pinned }}
           PRODUCT_HEAD: ${{ steps.sources.outputs.product_head }}
           PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
           LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
@@ -363,15 +376,19 @@ jobs:
             --linux-head "$LINUX_HEAD" \
             --ui-head "$UI_HEAD" \
             --output "$RELEASE_NOTES"
+          amonet_args=()
+          if [[ "$AMONET_PINNED" != 1 ]]; then
+            amonet_args=(--amonet-repository "$AMONET_REPOSITORY"
+                         --amonet-tag "$AMONET_TAG"
+                         --amonet-commit "$AMONET_COMMIT")
+          fi
           python3 build/ci/prepare-stable-release.py \
             --artifact-root verified-build \
             --product-root "$GITHUB_WORKSPACE" \
             --product-commit "$HEAD_SHA" \
             --release-version "$RELEASE_VERSION" \
             --release-notes "$RELEASE_NOTES" \
-            --amonet-repository "$AMONET_REPOSITORY" \
-            --amonet-tag "$AMONET_TAG" \
-            --amonet-commit "$AMONET_COMMIT" \
+            "${amonet_args[@]}" \
             --output-dir release-assets
           python3 tools/check-public-metadata.py release-assets
           if [[ -f build/ci/prepare-twrp-installs.py ]]; then
