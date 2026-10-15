@@ -137,10 +137,11 @@ candidate.
 
 - Echo Dot (2nd Gen) support is experimental. Report Dot problems with a
   diagnostic bundle from Settings.
-- The "Signed authorizing authority" panel on the System update page, and the
-  matching `authority_provenance` field in diagnostic exports, shows Unavailable
-  on 0.14 devices. The UI does not yet read the OTA v3 provenance format. Updates
-  and signature checks are not affected. This will be fixed in a later release.
+- On the first boot after an update, the "Signed authorizing authority" panel on
+  the System update page (and the matching `authority_provenance` field in
+  diagnostic exports) can show Unavailable for several minutes while the device
+  verifies the installed files. Later boots show it within about a minute.
+  Updates and signature checks are not affected.
 - 0.13 devices report `downloaded_package_invalid` when they check for updates
   after 0.14.0 is published. Reinstall to move to 0.14 (see above).
 - The diagnostic export reports `network` as unavailable on device builds. The
