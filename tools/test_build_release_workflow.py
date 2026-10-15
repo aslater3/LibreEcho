@@ -296,6 +296,41 @@ class Tests(unittest.TestCase):
   self.assertIn('--tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity"', B)
   # The vendored path must not invoke the musl toolchain rebuild anymore.
   self.assertNotIn('build_connectivity_helpers.sh', B)
+ def test_stable_request_reader_accepts_pinned_and_legacy_amonet_shapes(self):
+  import json, os, subprocess, tempfile, textwrap
+  stable = PUBLISH.split('  publish-stable:', 1)[1]
+  step = stable.split('      - name: Read stable release request', 1)[1].split('\n      - ', 1)[0]
+  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+  base = dict(channel='stable', version='0.14.0', release_tag='radar-puffin-v0.14.0',
+              release_notes='release/radar-puffin-v0.14.0.md', ssh_enabled='0')
+  legacy = dict(base, amonet_repository='https://github.com/aslater3/amonet-k32',
+                amonet_tag='v1.0.0', amonet_commit='a'*40)
+  # (source has build/ci/amonet_pins.py, request, expected exit, expected pinned flag)
+  cases = [(True, base, 0, '1'), (False, legacy, 0, '0'),
+           (False, base, 1, None), (True, legacy, 1, None),
+           (True, dict(base, channel='dev'), 1, None)]
+  for pinned, request, status, flag in cases:
+   with self.subTest(pinned=pinned, keys=sorted(request), status=status), tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root/'verified-build/run').mkdir(parents=True)
+    (root/'verified-build/run/release-request.json').write_text(json.dumps(request))
+    if pinned:
+     (root/'build/ci').mkdir(parents=True)
+     (root/'build/ci/amonet_pins.py').write_text('')
+    output = root/'output'
+    result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True,
+                            env={**os.environ, 'GITHUB_OUTPUT': str(output)}, timeout=30)
+    self.assertEqual(result.returncode, status, result.stdout+result.stderr)
+    if status == 0:
+     values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+     self.assertEqual(values['amonet_pinned'], flag)
+     self.assertEqual(values['release_tag'], 'radar-puffin-v0.14.0')
+     self.assertEqual('amonet_commit' in values, not pinned)
+  prepare = stable.split('      - name: Prepare signed stable release assets', 1)[1].split('\n      - ', 1)[0]
+  self.assertIn('AMONET_PINNED: ${{ steps.request.outputs.amonet_pinned }}', prepare)
+  self.assertIn('if [[ "$AMONET_PINNED" != 1 ]]; then', prepare)
+  self.assertIn('"${amonet_args[@]}" \\', prepare)
+  self.assertNotIn('--amonet-commit "$AMONET_COMMIT" \\', prepare)
  def test_stable_publisher_installs_reviewed_verifier_closure(self):
   import os, subprocess, tempfile, textwrap, venv
   stable = PUBLISH.split('  publish-stable:', 1)[1]
