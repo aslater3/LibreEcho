@@ -27,8 +27,8 @@ hardware support for other targets remains under development.
 
 ## Getting Started
 
-- **Echo Gen 2 Disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
-- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md)
+- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md). No shorting is needed: reach the USB pins on the bottom of the Echo and enter fastboot. With pogo pins, only the outer cover on the base comes off.
+- **Echo Gen 2 Disassembly (only if soldering a USB cable):** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
 
 ```sh
 TAG=latest

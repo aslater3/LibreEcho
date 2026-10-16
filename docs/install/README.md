@@ -2,11 +2,14 @@
 
 > For Amazon Echo 2nd generation (`radar_puffin`, MT8163) and Echo Dot 2nd
 > generation (`biscuit`). The procedure uses USB fastboot on the stock device.
-> It does not require opening the enclosure or shorting any pad.
+> **No shorting is needed.** On the Echo 2nd Gen you only need to reach the USB
+> pins on the bottom of the device and enter fastboot.
 
 ## Safety first
 
-- Unplug the Echo before opening it, and never probe a powered board.
+- Unplug the Echo's power adapter before you connect, move, or remove the USB
+  pins, and before opening anything. Never probe a powered board.
+- Do not short any pad or component. The installer does not need it.
 - Keep the USB connection on the approved data cable. Do not connect a TTL UART
   adapter to the USB pads.
 - Use a data-capable USB cable and a direct port without a hub.
@@ -26,13 +29,16 @@ Biscuit accepts any LK build. An unknown or empty LK build stops before any writ
 ### Required
 
 - Data-capable USB cable
+- **Echo 2nd Gen only:** a way to reach the USB pins on the bottom — a pogo-pin
+  adapter, or a USB cable soldered to the pads (see
+  [Connect the device](#2-connect-the-device))
 - `adb` and `fastboot` (Debian/Ubuntu packages: `adb` and `fastboot`)
 - `bash`, `curl`, and Python 3
 - `mke2fs` and `dumpe2fs` (both from `e2fsprogs`)
 - The published **initial-install bundle** for the target and its matching
   SHA-256 file
 - **Only if the device is locked:** the pinned Amonet ZIP for your target (see
-  step 3). LibreEcho does not redistribute it.
+  [Run the installer](#3-run-the-installer)). LibreEcho does not redistribute it.
 
 On Debian/Ubuntu, install the host tools before starting the installer:
 
@@ -69,20 +75,66 @@ another release.
 
 ## 2. Connect the device
 
-1. Power the Echo or Dot off and connect it to the computer with the USB cable.
+### Echo 2nd Gen (`radar_puffin`)
+
+The Echo 2nd Gen has no external USB port. The installer reaches it through the
+USB pins on the bottom of the device, then works over fastboot. Nothing needs
+to be shorted.
+
+**Reach the USB pins.** Choose one method:
+
+- **Pogo pins (no soldering).** Remove only the outer cover on the base to
+  expose the 2 × 3 gold contacts. You do not need to take the device apart.
+  Seat the pogo-pin adapter on the contacts. A ready-made LibreEcho pogo-pin
+  adapter will be on sale soon. Until then, a printable carrier is in
+  [`tools/libreecho-echo-gen2-pogo-plug-v5.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v5.zip);
+  see the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-carrier-v5).
+- **Soldered USB cable.** Follow the
+  [Echo Gen 2 disassembly guide](../disassembly/echo-gen-2/README.md) and solder
+  a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND):
+
+  ![USB D+, D− and GND pads on the AMP board](assets/usb-dplus-dminus-gnd.jpg)
+
+  Connect only D+, D− and GND. Leave the cable's 5 V wire unconnected; the Echo
+  runs from its own power adapter.
+
+**Enter fastboot.**
+
+1. Unplug the Echo's power adapter.
+2. Connect the USB pins to the computer.
+3. Press and hold the **Action** button, and plug the power adapter in while
+   still holding it.
+4. Check that the computer sees the device in fastboot:
+
+   ```sh
+   fastboot devices
+   fastboot getvar product
+   ```
+
+   Release the Action button once the device is listed. `product` should report
+   `RADAR`. If nothing is listed, unplug the power, check the pins, and repeat
+   the sequence.
+
+### Echo Dot 2nd Gen (`biscuit`, experimental)
+
+1. Connect the Dot's micro-USB port to the computer with a data-capable cable.
+   The Dot does not need to be opened.
 2. Check that the host can see it:
 
    ```sh
    adb devices
+   fastboot devices
    ```
 
-   The device is normally in ADB or fastboot mode. Both are acceptable as the
-   starting point. The installer reads the device's fastboot product to
-   confirm the target.
+   ADB or fastboot mode are both acceptable as the starting point.
 
-3. **Only if the device is locked**, download the matching Amonet ZIP and keep
-   it unmodified. The installer checks its size and SHA-256, and extracts only
-   the payload for the device's LK build.
+### Both models
+
+The installer reads the device's fastboot product to confirm the target.
+
+**Only if the device is locked**, download the matching Amonet ZIP and keep it
+unmodified. The installer checks its size and SHA-256, and extracts only the
+payload for the device's LK build.
 
 ## 3. Run the installer
 
@@ -221,6 +273,10 @@ profiles, and other mutable configuration, then reboots to this first-run state.
   hub.
 - Run `adb devices` and `fastboot devices`. If neither shows the device, try
   another cable or port.
+- Echo 2nd Gen: unplug the power adapter, re-seat the pogo pins (or check the
+  soldered D+, D− and GND joints), then repeat the **Enter fastboot** sequence
+  under [Connect the device](#2-connect-the-device). Do not short anything to
+  force a different boot mode.
 
 ### The product does not match the release
 

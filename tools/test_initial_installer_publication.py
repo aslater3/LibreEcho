@@ -949,6 +949,58 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertNotIn("BROM", guide)
         self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND|BROM short", guide, re.I))
 
+    def test_install_docs_use_bottom_usb_pins_and_fastboot_without_shorting(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        connect = guide.split("## 2. Connect the device", 1)[1].split("\n## 3. ", 1)[0]
+        self.assertIn("No shorting is needed", guide)
+        self.assertIn("USB pins on the bottom", guide)
+        self.assertIn("Remove only the outer cover", connect)
+        self.assertIn("disassembly/echo-gen-2/README.md", connect)
+        self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", connect)
+        self.assertIn("Press and hold the **Action** button", connect)
+        self.assertIn("fastboot devices", connect)
+        disassembly = (ROOT / "docs/disassembly/echo-gen-2/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        tools = (ROOT / "tools/README.md").read_text(encoding="utf-8")
+        for text in (guide, disassembly, product, tools):
+            self.assertIsNone(
+                re.search(r"must be shorted|shorted to GND|hold the (marked )?short|CLK-to-GND", text, re.I)
+            )
+        self.assertIn("only need this guide if you are soldering", disassembly)
+        self.assertIn("No shorting is needed", product)
+        self.assertFalse((ROOT / "docs/disassembly/echo-gen-2/assets/13.jpg").exists())
+
+    def test_install_docs_have_no_bare_step_references_and_links_resolve(self) -> None:
+        def anchors(markdown: str) -> set[str]:
+            found = set()
+            for heading in re.findall(r"^#{1,6} +(.+?)\s*$", markdown, re.M):
+                slug = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+                found.add(slug)
+            return found
+
+        pages = (
+            "README.md",
+            "docs/install/README.md",
+            "docs/disassembly/echo-gen-2/README.md",
+            "tools/README.md",
+        )
+        for page in pages:
+            path = ROOT / page
+            text = path.read_text(encoding="utf-8")
+            if page == "docs/install/README.md":
+                self.assertIsNone(re.search(r"\bsee\s+step \d|\bin\s+step \d", text, re.I))
+            for target in re.findall(r"\]\(([^)\s]+)\)", text):
+                if re.match(r"[a-z]+:", target):
+                    continue
+                file_part, _, anchor = target.partition("#")
+                linked = (path.parent / file_part).resolve() if file_part else path
+                self.assertTrue(linked.exists(), f"{page}: missing link target {target}")
+                if anchor and linked.suffix == ".md":
+                    self.assertIn(
+                        anchor, anchors(linked.read_text(encoding="utf-8")),
+                        f"{page}: missing anchor {target}",
+                    )
+
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
         code_blocks = re.findall(r"```(?:sh|bash)\n(.*?)\n```", guide, re.S)

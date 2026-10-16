@@ -271,6 +271,10 @@ changing only the installer cannot fix an older image's runtime guards.
 ## Echo Gen 2 pogo-pin carrier (v5)
 
 [`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)
-contains the printable six-pin carrier used to make a repeatable development or
-service jig for the Echo 2nd Gen base contacts. It is a hardware-development aid,
-not a required part of the software installation path.
+contains the printable six-pin carrier for the Echo 2nd Gen base contacts. With
+pogo pins, installation only requires removing the outer cover on the base; the
+device does not need to be taken apart and nothing is shorted. A ready-made
+LibreEcho pogo-pin adapter will be on sale soon. To solder a USB cable instead,
+follow the [Echo Gen 2 disassembly guide](../docs/disassembly/echo-gen-2/README.md).
+The [installation guide](../docs/install/README.md#2-connect-the-device) gives
+the fastboot entry sequence.
