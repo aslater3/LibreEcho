@@ -970,6 +970,18 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("No shorting is needed", product)
         self.assertFalse((ROOT / "docs/disassembly/echo-gen-2/assets/13.jpg").exists())
 
+    def test_install_docs_give_dot_fastboot_entry(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        connect = guide.split("## 2. Connect the device", 1)[1].split("\n## 3. ", 1)[0]
+        dot = connect.split("### Echo Dot 2nd Gen", 1)[1].split("\n### ", 1)[0]
+        self.assertIn("micro-USB", dot)
+        self.assertIn("does not need to be opened", dot)
+        self.assertIn("**Enter fastboot.**", dot)
+        self.assertIn("Press and hold the **Action** button", dot)
+        self.assertIn("fastboot getvar product", dot)
+        self.assertIn("`BISCUIT`", dot)
+        self.assertLess(dot.index("Press and hold the **Action** button"), dot.index("fastboot devices"))
+
     def test_install_docs_have_no_bare_step_references_and_links_resolve(self) -> None:
         def anchors(markdown: str) -> set[str]:
             found = set()

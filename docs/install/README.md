@@ -3,7 +3,9 @@
 > For Amazon Echo 2nd generation (`radar_puffin`, MT8163) and Echo Dot 2nd
 > generation (`biscuit`). The procedure uses USB fastboot on the stock device.
 > **No shorting is needed.** On the Echo 2nd Gen you only need to reach the USB
-> pins on the bottom of the device and enter fastboot.
+> pins on the bottom of the device and enter fastboot. The Echo Dot 2nd Gen
+> connects through its own micro-USB port and enters fastboot the same way:
+> hold the **Action** button while plugging in.
 
 ## Safety first
 
@@ -117,16 +119,28 @@ to be shorted.
 
 ### Echo Dot 2nd Gen (`biscuit`, experimental)
 
-1. Connect the Dot's micro-USB port to the computer with a data-capable cable.
-   The Dot does not need to be opened.
-2. Check that the host can see it:
+The Dot does not need to be opened. Its micro-USB port carries both power and
+data, so one data-capable micro-USB cable to the computer is all you need.
+Nothing needs to be shorted.
+
+**Enter fastboot.**
+
+1. Unplug the Dot's micro-USB cable.
+2. Press and hold the **Action** button, and plug the micro-USB cable from the
+   computer in while still holding it.
+3. Check that the computer sees the device in fastboot:
 
    ```sh
-   adb devices
    fastboot devices
+   fastboot getvar product
    ```
 
-   ADB or fastboot mode are both acceptable as the starting point.
+   Release the Action button once the device is listed. `product` should report
+   `BISCUIT`. If nothing is listed, unplug the cable, try another data-capable
+   cable or a USB port directly on the computer, and repeat the sequence.
+
+A Dot that already runs LibreEcho can also start from ADB (`adb devices`); the
+installer moves it to fastboot itself.
 
 ### Both models
 
