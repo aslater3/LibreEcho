@@ -525,7 +525,14 @@ jobs:
           mapfile -t pins < <(python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json)
           ((${#pins[@]} > 0)) || { echo "ERROR: shared mDNS package lock is empty" >&2; exit 1; }
           cd "$archives"
-          apt-get download "${apt_opts[@]}" "${pins[@]}"
+          # The mirror drops superseded -updates versions; a pin it no longer
+          # serves is fetched by exact locked SHA-256 from Launchpad below.
+          for pin in "${pins[@]}"; do
+            apt-get download "${apt_opts[@]}" "$pin" || echo "mirror no longer serves $pin"
+          done
+          cd "$GITHUB_WORKSPACE"
+          python3 build/ci/mdns_runtime.py fetch-missing \
+            --lock build/inputs/mdns-packages.lock.json --archives "$archives"
           cd "$RUNNER_TEMP"
       - name: Save exact shared mDNS package cache
         if: success() && steps.restore-mdns.outputs.cache-hit != 'true'
