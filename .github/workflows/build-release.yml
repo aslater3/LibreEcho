@@ -33,7 +33,7 @@ on:
         type: choice
         options: [unsigned, signed]
       ssh_enabled:
-        description: Include password-authenticated root SSH in the image
+        description: Include WebUI-account SSH in the image
         required: true
         default: enabled
         type: choice
@@ -718,23 +718,6 @@ jobs:
           test -n "$OTA_SIGNING_KEY_HEX"
           umask 077
           printf '%s\n' "$OTA_SIGNING_KEY_HEX" >"$RUNNER_TEMP/ota-signing-key.hex"
-      - name: Materialize protected SSH root password hash
-        if: needs.resolve-and-preflight.outputs.ssh_enabled == '1'
-        env:
-          SSH_ROOT_PASSWORD_HASH: ${{ secrets.LIBREECHO_SSH_ROOT_PASSWORD_HASH }}
-        run: |
-          set -euo pipefail
-          # Enabling SSH ships the bundle and starts the supervisor; the root
-          # password is optional.  Without the secret this writes an empty file
-          # so the build-local path stays valid, and the image then carries no
-          # root password at all: credentials come from the users database that
-          # setup writes.
-          umask 077
-          if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then
-            printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
-          else
-            : >"$RUNNER_TEMP/ssh-root-password-hash"
-          fi
       - name: Derive reviewed TTS voice models
         run: |
           set -euo pipefail
@@ -1213,7 +1196,6 @@ jobs:
           LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
           LIBREECHO_TARGET_RELEASE_TAG: ${{ needs.resolve-and-preflight.outputs.release_tag }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
-          LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
           LIBREECHO_CORE_GCC_LIBDIR: ${{ runner.temp }}/armhf-root/usr/lib/gcc-cross/arm-linux-gnueabihf/13
           CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-

@@ -194,6 +194,45 @@ def add_v2_contract(artifact_root: Path, release: str = "0.14.0", *, action: str
 
 
 class StableReleasePackagingTests(unittest.TestCase):
+    def test_enabled_ssh_requires_matching_scp_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact_root, product = fixture(root)
+            run = artifact_root / "run"
+            request_path = run / "release-request.json"
+            request = json.loads(request_path.read_text())
+            request["ssh_enabled"] = "1"
+            request_path.write_text(json.dumps(request))
+            candidate = run / "CURRENT.candidate"
+            candidate.write_text(candidate.read_text().replace(
+                "ssh_enabled=0\n",
+                "ssh_enabled=1\ndropbear_sha256=" + "a" * 64 +
+                "\ndropbearkey_sha256=" + "b" * 64 +
+                "\nscp_sha256=" + "c" * 64 + "\n",
+            ))
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["ssh"] = {"enabled": True, "files": {
+                "sbin/dropbear": {"sha256": "a" * 64},
+                "sbin/dropbearkey": {"sha256": "b" * 64},
+                "usr/bin/scp": {"sha256": "d" * 64},
+            }}
+            manifest_path.write_text(json.dumps(manifest))
+            result = subprocess.run([
+                sys.executable, str(SCRIPT),
+                "--artifact-root", str(artifact_root),
+                "--product-root", str(product),
+                "--product-commit", "1" * 40,
+                "--release-version", "0.14.0",
+                "--release-notes", "release/radar-puffin-v0.14.0.md",
+                "--amonet-repository", "https://github.com/aslater3/amonet-k32",
+                "--amonet-tag", "v1.0.0",
+                "--amonet-commit", WORKING_AMONET_COMMIT,
+                "--output-dir", str(root / "release"),
+            ], text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("scp_sha256", result.stderr)
+
     def test_stable_packager_stages_v3_owned_assets_verbatim(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

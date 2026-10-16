@@ -72,14 +72,13 @@ requests fail closed at publication routing and cannot move the dev pointer.
 - **SSH option:** all non-dispatch builds keep SSH disabled. A manual GitHub
   Actions run defaults to `ssh_enabled=enabled` and may select `disabled`; an
   enabled run embeds the static ARM32 `dropbear`, `dropbearkey` and `scp`
-  binaries in the initramfs and starts the SSH supervisor, which stays in a
-  waiting state until setup writes the WebUI users database
-  (`/data/libreecho/config/users`). Authentication is against that database and
+  binaries in the initramfs. The SSH supervisor starts the server only when
+  the saved WebUI SSH switch is on and a valid users database exists at
+  `/data/libreecho/config/users`. Authentication uses that database and
   nothing else: the image has **root login disabled**, uses non-root ephemeral
-  accounts, carries no public-key authorization and no persistent host keys, and
-  records all three binary hashes in the release manifest. The protected
-  `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional and is not consumed by
-  the build, because the image accepts no root password.
+  accounts, and carries no public-key authorization. Each device keeps its
+  own protected host key across reboots. No root password enters the build;
+  the release manifest records all three binary hashes.
 - **Development:** only an explicit `workflow_dispatch` with `build_purpose=dev`
   on `main` or `release/X.Y.Z` publishes a bounded signed `dev`-channel GitHub
   prerelease from the exact workflow artifact and moves the dev discovery pointer.
