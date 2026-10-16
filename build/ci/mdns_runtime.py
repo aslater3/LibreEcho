@@ -85,6 +85,51 @@ def apt_spec(records):
             for record in sorted(records, key=lambda item: (item['package'], item['version']))]
 
 
+LAUNCHPAD_FILES = 'https://launchpad.net/ubuntu/+archive/primary/+files/'
+
+
+def launchpad_name(record):
+    """Launchpad's archive file name: the Debian name without the epoch."""
+    version = record['version'].split(':', 1)[-1]
+    return '%s_%s_%s.deb' % (record['package'], version, record['architecture'])
+
+
+def _urlopen(url):
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=120) as response:
+        return response.read()
+
+
+def fetch_missing(archives, records, opener=_urlopen):
+    """Fetch locked archives the mirror no longer serves, by exact hash.
+
+    ports.ubuntu.com drops superseded -updates versions, so a pinned
+    ``package=version`` can vanish while Launchpad keeps the identical bytes.
+    Only absent archives are fetched; each must match the locked SHA-256 before
+    it is written under the locked file name, so the acquired set is unchanged.
+    """
+    archives = Path(archives)
+    if archives.is_symlink() or not archives.is_dir():
+        raise ValueError('package archive directory is missing or unsafe')
+    fetched = []
+    for record in sorted(records, key=lambda item: item['file']):
+        target = archives / record['file']
+        if target.exists():
+            continue
+        url = LAUNCHPAD_FILES + launchpad_name(record)
+        try:
+            payload = opener(url)
+        except OSError as error:
+            raise ValueError('cannot fetch %s: %s' % (record['file'], error))
+        if hashlib.sha256(payload).hexdigest() != record['sha256']:
+            raise ValueError('fetched archive hash mismatch: %s' % record['file'])
+        partial = archives / (record['file'] + '.partial')
+        partial.write_bytes(payload)
+        partial.replace(target)
+        fetched.append(record['file'])
+    return fetched
+
+
 def verify_archives(archives, records):
     """Re-hash every locked archive; fail closed on any deviation."""
     archives = Path(archives)
@@ -232,6 +277,11 @@ def main():
     spec = commands.add_parser('apt-spec', help='print exact apt acquisition pins')
     spec.add_argument('--lock', type=Path, required=True)
 
+    fetch = commands.add_parser('fetch-missing',
+                                help='fetch locked archives the mirror no longer serves')
+    fetch.add_argument('--lock', type=Path, required=True)
+    fetch.add_argument('--archives', type=Path, required=True)
+
     verify = commands.add_parser('verify', help='verify acquired archives against the lock')
     verify.add_argument('--lock', type=Path, required=True)
     verify.add_argument('--archives', type=Path, required=True)
@@ -249,6 +299,10 @@ def main():
         if args.command == 'apt-spec':
             for pin in apt_spec(load_lock(args.lock)):
                 print(pin)
+            return 0
+        if args.command == 'fetch-missing':
+            fetched = fetch_missing(args.archives, load_lock(args.lock))
+            print('mdns_packages_fetched=%d %s' % (len(fetched), ' '.join(fetched)))
             return 0
         if args.command == 'verify':
             records = load_lock(args.lock)

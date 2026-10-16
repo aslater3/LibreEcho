@@ -150,6 +150,29 @@ class AcquiredPackageProvenance(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.load_source_offers(broken, records)
 
+    def test_fetch_missing_uses_launchpad_and_exact_lock_hash(self):
+        runtime = runtime_module()
+        record = {'file': 'libaudit1_1%3a3.1.2-2.1build1.1_armhf.deb', 'package': 'libaudit1',
+                  'version': '1:3.1.2-2.1build1.1', 'architecture': 'armhf', 'source': 'audit',
+                  'sha256': hashlib.sha256(b'good').hexdigest()}
+        present = dict(record, file='adduser_3.137ubuntu1_all.deb', package='adduser',
+                       version='3.137ubuntu1', architecture='all')
+        self.assertEqual(runtime.launchpad_name(record), 'libaudit1_3.1.2-2.1build1.1_armhf.deb')
+        with tempfile.TemporaryDirectory() as tmp:
+            archives = Path(tmp)
+            (archives / present['file']).write_bytes(b'already-here')
+            urls = []
+            fetched = runtime.fetch_missing(archives, [record, present],
+                                            opener=lambda url: urls.append(url) or b'good')
+            self.assertEqual(fetched, [record['file']])
+            self.assertEqual(urls, [runtime.LAUNCHPAD_FILES + 'libaudit1_3.1.2-2.1build1.1_armhf.deb'])
+            self.assertEqual((archives / record['file']).read_bytes(), b'good')
+            self.assertEqual((archives / present['file']).read_bytes(), b'already-here')
+            (archives / record['file']).unlink()
+            with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                runtime.fetch_missing(archives, [record], opener=lambda url: b'tampered')
+            self.assertEqual(sorted(p.name for p in archives.iterdir()), [present['file']])
+
     def test_archive_verification_fails_closed(self):
         module = runtime_module()
         with tempfile.TemporaryDirectory() as directory:

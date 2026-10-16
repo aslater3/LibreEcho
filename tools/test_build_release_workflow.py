@@ -631,6 +631,8 @@ class Tests(unittest.TestCase):
   self.assertIn('libreecho-mdns-packages-v1-', W)
   self.assertIn('Acquire exact shared mDNS dependency packages', W)
   self.assertIn('python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json', W)
+  self.assertIn('python3 build/ci/mdns_runtime.py fetch-missing', W)
+  self.assertLess(W.index('mdns_runtime.py fetch-missing'), W.index('python3 build/ci/mdns_runtime.py verify'))
   self.assertIn('-o Dir::Etc::sourceparts=-', W)
   self.assertIn('-o Dir::State::lists="$apt_root/lists"', W)
   self.assertIn('-o Dir::Cache::archives="$archives"', W)
