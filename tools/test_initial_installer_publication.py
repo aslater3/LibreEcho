@@ -949,6 +949,26 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertNotIn("BROM", guide)
         self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND|BROM short", guide, re.I))
 
+    def test_install_docs_use_bottom_usb_pins_and_fastboot_without_shorting(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        connect = guide.split("## 2. Connect the device", 1)[1].split("\n## 3. ", 1)[0]
+        self.assertIn("No shorting is needed", guide)
+        self.assertIn("USB pins on the bottom", guide)
+        self.assertIn("Remove only the outer cover", connect)
+        self.assertIn("disassembly/echo-gen-2/README.md", connect)
+        self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", connect)
+        self.assertIn("Press and hold the **Action** button", connect)
+        self.assertIn("fastboot devices", connect)
+        disassembly = (ROOT / "docs/disassembly/echo-gen-2/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        tools = (ROOT / "tools/README.md").read_text(encoding="utf-8")
+        for text in (guide, disassembly, product, tools):
+            self.assertIsNone(
+                re.search(r"must be shorted|shorted to GND|hold the (marked )?short|CLK-to-GND", text, re.I)
+            )
+        self.assertIn("only need this guide if you are soldering", disassembly)
+        self.assertIn("No shorting is needed", product)
+
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
         code_blocks = re.findall(r"```(?:sh|bash)\n(.*?)\n```", guide, re.S)
