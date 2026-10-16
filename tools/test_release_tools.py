@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
+import struct
+import tarfile
+import hashlib
+import os
+import shutil
 import importlib.util
 import json
 import subprocess
@@ -48,18 +55,21 @@ def fake_executable(root: Path, name: str) -> Path:
     return path
 
 
+AMONET_RECORD = {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162,
+                 "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"}
+
 class OneShotFastbootTests(unittest.TestCase):
     def test_prepare_fastboot_tools_stages_complete_toolset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             fake_executable(root, "mke2fs")
-            img2simg = fake_executable(root, "img2simg")
-            with mock.patch.object(INSTALLER, "_find_img2simg", return_value=img2simg):
+            dumpe2fs = fake_executable(root, "dumpe2fs")
+            with mock.patch.object(INSTALLER, "_find_dumpe2fs", return_value=dumpe2fs):
                 staged = INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
             staged_path = Path(staged)
             self.assertEqual(staged_path.parent, root / "cache" / "host-tools")
-            for name in ("fastboot", "mke2fs", "img2simg"):
+            for name in ("fastboot", "mke2fs", "dumpe2fs"):
                 self.assertTrue((staged_path.parent / name).is_file())
             result = subprocess.run([staged, "--version"], text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 0)
@@ -69,7 +79,7 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             with mock.patch.object(INSTALLER, "_find_mke2fs", return_value=None), \
-                 mock.patch.object(INSTALLER, "_find_img2simg", return_value=None), \
+                 mock.patch.object(INSTALLER, "_find_dumpe2fs", return_value=None), \
                  mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
                 with self.assertRaisesRegex(INSTALLER.InstallerError, "--install-host-deps"):
                     INSTALLER.prepare_fastboot_tools(str(fastboot), root / "cache")
@@ -80,9 +90,9 @@ class OneShotFastbootTests(unittest.TestCase):
             root = Path(temporary)
             fastboot = fake_executable(root, "fastboot")
             mke2fs = fake_executable(root, "mke2fs")
-            img2simg = fake_executable(root, "img2simg")
+            dumpe2fs = fake_executable(root, "dumpe2fs")
             with mock.patch.object(INSTALLER, "_find_mke2fs", side_effect=[None, mke2fs]), \
-                 mock.patch.object(INSTALLER, "_find_img2simg", side_effect=[None, img2simg]), \
+                 mock.patch.object(INSTALLER, "_find_dumpe2fs", side_effect=[None, dumpe2fs]), \
                  mock.patch.object(INSTALLER, "_install_host_format_tools") as installer:
                 staged = INSTALLER.prepare_fastboot_tools(
                     str(fastboot), root / "cache", install_host_deps=True
@@ -123,6 +133,85 @@ class OneShotFastbootTests(unittest.TestCase):
                 INSTALLER.USERDATA_BYTES,
             )
 
+    def _getvar_fixture(self, sizes):
+        def run(argv, timeout, *, check=True):
+            name = argv[-1].split(":", 1)[1]
+            value = sizes.get(name, "")
+            return subprocess.CompletedProcess(
+                argv, 0, "", f"partition-size:{name}: {value}\nFinished. Total time: 0.004s\n")
+        return run
+
+    def test_fastboot_partition_size_empty_reply_is_absent_not_parsed_from_next_line(self) -> None:
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture({})):
+            self.assertIsNone(INSTALLER._fastboot_partition_size("fastboot", "SERIAL", "boot_a_x"))
+
+    def test_payload_geometry_legacy_amonet_layout_unchanged(self) -> None:
+        sizes = {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "6e00000", "boot_b": "6e00000"}
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+            self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "amonet")
+
+    def test_payload_geometry_accepts_pinned_kaeru_layout(self) -> None:
+        # Measured on a Kaeru v2 Radar: no _x stores; boot_a/boot_b are the 16 MiB stores.
+        sizes = {"boot_a": "1000000", "boot_b": "1000000"}
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+            self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "pinned")
+
+    def test_payload_geometry_rejects_mixed_or_wrapper_layouts(self) -> None:
+        for sizes in (
+            {"boot_a": "6e00000", "boot_b": "6e00000"},          # wrapper without redirect stores
+            {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "1000000", "boot_b": "1000000"},
+            {"boot_a_x": "1000000", "boot_a": "1000000", "boot_b": "1000000"},  # half legacy
+            {"boot_a_x": "f", "boot_b_x": "f", "boot_a": "1000000", "boot_b": "1000000"},
+            {"boot_a": "1000000"},
+        ):
+            with self.subTest(sizes=sizes), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+                with self.assertRaises(INSTALLER.InstallerError):
+                    INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL")
+
+    def test_readback_accepts_either_store_name_only_on_store_node(self) -> None:
+        digest = "ab" * 32
+        for partname, ok in (("boot_a_x", True), ("boot_a", True), ("boot_b", False), ("expdb", False)):
+            def run(argv, timeout, *, check=True, partname=partname):
+                if argv[-1].endswith("/uevent"):
+                    return subprocess.CompletedProcess(argv, 0, f"PARTN=10\nPARTNAME={partname}\n", "")
+                return subprocess.CompletedProcess(argv, 0, f"{digest}  /dev/mmcblk0p10\n", "")
+            with self.subTest(partname=partname), mock.patch.object(INSTALLER, "_run_command", side_effect=run):
+                if ok:
+                    INSTALLER.verify_adb_payload_readback("adb", "SERIAL", "a", digest)
+                else:
+                    with self.assertRaisesRegex(INSTALLER.InstallerError, "identity mismatch"):
+                        INSTALLER.verify_adb_payload_readback("adb", "SERIAL", "a", digest)
+
+    def test_userdata_geometry_accepts_both_reviewed_biscuit_variants(self) -> None:
+        self.assertEqual(
+            INSTALLER.USERDATA_SUPPORTED_BYTES,
+            frozenset({0x41380000, 0x41B80000}),
+        )
+        for size in INSTALLER.USERDATA_SUPPORTED_BYTES:
+            with self.subTest(size=f"{size:#x}"):
+                INSTALLER._validate_userdata_partition_size(size)
+
+    def test_userdata_geometry_accepts_stock_layout_only_for_its_board(self) -> None:
+        # Issue #230: Kaeru leaves each board's stock GPT userdata, which is not
+        # 4 KiB aligned; the filesystem covers the aligned prefix only.
+        self.assertEqual(INSTALLER.USERDATA_RADAR_STOCK_BYTES, 0x4EFFBE00)
+        self.assertEqual(INSTALLER.USERDATA_BISCUIT_STOCK_BYTES, 0x4F7FBE00)
+        cases = {
+            "radar_puffin": (0x4EFFBE00, 0x4EFFB000, "biscuit"),
+            "biscuit": (0x4F7FBE00, 0x4F7FB000, "radar_puffin"),
+        }
+        for target, (stock, aligned, other) in cases.items():
+            with self.subTest(target=target):
+                self.assertEqual(INSTALLER._validate_userdata_partition_size(stock, target), aligned)
+                for wrong in (other, None):
+                    with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+                        INSTALLER._validate_userdata_partition_size(stock, wrong)
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+                    INSTALLER._validate_userdata_partition_size(stock + 512, target)
+                for legacy in INSTALLER.USERDATA_SUPPORTED_BYTES:
+                    self.assertEqual(INSTALLER._validate_userdata_partition_size(legacy, target), legacy)
+
     def test_userdata_format_rejects_unexpected_partition_size(self) -> None:
         with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
              mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES + 512), \
@@ -161,6 +250,29 @@ class OneShotFastbootTests(unittest.TestCase):
             INSTALLER.wait_for_transport(["probe"], "device", 60, "ADB")
         self.assertGreater(run.call_args.kwargs["timeout"], 10)
 
+    def test_first_boot_adb_wait_allows_slow_boot_and_explains_resume(self) -> None:
+        # Platform#232: a slow first boot outlived the 180 s ADB wait with no hint to resume.
+        with mock.patch.object(INSTALLER, "wait_for_transport") as wait:
+            INSTALLER.wait_for_first_boot_adb("adb", "SER", 180, "radar-puffin-v0.14.0", "both")
+        self.assertEqual(wait.call_args.args[2], INSTALLER.FIRST_BOOT_ADB_TIMEOUT)
+        self.assertGreaterEqual(INSTALLER.FIRST_BOOT_ADB_TIMEOUT, 300)
+        with mock.patch.object(INSTALLER, "wait_for_transport") as wait:
+            INSTALLER.wait_for_first_boot_adb("adb", "SER", 900, "radar-puffin-v0.14.0", "both")
+        self.assertEqual(wait.call_args.args[2], 900)  # an explicit longer --adb-timeout is honoured
+        failure = INSTALLER.InstallerError("timed out waiting for ADB")
+        with mock.patch.object(INSTALLER, "wait_for_transport", side_effect=failure), \
+                self.assertRaises(INSTALLER.InstallerError) as raised:
+            INSTALLER.wait_for_first_boot_adb("adb", "SER", 180, "radar-puffin-v0.14.0", "a")
+        message = str(raised.exception)
+        self.assertIn("timed out waiting for ADB", message)
+        self.assertIn("BOOT_WRITTEN", message)
+        self.assertIn("./run-one-shot.sh radar-puffin-v0.14.0 --continue --fastboot-serial SER "
+                      "--slots a --execute-hardware", message)
+
+    def test_post_flash_adb_waits_use_first_boot_wait(self) -> None:
+        source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("wait_for_first_boot_adb("), 4)  # definition + three post-flash waits
+
     def test_source_announces_fastboot_and_payload_boundaries(self) -> None:
         source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
         for marker in (
@@ -175,7 +287,7 @@ class OneShotFastbootTests(unittest.TestCase):
     def test_feature_stager_syncs_committed_files_before_removing_marker(self) -> None:
         stager = INSTALLER.ROOT_FEATURE_STAGER
         move = stager.index('$BB mv "$DEST/staging/payload.squashfs.new" "$DEST/payload.squashfs"')
-        manifest = stager.index('$BB cp "$MANIFEST_FILE" "$DEST/manifest.json"', move)
+        manifest = stager.index('$BB mv "$DEST/staging/manifest.json.new" "$DEST/manifest.json"', move)
         first_sync = stager.index("$BB sync", manifest)
         cleanup = stager.index('$BB rmdir "$DEST/staging"', manifest)
         second_sync = stager.index("$BB sync", cleanup)
@@ -302,12 +414,12 @@ class ComponentGateTests(unittest.TestCase):
             ROOT / "release/components.json", "community-noncommercial"
         )
         data = json.loads((ROOT / "release/components.json").read_text())
-        self.assertEqual(len(data["components"]), 18)
+        self.assertEqual(len(data["components"]), 22)
         self.assertNotIn("wakeword-payload", {c["id"] for c in unrestricted})
         self.assertIn("wakeword-payload", {c["id"] for c in community})
         for component_id in (
             "core-runtime-closure", "airplay-payload", "stt-payload",
-            "tts-payload", "assistant-payload",
+            "tts-payload", "assistant-payload", "mbedtls", "libogg", "opus", "opusfile",
         ):
             component = next(c for c in data["components"] if c["id"] == component_id)
             self.assertEqual(component["release_status"], "cleared")
@@ -441,7 +553,7 @@ class ComponentGateTests(unittest.TestCase):
             "--release-scope", "community-noncommercial",
         ], text=True, capture_output=True)
         self.assertEqual(community.returncode, 0, community.stderr)
-        self.assertIn("component_count=18", community.stdout)
+        self.assertIn("component_count=22", community.stdout)
         self.assertIn("release_scope=community-noncommercial", community.stdout)
 
     def test_restricted_component_requires_valid_release_scopes(self) -> None:
@@ -509,8 +621,10 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(output),
             ], check=True, text=True, capture_output=True)
             document = json.loads(output.read_text())
-        self.assertIn("package_count=15", result.stdout)
+        self.assertIn("package_count=19", result.stdout)
         names = {package["name"] for package in document["packages"]}
+        for name in ("libogg", "opus", "opusfile"):
+            self.assertIn(name + " static ARM32 Opus decoder dependency", names)
         self.assertNotIn("MT8163 connectivity firmware extracted from the owner device", names)
         self.assertNotIn("Amonet/BROM installer integration", names)
         self.assertEqual(len(document["files"]), 1)
@@ -534,7 +648,7 @@ class ComponentGateTests(unittest.TestCase):
                 "--output", str(root / "sbom.json"),
             ], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("package_count=15", result.stdout)
+        self.assertIn("package_count=19", result.stdout)
 
     def test_sbom_includes_wakeword_only_for_community_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -560,7 +674,7 @@ class ComponentGateTests(unittest.TestCase):
                 package["name"] for package in json.loads(output.read_text())["packages"]
             } if output.exists() else set()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("package_count=16", result.stdout)
+        self.assertIn("package_count=20", result.stdout)
         self.assertIn(
             "openWakeWord runtime and pretrained Alexa-compatible model", names
         )
@@ -658,6 +772,602 @@ class ComponentGateTests(unittest.TestCase):
             commits["tooling"],
         )
         self.assertEqual(by_name["LibreEcho UI and service daemons"]["versionInfo"], commits["ui"])
+
+
+
+class FeatureStagingIntegrityTests(unittest.TestCase):
+    """Exercise the shipped shell; only host paths, mounts and sync are shimmed."""
+
+    def fixture(self, root: Path, *, wrong_size=False, omit_hash=False):
+        payload = root / "input.squashfs"
+        metadata = root / "input.json"
+        payload.write_bytes(b"verified payload fixture")
+        metadata.write_bytes(b'{"feature":"assistant","schema":1}\n')
+        config = root / "stage.conf"
+        config.write_text(
+            f"FEATURE_ID=assistant\nPAYLOAD_FILE={payload}\nMANIFEST_FILE={metadata}\n"
+            f"PAYLOAD_SHA256={hashlib.sha256(payload.read_bytes()).hexdigest()}\n"
+            f"PAYLOAD_SIZE={payload.stat().st_size}\n"
+            + ("" if omit_hash else f"MANIFEST_SHA256={hashlib.sha256(metadata.read_bytes()).hexdigest()}\n")
+            + f"MANIFEST_SIZE={metadata.stat().st_size + int(wrong_size)}\n"
+        )
+        dest = root / "features/assistant"
+        dest.mkdir(parents=True)
+        (dest / "payload.squashfs").write_bytes(b"old payload")
+        (dest / "manifest.json").write_bytes(b"old manifest")
+        return payload, metadata, config, dest
+
+    def run_stager(self, root: Path, *, corrupt_copy=False, fail_sync=False):
+        shim = root / "busybox-test"
+        # No command can mount or sync the host. File operations run unchanged
+        # in temporary paths against the real BusyBox implementation.
+        shim.write_text('''#!/bin/sh
+set -eu
+case "$1" in
+  grep) if [ "${4:-}" = /proc/mounts ]; then exit 0; fi ;;
+  mount) exit 0 ;;
+  sync) [ "$FAIL_SYNC" = 0 ]; exit $? ;;
+esac
+if [ -n "$REAL_BUSYBOX" ]; then "$REAL_BUSYBOX" "$@"; else "$@"; fi
+if [ "$1" = cp ] && [ "$CORRUPT_COPY" = 1 ]; then
+  case "$3" in */manifest.json.new) printf corrupt >> "$3" ;; esac
+fi
+''')
+        shim.chmod(0o755)
+        script = INSTALLER.ROOT_FEATURE_STAGER.replace(
+            "BB=/bin/busybox", f"BB={shim}"
+        ).replace(
+            "CONFIG=/tmp/libreecho-feature-stage.conf", f"CONFIG={root / 'stage.conf'}"
+        ).replace(
+            "DEST=/data/libreecho/features/$FEATURE_ID", f"DEST={root}/features/$FEATURE_ID"
+        )
+        busybox = shutil.which("busybox")
+        interpreter = [busybox, "sh"] if busybox else ["/bin/sh"]
+        return subprocess.run(
+            [*interpreter, "-c", script], capture_output=True, text=True, timeout=15,
+            env={**os.environ, "REAL_BUSYBOX": busybox or "",
+                 "FAIL_SYNC": str(int(fail_sync)), "CORRUPT_COPY": str(int(corrupt_copy))},
+        )
+
+    def test_valid_pair_is_committed_before_staging_marker_disappears(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload, metadata, config, dest = self.fixture(root)
+            expected_payload, expected_metadata = payload.read_bytes(), metadata.read_bytes()
+            result = self.run_stager(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("FEATURE_STAGE_OK:assistant", result.stdout)
+            self.assertEqual((dest / "payload.squashfs").read_bytes(), expected_payload)
+            self.assertEqual((dest / "manifest.json").read_bytes(), expected_metadata)
+            self.assertFalse((dest / "staging").exists())
+            self.assertFalse(config.exists())
+
+    def test_invalid_manifest_cannot_replace_existing_pair(self):
+        for failure in ("hash", "size", "missing-hash", "symlink"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                _, metadata, _, dest = self.fixture(
+                    root, wrong_size=failure == "size", omit_hash=failure == "missing-hash")
+                if failure == "hash":
+                    metadata.write_bytes(b"changed during transport")
+                elif failure == "symlink":
+                    original = root / "other.json"
+                    metadata.rename(original)
+                    metadata.symlink_to(original)
+                result = self.run_stager(root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("FEATURE_STAGE_MANIFEST_", result.stdout)
+                self.assertEqual((dest / "payload.squashfs").read_bytes(), b"old payload")
+                self.assertEqual((dest / "manifest.json").read_bytes(), b"old manifest")
+                self.assertNotIn("FEATURE_STAGE_OK", result.stdout)
+
+    def test_manifest_copy_corruption_preserves_old_pair_and_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _, _, _, dest = self.fixture(root)
+            result = self.run_stager(root, corrupt_copy=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FEATURE_STAGE_MANIFEST_COPY_HASH_MISMATCH", result.stdout)
+            self.assertEqual((dest / "payload.squashfs").read_bytes(), b"old payload")
+            self.assertEqual((dest / "manifest.json").read_bytes(), b"old manifest")
+            self.assertTrue((dest / "staging").is_dir())
+
+    def test_sync_failure_keeps_activation_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _, _, _, dest = self.fixture(root)
+            result = self.run_stager(root, fail_sync=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FEATURE_STAGE_COMMIT_SYNC_FAILED", result.stdout)
+            self.assertTrue((dest / "staging").is_dir())
+            self.assertNotIn("FEATURE_STAGE_OK", result.stdout)
+
+    def test_host_reads_back_both_files_and_rejects_manifest_mismatch(self):
+        for tampered in (False, True):
+            with self.subTest(tampered=tampered), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                tag = "radar-puffin-v0.14.0"
+                bundle = root / tag / "bundle"
+                bundle.mkdir(parents=True)
+                payload = bundle / "assistant.squashfs"
+                metadata = bundle / "assistant.json"
+                payload.write_bytes(b"fixture payload")
+                metadata.write_bytes(b'{"fixture":true}')
+                feature = {"name": "assistant"}
+                for kind, path in (("payload", payload), ("manifest", metadata)):
+                    feature[kind] = {"name": path.name, "size": path.stat().st_size,
+                                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                calls = []
+                configs = []
+                def command(argv, timeout, *, check=True):
+                    calls.append(argv)
+                    out = ""
+                    if argv[3] == "push" and argv[-1].endswith("stage.conf"):
+                        configs.append(Path(argv[-2]).read_text())
+                    elif argv[3:5] == ["shell", "sh"]:
+                        out = "FEATURE_STAGE_OK:assistant\n"
+                    elif argv[3:5] == ["shell", "sha256sum"]:
+                        kind = "manifest" if argv[-1].endswith("manifest.json") else "payload"
+                        digest = "0" * 64 if tampered and kind == "manifest" else feature[kind]["sha256"]
+                        out = f"{digest}  {argv[-1]}\r\n"
+                    return subprocess.CompletedProcess(argv, 0, out, "")
+                with mock.patch.object(INSTALLER, "_run_command", side_effect=command):
+                    if tampered:
+                        with self.assertRaisesRegex(INSTALLER.InstallerError, "installed manifest hash mismatch"):
+                            INSTALLER.stage_device_features("adb", "SERIAL", root, {"release": tag, "features": [feature]})
+                    else:
+                        INSTALLER.stage_device_features("adb", "SERIAL", root, {"release": tag, "features": [feature]})
+                self.assertIn(f"MANIFEST_SHA256={feature['manifest']['sha256']}\n", configs[0])
+                self.assertIn(f"MANIFEST_SIZE={feature['manifest']['size']}\n", configs[0])
+                readbacks = [c[-1] for c in calls if c[3:5] == ["shell", "sha256sum"]]
+                self.assertEqual(readbacks, ["/data/libreecho/features/assistant/payload.squashfs",
+                                            "/data/libreecho/features/assistant/manifest.json"])
+
+    def test_readback_rejects_unrelated_hash_or_extra_output(self):
+        feature = {"name": "assistant", "payload": {"sha256": "a" * 64},
+                   "manifest": {"sha256": "b" * 64}}
+        for output in ("a" * 64 + "  /tmp/other", "noise\n" + "a" * 64 +
+                       "  /data/libreecho/features/assistant/payload.squashfs"):
+            with self.subTest(output=output), mock.patch.object(
+                INSTALLER, "_run_command", return_value=subprocess.CompletedProcess([], 0, output, "")
+            ):
+                with self.assertRaises(INSTALLER.InstallerError):
+                    INSTALLER.verify_device_features("adb", "SERIAL", {"features": [feature]})
+
+
+
+class OneShotContinuationTests(unittest.TestCase):
+    """Real bundle/state/installer orchestration, with USB command boundaries simulated."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.cache, self.state_root = self.root / "cache", self.root / "state"
+        self.release = self.root / "release"
+        self.release.mkdir()
+        self.tag = "radar-puffin-v0.14.0"
+        prefix = "libreecho-" + self.tag
+        boot = bytearray(INSTALLER.BOOT_BYTES)
+        boot[:8] = b"ANDROID!"
+        struct.pack_into("<I", boot, 8, 1)
+        boot[64:64 + len(INSTALLER.BOOTOPT)] = INSTALLER.BOOTOPT
+        files = {prefix + "-boot.img": bytes(boot), prefix + "-ota-public-key.hex": b"a" * 64 + b"\n",
+                 prefix + "-installer.py": b"# verified fixture installer\n", prefix + "-release-notes.md": b"# fixture\n",
+                 prefix + "-build.json": b'{"fixture":true}'}
+        def asset(name):
+            return {"name": name, "size": len(files[name]), "sha256": hashlib.sha256(files[name]).hexdigest()}
+        features = []
+        for name in ("airplay2", "tts", "wakeword", "stt", "assistant"):
+            payload, metadata = f"{prefix}-{name}.squashfs", f"{prefix}-{name}.manifest.json"
+            files[payload] = (name + " payload").encode()
+            files[metadata] = json.dumps({"feature": name, "fixture": True}).encode()
+            features.append({"name": name, "payload": asset(payload), "manifest": asset(metadata)})
+        self.manifest = {"schema": INSTALLER.SCHEMA, "release": self.tag,
+                         "board": "radar_puffin", "soc": "mt8163", "image_profile": "ota", "service_profile": "production",
+                         "boot": asset(prefix + "-boot.img"), "ota_public_key": asset(prefix + "-ota-public-key.hex"),
+                         "features": features, "amonet": AMONET_RECORD}
+        for name, data in files.items():
+            (self.release / name).write_bytes(data)
+        self.bundle = self.release / (prefix + "-initial-install.tar")
+        with tarfile.open(self.bundle, "w") as archive:
+            data = json.dumps(self.manifest).encode()
+            item = tarfile.TarInfo("manifest.json"); item.size = len(data)
+            archive.addfile(item, io.BytesIO(data))
+            for name in files:
+                if not name.endswith(("-installer.py", "-release-notes.md", "-build.json")):
+                    archive.add(self.release / name, arcname=name)
+        (self.release / (prefix + "-SHA256SUMS")).write_text(
+            "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
+                    for p in sorted(self.release.iterdir()) if p.is_file()))
+        INSTALLER._prepare(self.release, self.cache, self.tag)
+        self.state_path = INSTALLER._state_path(self.state_root, "test")
+        self.base_state = {"phase": "FEATURES_STAGED", "release": self.tag,
+                           "bundle_sha256": INSTALLER._sha256(self.bundle), "userdata_formatted": True,
+                           "device_serial": "SERIAL", "slots": "both"}
+        self.save_state()
+        self.calls = []
+        self.forward_fails = False
+        self.unlocked = False  # locked fixture: the brick step runs (mocked below)
+        self.bad_boot = False
+        self.bad_manifest = False
+        self.device = "SERIAL"
+        self.staging_present = False
+        self.current_feature = ""
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.host = self.stack.enter_context(mock.patch.object(INSTALLER, "require_host_commands"))
+        self.tools = self.stack.enter_context(mock.patch.object(INSTALLER, "prepare_fastboot_tools", return_value="fake-fastboot"))
+        self.format = self.stack.enter_context(mock.patch.object(INSTALLER, "format_userdata_in_fastboot"))
+        # Locked-device brick step is mocked so no payload is written; the write sequence
+        # under test (flash boot_a/boot_b, forward) is unchanged.
+        self.amonet = self.stack.enter_context(mock.patch.object(INSTALLER, "brick_fastboot_payload"))
+        # A successful brick leaves the device enumerating unlocked for the bounded handoff.
+        self.amonet.side_effect = lambda *a, **k: (setattr(self, "unlocked", True), "accepted")[1]
+        self.stack.enter_context(mock.patch.object(INSTALLER, "select_amonet_payload", return_value={"payload": "fastbrick.img", "size": 1, "sha256": "0" * 64}))
+        self.staged_payload = self.root / "fastbrick.img"
+        self.staged_payload.write_bytes(b"x")
+        self.stack.enter_context(mock.patch.object(INSTALLER, "extract_amonet_payload", return_value=self.staged_payload))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "stage_amonet_host_fastboot", return_value=self.root / "packaged-fastboot"))
+        self.wait = self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_post_brick_fastboot", side_effect=self.handoff))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "wait_for_transport"))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "collect_adb_diagnostics"))
+        self.raw_run = self.stack.enter_context(mock.patch.object(INSTALLER.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")))
+        self.stack.enter_context(mock.patch.object(INSTALLER, "_run_command", side_effect=self.command))
+
+    def handoff(self, fastboot_bin, adb_bin, serial, target, timeout, override=None):
+        # Models the real bounded handoff: refuse unless the device reports unlocked.
+        if not self.unlocked:
+            raise INSTALLER.InstallerError("timed out waiting for a responsive unlocked fastboot device after the brick")
+        return "SERIAL"
+
+    def save_state(self, **changes):
+        # Direct fixture write deliberately avoids carrying fields across cases.
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(json.dumps({**self.base_state, **changes}))
+
+    def command(self, argv, timeout, *, check=True):
+        self.calls.append(argv)
+        output = ""
+        if argv == ["fake-fastboot", "devices"]:
+            output = f"{self.device}\tfastboot\n"
+        elif argv == ["fake-adb", "devices"]:
+            output = f"List of devices attached\n{self.device}\tdevice\n"
+        elif argv[-2:] == ["oem", "kaeru-version"]:
+            # Stock bootloader rejects the Kaeru probe; this is the expected unconverted state.
+            return subprocess.CompletedProcess(argv, 1, "", "FAILunknown command\n")
+        elif "getvar" in argv:
+            if argv[-1] == "product":
+                output = "product: RADAR\n"
+            elif argv[-1] == "unlock_status":
+                output = f"unlock_status: {'true' if self.unlocked else 'false'}\n"
+            elif argv[-1] in {"partition-size:boot_a", "partition-size:boot_b"}:
+                # Legacy Amonet: boot_a/boot_b hold the 225280-sector wrapper.
+                output = f"{argv[-1]}: 0x6e00000\n"
+            else:
+                output = f"{argv[-1]}: 0x1000000\n"
+        elif argv[3:5] == ["shell", "cat"] and argv[-1].endswith("/uevent"):
+            part = "10" if "mmcblk0p10" in argv[-1] else "11"
+            slot = "a" if part == "10" else "b"
+            output = f"PARTNAME=boot_{slot}_x\nPARTN={part}\n"
+        elif argv[3:5] == ["shell", "sha256sum"]:
+            if argv[-1].startswith("/dev/"):
+                digest = "0" * 64 if self.bad_boot else self.manifest["boot"]["sha256"]
+            else:
+                feature = next(f for f in self.manifest["features"] if f"/{f['name']}/" in argv[-1])
+                kind = "manifest" if argv[-1].endswith("manifest.json") else "payload"
+                digest = "0" * 64 if self.bad_manifest and kind == "manifest" else feature[kind]["sha256"]
+            output = f"{digest}  {argv[-1]}\n"
+        elif argv[3:5] == ["shell", "test"] and self.staging_present:
+            raise INSTALLER.InstallerError("staging marker still present")
+        elif argv[3] == "push" and argv[-1].endswith("stage.conf"):
+            self.current_feature = Path(argv[-2]).read_text().splitlines()[0].split("=", 1)[1]
+        elif argv[3:5] == ["shell", "sh"]:
+            output = f"FEATURE_STAGE_OK:{self.current_feature}\n"
+        elif argv[3] == "forward" and self.forward_fails:
+            raise INSTALLER.InstallerError("forward port is occupied")
+        return subprocess.CompletedProcess(argv, 0, output, "")
+
+    def continuation(self, **kwargs):
+        arguments = dict(cache_root=self.cache, state_root=self.state_root, install_id="test",
+                         release_tag=self.tag, fastboot_bin="fake-fastboot", adb_bin="fake-adb",
+                         fastboot_serial="auto", slots="both", fastboot_timeout=2, adb_timeout=2,
+                         local_port=18080, open_browser=False, execute_hardware=True)
+        arguments.update(kwargs)
+        return INSTALLER.continue_one_shot(**arguments)
+
+    def assert_readonly_recovery(self):
+        self.assertFalse(any(set(c) & {"push", "flash", "erase", "reboot"} for c in self.calls), self.calls)
+        self.format.assert_not_called()
+        self.tools.assert_not_called()
+        self.amonet.assert_not_called()
+        self.raw_run.assert_not_called()
+
+    def test_completed_staging_and_completed_forward_are_readonly_resumable(self):
+        shutil.rmtree(self.release)
+        for phase in ("FEATURES_STAGED", "WEBUI_FORWARDED"):
+            with self.subTest(phase=phase):
+                self.save_state(phase=phase)
+                self.calls.clear()
+                self.assertEqual(self.continuation()["phase"], "WEBUI_FORWARDED")
+                self.assertEqual(self.calls[-1], ["fake-adb", "-s", "SERIAL", "forward", "tcp:18080", "tcp:8080"])
+                reads = [c for c in self.calls if c[3:5] == ["shell", "sha256sum"]]
+                self.assertEqual(len(reads), 12)  # Both boot slots plus all five payload/manifest pairs.
+                self.assert_readonly_recovery()
+                self.assertEqual(INSTALLER._read_state(self.state_path)["device_serial"], "SERIAL")
+
+    def test_fresh_one_shot_forward_failure_resumes_without_repeating_installation(self):
+        self.state_path.unlink(missing_ok=True)  # a genuine fresh install, not a re-run over FEATURES_STAGED
+        self.forward_fails = True
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
+            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache, state_root=self.state_root,
+                               install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
+                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True, open_browser=False, target="radar_puffin")
+        self.format.assert_called_once()
+        self.amonet.assert_called_once()  # locked fixture: brick step runs once (mocked)
+        self.assertEqual([c[c.index("flash") + 1] for c in self.calls if "flash" in c], ["boot_a", "boot_b"])
+        saved = INSTALLER._read_state(self.state_path)
+        self.assertEqual(saved["phase"], "FEATURES_STAGED")
+        self.assertEqual((saved["device_serial"], saved["slots"], saved["userdata_formatted"]), ("SERIAL", "both", True))
+        self.forward_fails = False
+        shutil.rmtree(self.release)
+        self.calls.clear()
+        for mocked in (self.tools, self.format, self.amonet, self.raw_run):
+            mocked.reset_mock()
+        self.assertEqual(self.continuation(local_port=18081)["url"], "http://127.0.0.1:18081/setup.html")
+        self.assert_readonly_recovery()
+
+    def test_mismatched_device_release_slots_or_bundle_never_reaches_device(self):
+        for kwargs in ({"fastboot_serial": "OTHER"}, {"release_tag": "radar-puffin-v0.13.15"}, {"slots": "a"}, {"local_port": 1}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(INSTALLER.InstallerError):
+                self.continuation(**kwargs)
+        self.save_state(bundle_sha256="f" * 64)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "bundle hash changed"):
+            self.continuation()
+        self.assertEqual(self.calls, [])
+        self.assert_readonly_recovery()
+
+    def test_device_disappearance_boot_change_or_incomplete_features_stop_before_forward(self):
+        for attribute, value in (("device", "OTHER"), ("bad_boot", True), ("bad_manifest", True), ("staging_present", True)):
+            with self.subTest(attribute=attribute):
+                self.save_state()
+                self.calls.clear()
+                old = getattr(self, attribute)
+                setattr(self, attribute, value)
+                with self.assertRaises(INSTALLER.InstallerError):
+                    self.continuation()
+                setattr(self, attribute, old)
+                self.assertFalse(any("forward" in c for c in self.calls))
+                self.assert_readonly_recovery()
+
+    def test_boot_written_can_resume_at_adb_without_another_flash(self):
+        self.save_state(phase="BOOT_WRITTEN")
+        self.assertEqual(self.continuation()["phase"], "WEBUI_FORWARDED")
+        self.assertTrue(any("push" in c for c in self.calls))
+        self.assertFalse(any(set(c) & {"flash", "erase", "reboot"} for c in self.calls))
+        self.format.assert_not_called()
+        self.tools.assert_not_called()
+
+    def test_first_boot_adb_timeout_leaves_boot_written_for_continuation(self):
+        # Platform#232: the timeout must not advance or discard state, so --continue can finish.
+        self.state_path.unlink(missing_ok=True)
+        with mock.patch.object(INSTALLER, "wait_for_transport",
+                               side_effect=INSTALLER.InstallerError("timed out waiting for ADB")), \
+                self.assertRaisesRegex(INSTALLER.InstallerError, "--continue --fastboot-serial SERIAL"):
+            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache,
+                               state_root=self.state_root, install_id="test", release_tag=self.tag,
+                               fastboot_bin="fake-fastboot", adb_bin="fake-adb", fastboot_serial="auto",
+                               execute_hardware=True, open_browser=False, target="radar_puffin")
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BOOT_WRITTEN")
+
+    def test_fastboot_ready_reuses_the_recorded_userdata_format(self):
+        self.save_state(phase="FASTBOOT_READY")
+        self.assertEqual(self.continuation()["phase"], "WEBUI_FORWARDED")
+        self.format.assert_not_called()
+        self.assertEqual([c[4] for c in self.calls if len(c) > 4 and c[3] == "flash"], ["boot_a", "boot_b"])
+
+    def test_legacy_state_requires_explicit_device_and_completed_staging_cannot_format(self):
+        legacy = {k: v for k, v in self.base_state.items() if k not in {"device_serial", "slots"}}
+        self.state_path.write_text(json.dumps(legacy))
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "legacy state has no device binding"):
+            self.continuation()
+        self.assertEqual(self.continuation(fastboot_serial="SERIAL")["phase"], "WEBUI_FORWARDED")
+        self.assert_readonly_recovery()
+        self.save_state(userdata_formatted=False)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "refusing destructive repair"):
+            self.continuation(repair_userdata=True)
+        self.format.assert_not_called()
+
+    def test_concurrent_installer_is_rejected_before_commands(self):
+        with (self.cache / ".lock").open("w") as lock:
+            INSTALLER.fcntl.flock(lock.fileno(), INSTALLER.fcntl.LOCK_EX | INSTALLER.fcntl.LOCK_NB)
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "already running"):
+                self.continuation()
+        self.assertEqual(self.calls, [])
+
+    def test_state_binding_is_not_inherited_by_a_different_bundle_or_new_install(self):
+        for changes in ({"bundle_sha256": "f" * 64}, {"phase": "RELEASE_READY"}):
+            self.save_state()
+            update = {k: self.base_state[k] for k in ("phase", "release", "bundle_sha256")}
+            INSTALLER._write_state(self.state_path, {**update, **changes})
+            state = INSTALLER._read_state(self.state_path)
+            self.assertNotIn("device_serial", state)
+            self.assertNotIn("userdata_formatted", state)
+
+    def test_missing_hardware_consent_does_not_touch_device(self):
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "execute-hardware"):
+            self.continuation(execute_hardware=False)
+        self.assertEqual(self.calls, [])
+
+
+
+
+class BrickLatchTests(OneShotContinuationTests):
+    """Durable pre-submission latch: a brick is sent at most once and never repeated on resume."""
+
+    def setUp(self):
+        super().setUp()
+        self.state_path.unlink()  # fresh device: the base FEATURES_STAGED fixture is for continuation only
+
+    def one_shot_fresh(self, **kwargs):
+        arguments = dict(cache_root=self.cache, state_root=self.state_root, install_id="test",
+                         release_tag=self.tag, fastboot_bin="fake-fastboot", adb_bin="fake-adb",
+                         fastboot_serial="auto", execute_hardware=True, open_browser=False,
+                         target="radar_puffin", fastboot_timeout=0.2, brick_timeout=0.2)
+        arguments.update(kwargs)
+        return INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", **arguments)
+
+    def test_latch_is_durably_persisted_before_the_brick_is_submitted(self):
+        observed = {}
+
+        def brick(*args, **kwargs):
+            observed["raw"] = json.loads(self.state_path.read_text())
+            self.unlocked = True  # device enumerates unlocked after the brick
+            return "accepted"
+
+        self.amonet.side_effect = brick
+        self.one_shot_fresh()
+        latch = observed["raw"]
+        self.assertEqual(latch["phase"], "BRICK_SUBMITTED")
+        self.assertEqual(latch["device_serial"], "SERIAL")
+        self.assertEqual(latch["board"], "radar_puffin")
+        self.assertEqual(latch["release"], self.tag)
+        self.assertEqual(latch["bundle_sha256"], self.base_state["bundle_sha256"])
+        self.assertRegex(latch["payload_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_unknown_brick_outcome_that_never_unlocks_keeps_latch_and_never_resends(self):
+        self.amonet.side_effect = lambda *a, **k: "unknown"
+        self.unlocked = False
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "not re-sending|continue-one-shot"):
+            self.one_shot_fresh(fastboot_timeout=0.05)
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BRICK_SUBMITTED")
+        self.format.assert_not_called()
+        self.assertEqual(self.amonet.call_count, 1)
+        self.assertEqual(self.wait.call_count, 1)  # reconciliation was attempted from device facts
+
+    def test_unknown_brick_outcome_is_reconciled_automatically_when_device_unlocks(self):
+        def brick(*args, **kwargs):
+            self.unlocked = True  # the timeout hid a success: the device enumerates unlocked
+            return "unknown"
+
+        self.amonet.side_effect = brick
+        self.assertEqual(self.one_shot_fresh()["phase"], "WEBUI_FORWARDED")
+        self.assertEqual(self.amonet.call_count, 1)  # reconciled, never re-sent
+        self.format.assert_called_once()
+
+    def test_fresh_one_shot_refuses_unresolved_marker_from_another_release_without_discarding_it(self):
+        other = "radar-puffin-v0.13.15"
+        self.save_state(phase="BRICK_SUBMITTED", release=other, bundle_sha256="f" * 64,
+                        board="radar_puffin", device_serial="SERIAL", payload_sha256="a" * 64)
+        before = self.state_path.read_text()
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "continue-one-shot"):
+            self.one_shot_fresh()
+        self.amonet.assert_not_called()
+        self.format.assert_not_called()
+        self.assertEqual(self.state_path.read_text(), before)
+
+    def test_fresh_one_shot_refuses_completed_installation_without_repeating_format(self):
+        for phase in ("AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED"):
+            with self.subTest(phase=phase):
+                self.save_state(phase=phase, userdata_formatted=True)
+                self.calls.clear()
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "continue-one-shot"):
+                    self.one_shot_fresh()
+                self.format.assert_not_called()
+                self.amonet.assert_not_called()
+                self.assertFalse(any(set(c) & {"flash", "reboot"} for c in self.calls), self.calls)
+                self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], phase)
+
+    def test_new_install_id_is_the_explicit_intent_for_a_separate_installation(self):
+        self.save_state(phase="WEBUI_FORWARDED", userdata_formatted=True)
+        self.assertEqual(self.one_shot_fresh(install_id="second")["phase"], "WEBUI_FORWARDED")
+        self.format.assert_called_once()
+        self.assertEqual(INSTALLER._read_state(INSTALLER._state_path(self.state_root, "test"))["phase"], "WEBUI_FORWARDED")
+
+    def test_post_brick_handoff_threads_the_explicit_target_override(self):
+        self.one_shot_fresh(target="radar_puffin")
+        self.assertEqual(self.wait.call_args.kwargs.get("override"), "radar_puffin")
+
+    def test_post_brick_handoff_keeps_bound_serial_and_board_in_later_states(self):
+        observed = {}
+
+        def capture(*args, **kwargs):
+            observed["state"] = INSTALLER._read_state(self.state_path)
+
+        self.format.side_effect = capture
+        self.one_shot_fresh()
+        self.assertEqual((observed["state"]["phase"], observed["state"]["board"], observed["state"]["device_serial"]),
+                         ("AMONET_HANDOFF", "radar_puffin", "SERIAL"))
+
+    def test_continuation_threads_explicit_target_into_unreconciled_handoff(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64,
+                        userdata_formatted=False)
+        self.unlocked = True
+        self.continuation(fastboot_timeout=0.2, target="radar_puffin")
+        self.assertEqual(self.wait.call_args.kwargs.get("override"), "radar_puffin")
+
+    def test_restarting_one_shot_over_an_interrupted_brick_never_rebricks_or_formats(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64,
+                        userdata_formatted=False)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "continue-one-shot"):
+            self.one_shot_fresh()
+        self.amonet.assert_not_called()
+        self.format.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BRICK_SUBMITTED")
+
+    def test_legacy_amonet_verified_state_is_reconcile_only_and_never_bricks(self):
+        self.save_state(phase="AMONET_VERIFIED")
+        self.unlocked = False
+        with self.assertRaises(INSTALLER.InstallerError):
+            self.one_shot_fresh()
+        self.amonet.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "AMONET_VERIFIED")
+
+    def test_continuation_reconciles_submitted_brick_from_unlocked_device_without_rebrick(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64,
+                        userdata_formatted=False)
+        self.unlocked = True
+        self.assertEqual(self.continuation(fastboot_timeout=0.2)["phase"], "WEBUI_FORWARDED")
+        self.amonet.assert_not_called()
+        self.format.assert_called_once()
+
+    def test_continuation_refuses_still_locked_submitted_brick_without_rebrick(self):
+        self.save_state(phase="BRICK_SUBMITTED", board="radar_puffin", payload_sha256="a" * 64)
+        self.unlocked = False
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "not re-sending the brick"):
+            self.continuation(fastboot_timeout=0.2)
+        self.amonet.assert_not_called()
+        self.format.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "BRICK_SUBMITTED")
+
+    def test_legacy_amonet_verified_continuation_resumes_only_after_device_proves_unlock(self):
+        self.save_state(phase="AMONET_VERIFIED")
+        self.unlocked = False
+        with self.assertRaises(INSTALLER.InstallerError):
+            self.continuation(fastboot_timeout=0.2)
+        self.amonet.assert_not_called()
+        self.unlocked = True
+        self.assertEqual(self.continuation(fastboot_timeout=0.2)["phase"], "WEBUI_FORWARDED")
+        self.amonet.assert_not_called()
+
+    def test_stale_empty_download_directory_does_not_shadow_verified_cache(self):
+        shutil.rmtree(self.release)
+        (self.cache / "downloads" / self.tag).mkdir(parents=True)
+        self.save_state(phase="FEATURES_STAGED")
+        self.assertEqual(self.continuation()["phase"], "WEBUI_FORWARDED")
+
+
+class UserdataRegressionIntegrationTests(unittest.TestCase):
+    def test_userdata_regression_suite(self):
+        import subprocess
+        import sys
+        from pathlib import Path
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / 'test_userdata_sparse.py'),
+             '--require-filesystem-tools', "-v"],
+            text=True, capture_output=True, timeout=900,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

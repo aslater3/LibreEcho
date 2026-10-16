@@ -3,6 +3,10 @@ import argparse
 import json
 import re
 from pathlib import Path
+if __package__:
+    from .target_registry import parse_targets
+else:
+    from target_registry import parse_targets
 
 
 def route(request, branch, event):
@@ -16,7 +20,10 @@ def route(request, branch, event):
     channel = request.get('channel')
     if channel != ('stable' if purpose == 'prd' else 'dev'):
         raise ValueError('purpose/channel mismatch')
-    if event not in ('push', 'workflow_dispatch'):
+    targets = parse_targets(request.get('targets', ['radar_puffin']))
+    if 'board' in request and request['board'] not in targets:
+        raise ValueError('release request target mismatch')
+    if event not in ('push', 'schedule', 'workflow_dispatch'):
         raise ValueError('unsupported publication event')
     release = re.fullmatch(r'release/(\d+\.\d+\.\d+)', branch)
     if branch != 'main' and not release:
@@ -33,7 +40,7 @@ def route(request, branch, event):
         version = release.group(1)
         if request.get('version') != version or request.get('release_tag') != 'radar-puffin-v' + version:
             raise ValueError('stable identity mismatch')
-        for key in ('release_notes', 'amonet_repository', 'amonet_tag', 'amonet_commit', 'ssh_enabled'):
+        for key in ('release_notes', 'ssh_enabled'):
             if not request.get(key):
                 raise ValueError('missing stable field: ' + key)
         return 'stable'

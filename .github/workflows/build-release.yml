@@ -15,6 +15,11 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
+      targets:
+        description: Comma-separated known targets (radar_puffin or radar_puffin,biscuit)
+        required: true
+        default: radar_puffin
+        type: string
       build_purpose:
         description: Build lane (sandbox never publishes)
         required: true
@@ -30,26 +35,22 @@ on:
       ssh_enabled:
         description: Include password-authenticated root SSH in the image
         required: true
-        default: disabled
+        default: enabled
         type: choice
         options: [disabled, enabled]
       release_version:
         description: Stable SemVer version, for example 0.14.0
         required: false
         type: string
-      amonet_repository:
-        description: Reviewed Amonet repository for the installer manifest
+      ota_format:
+        description: Immutable whole target-state OTA contract
         required: false
-        default: https://github.com/aslater3/amonet-k32
-        type: string
-      amonet_tag:
-        description: Reviewed Amonet tag for the installer manifest
+        default: v3
+        type: choice
+        options: [v3]
+      ota_release:
+        description: Target-state version (defaults to release branch version)
         required: false
-        type: string
-      amonet_commit:
-        description: Reviewed Amonet commit for the installer manifest
-        required: false
-        default: dfefe52f0eed7296012707cfff1f753b0ea33257
         type: string
 
 permissions:
@@ -78,17 +79,21 @@ jobs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       ssh_enabled: ${{ steps.resolve.outputs.ssh_enabled }}
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
+      ota_format: ${{ steps.resolve.outputs.ota_format }}
+      ota_release: ${{ steps.resolve.outputs.ota_release }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
       - id: resolve
         env:
           PRODUCT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
           BUILD_PURPOSE_INPUT: ${{ inputs.build_purpose || '' }}
           SANDBOX_SIGNING_INPUT: ${{ inputs.sandbox_signing || '' }}
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
-          AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
+          OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v3' }}
+          OTA_RELEASE_INPUT: ${{ inputs.ota_release || inputs.release_version || '' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -159,34 +164,71 @@ jobs:
               [[ "$release_notes_title" == "# LibreEcho radar-puffin v${RELEASE_VERSION}" ]] || {
                 echo "ERROR: stable release-notes title must match the requested version" >&2; exit 1;
               }
-              [[ -n "$AMONET_TAG" ]] || {
-                echo "ERROR: stable releases require an amonet_tag input" >&2; exit 1;
-              }
               ;;
             *) echo "ERROR: unsupported build purpose: $PURPOSE" >&2; exit 1 ;;
           esac
+          # Resolve the target version without any baseline input.
+          if [[ -z "$OTA_RELEASE_INPUT" ]]; then
+            ref="${GITHUB_BASE_REF:-$GITHUB_REF_NAME}"
+            if [[ "$ref" == release/* ]]; then
+              OTA_RELEASE_INPUT="${ref#release/}"
+            else
+              OTA_RELEASE_INPUT=0.14.0
+            fi
+          fi
+          [[ "$OTA_FORMAT_INPUT" == v3 ]] || { echo "ERROR: new releases require v3" >&2; exit 1; }
+          [[ "$OTA_RELEASE_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid target version" >&2; exit 1; }
+          printf 'ota_format=v3\nota_release=%s\n' "$OTA_RELEASE_INPUT" >> "$GITHUB_OUTPUT"
           case "$SSH_ENABLED_INPUT" in
             disabled) SSH_ENABLED=0 ;;
             enabled) SSH_ENABLED=1 ;;
             *) echo "ERROR: unsupported ssh_enabled input: $SSH_ENABLED_INPUT" >&2; exit 1 ;;
           esac
           component_ref=main
+          platform_ref=main
+          linux_ref=main
+          ui_ref=main
           if [[ "$GITHUB_EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == release/* ]]; then
             component_ref="$GITHUB_BASE_REF"
+            platform_ref="$component_ref"
+            linux_ref="$component_ref"
+            ui_ref="$component_ref"
+            # A narrowly scoped same-repository integration lane. Resolve the
+            # matching sibling candidates once, then use these exact SHAs in
+            # BOTH contract checks and the image. Release pushes/dispatches
+            # never enter this lane; forks cannot select owner-local fixes.
+            if [[ "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" &&
+                  "$GITHUB_BASE_REF" == release/0.14.0 &&
+                  "$GITHUB_HEAD_REF" == fix/forward-port-01314 ]]; then
+              platform_ref="$GITHUB_HEAD_REF"
+              linux_ref="$GITHUB_HEAD_REF"
+              ui_ref="$GITHUB_HEAD_REF"
+            elif [[ "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" &&
+                    "$GITHUB_HEAD_REF" == feature/*-product ]]; then
+              candidate_stem="${GITHUB_HEAD_REF%-product}"
+              platform_ref="${candidate_stem}-platform"
+              ui_ref="${candidate_stem}-ui"
+            fi
           elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
             component_ref="$GITHUB_REF_NAME"
+            platform_ref="$component_ref"
+            linux_ref="$component_ref"
+            ui_ref="$component_ref"
           fi
-          if [[ "$component_ref" != main ]]; then
-            for component in LibreEcho-Platform LibreEcho-Linux-6.1 LibreEcho-UI; do
-              git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$component_ref" >/dev/null || {
-                echo "ERROR: coordinated component ref is missing: $component:$component_ref" >&2
-                exit 1
-              }
-            done
-          fi
-          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$component_ref" | cut -f1)
-          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$component_ref" | cut -f1)
-          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$component_ref" | cut -f1)
+          for ref_spec in \
+            "LibreEcho-Platform:$platform_ref" \
+            "LibreEcho-Linux-6.1:$linux_ref" \
+            "LibreEcho-UI:$ui_ref"; do
+            component="${ref_spec%%:*}"
+            ref_name="${ref_spec#*:}"
+            git ls-remote --exit-code "https://github.com/aslater3/$component.git" "refs/heads/$ref_name" >/dev/null || {
+              echo "ERROR: coordinated component ref is missing: $component:$ref_name" >&2
+              exit 1
+            }
+          done
+          p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$platform_ref" | cut -f1)
+          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$linux_ref" | cut -f1)
+          u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$ui_ref" | cut -f1)
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
             --channel "$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
@@ -202,33 +244,86 @@ jobs:
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           else
-            printf 'release_tag=\n' >> "$GITHUB_OUTPUT"
+            source_id="$(printf '%s\n' "$PRODUCT_SHA" "$p" "$l" "$u" | sha256sum | cut -c1-16)"
+            build_id="$(printf '%s:%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | sha256sum | cut -c1-16)"
+            kind=build
+            [[ "$GITHUB_EVENT_NAME" != schedule ]] || kind=nightly
+            printf 'release_tag=radar-puffin-%s-%s-%s-%s\n' "$kind" "${PRODUCT_SHA:0:7}" "$source_id" "$build_id" >> "$GITHUB_OUTPUT"
           fi
 
   contract-checks:
     name: Product pipeline contract checks
+    needs: resolve-and-preflight
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: aslater3/LibreEcho-Platform
+          ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          path: platform-source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
+      - name: Install reviewed Product gate dependencies
+        run: |
+          set -euo pipefail
+          wheelhouse="$GITHUB_WORKSPACE/build/inputs/reviewed/python-wheels"
+          test -f "$wheelhouse/requirements.txt"
+          test -f "$wheelhouse/PyNaCl-1.5.0-cp36-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/cffi-1.17.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          test -f "$wheelhouse/pycparser-2.22-py3-none-any.whl"
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --find-links "$wheelhouse" \
+            --require-hashes \
+            --requirement "$wheelhouse/requirements.txt"
+      - name: Fetch legacy generator commit for parity checks
+        run: |
+          set -euo pipefail
+          # The legacy Radar golden test compares generated metadata/names with
+          # the generator from before the pinned-archive installer manifest. It
+          # is pinned to an exact commit, not a branch tip: release/0.14.0 now
+          # contains the new generator, so the tip no longer is the baseline.
+          # The default shallow checkout lacks that commit, so fetch it
+          # explicitly rather than weakening the comparison.
+          git fetch --no-tags --depth=1 origin c48fe070f38bd2c974257656961918254848758b
+          git cat-file -e c48fe070f38bd2c974257656961918254848758b^{commit}
       - name: Run maintained Product pipeline suites
+        env:
+          LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source
+          LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python -B -m unittest -v \
             build.tests.test_component_cache \
             build.tests.test_prepare_dev_release \
+            build.tests.test_fetch_ota_base \
+            build.tests.test_release_completeness \
+            build.tests.test_marker_contract \
+            build.tests.test_multi_target \
             build.tests.test_release_route \
             build.tests.test_publish_dev_pointer \
+            build.tests.test_publish_v3_pointer \
+            build.tests.test_target_manifest \
+            build.tests.test_ota_v3_release \
+            build.tests.test_ota_v2_signing \
+            build.tests.test_ota_v2_complete_gate \
             build.tests.test_public_inputs \
+            build.tests.test_ui_mbedtls_pipeline \
+            build.tests.test_ui_opus_pipeline \
             build.tests.test_public_neural_deps \
             build.tests.test_release_packaging \
             build.tests.test_generate_release_notes \
             build.tests.test_resolve_source_set \
+            build.tests.test_release_candidate_selection \
+            tools.test_shared_mdns_packages \
             tools.test_build_release_workflow \
-            tools.test_brom_preflight \
+            tools.test_fastbrick_gate \
             tools.test_initial_installer_publication \
             tools.test_oneshot_host_preflight \
             tools.test_release_tools
@@ -245,7 +340,7 @@ jobs:
     outputs:
       armhf_root_digest: ${{ steps.armhf-pkg.outputs.armhf_root_digest }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
 
       # --- Layer 1: fetched public inputs, keyed by the inventory digest ---
@@ -388,6 +483,74 @@ jobs:
           path: ${{ runner.temp }}/public-deps/neural
           key: libreecho-neural-deps-v1-${{ runner.os }}-${{ steps.armhf-id.outputs.armhf_cc_sha256 }}-${{ steps.armhf-pkg.outputs.armhf_root_digest }}-${{ hashFiles('build/ci/build-public-neural-deps.sh', 'build/inputs/public-inputs.json') }}
 
+      # --- Layer 4: exact shared mDNS package archives. The lock holds the ---
+      # --- exact binary versions and archive hashes; acquisition is public, ---
+      # --- version-pinned, and never uses the ambient archive resolution.  ---
+      - name: Restore exact shared mDNS package cache
+        id: restore-mdns
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/mdns-packages
+          key: libreecho-mdns-packages-v1-${{ runner.os }}-${{ hashFiles('build/inputs/mdns-packages.lock.json', 'build/ci/mdns_runtime.py') }}
+      - name: Acquire exact shared mDNS dependency packages
+        if: steps.restore-mdns.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # Public ports.ubuntu.com acquisition, exactly like the ARMHF sysroot
+          # and toolchain layers, but with fully isolated apt lists, archive
+          # cache, and an empty dpkg status file: the runner's own package
+          # database is never read or written, and apt installs nothing.
+          apt_root="$RUNNER_TEMP/mdns-apt"
+          archives="$RUNNER_TEMP/mdns-packages"
+          rm -rf "$apt_root" "$archives"
+          mkdir -p "$apt_root/lists/partial" "$archives"
+          printf '%s\n' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted' \
+            'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe multiverse restricted' \
+            > "$RUNNER_TEMP/mdns.sources.list"
+          empty_status="$RUNNER_TEMP/mdns-apt-status"
+          : > "$empty_status"
+          apt_opts=(
+            -o Dir::Etc::sourcelist="$RUNNER_TEMP/mdns.sources.list"
+            -o Dir::Etc::sourceparts=-
+            -o Dir::State::lists="$apt_root/lists"
+            -o Dir::Cache::archives="$archives"
+            -o Dir::State::status="$empty_status"
+            -o APT::Architecture=armhf
+            -o APT::Install-Recommends=false
+          )
+          apt-get "${apt_opts[@]}" update
+          # The lock, not the archive's live dependency resolution, selects the
+          # exact package versions: every acquisition is pinned name=version.
+          mapfile -t pins < <(python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json)
+          ((${#pins[@]} > 0)) || { echo "ERROR: shared mDNS package lock is empty" >&2; exit 1; }
+          cd "$archives"
+          # The mirror drops superseded -updates versions; a pin it no longer
+          # serves is fetched by exact locked SHA-256 from Launchpad below.
+          for pin in "${pins[@]}"; do
+            apt-get download "${apt_opts[@]}" "$pin" || echo "mirror no longer serves $pin"
+          done
+          cd "$GITHUB_WORKSPACE"
+          python3 build/ci/mdns_runtime.py fetch-missing \
+            --lock build/inputs/mdns-packages.lock.json --archives "$archives"
+          cd "$RUNNER_TEMP"
+      - name: Save exact shared mDNS package cache
+        if: success() && steps.restore-mdns.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ runner.temp }}/mdns-packages
+          key: libreecho-mdns-packages-v1-${{ runner.os }}-${{ hashFiles('build/inputs/mdns-packages.lock.json', 'build/ci/mdns_runtime.py') }}
+      - name: Record exact shared mDNS package provenance
+        run: |
+          set -euo pipefail
+          # Runs on both the cold and restored paths: a restored cache is re-hashed
+          # against the committed lock before it may be consumed downstream.
+          mkdir -p "$RUNNER_TEMP/mdns-packages-provenance"
+          python3 build/ci/mdns_runtime.py verify \
+            --lock build/inputs/mdns-packages.lock.json \
+            --archives "$RUNNER_TEMP/mdns-packages" \
+            --source-map "$RUNNER_TEMP/mdns-packages-provenance/mdns-packages-source-map.json"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: public-deps-${{ needs.resolve-and-preflight.outputs.source_set_id }}
@@ -404,6 +567,16 @@ jobs:
           name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/armhf-root
           if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mdns-packages-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/mdns-packages
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mdns-packages-provenance-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/mdns-packages-provenance
+          if-no-files-found: error
 
 
   build-image:
@@ -414,19 +587,19 @@ jobs:
       name: ${{ (needs.resolve-and-preflight.outputs.signing_mode == 'local' || needs.resolve-and-preflight.outputs.ssh_enabled == '1') && (needs.resolve-and-preflight.outputs.channel == 'stable' && 'stable-release' || 'dev-release') || 'dev-build' }}
     permissions: {contents: read}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: aslater3/LibreEcho-Platform
           ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
           path: sources/platform
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: aslater3/LibreEcho-Linux-6.1
           ref: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
@@ -439,14 +612,14 @@ jobs:
           epoch="$(git -C sources/linux show -s --format=%ct HEAD)"
           git -C sources/linux ls-files -z |
             (cd sources/linux && xargs -0 touch -h -d "@$epoch" --)
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: aslater3/LibreEcho-UI
           ref: ${{ needs.resolve-and-preflight.outputs.ui_sha }}
           path: sources/ui
           fetch-depth: 1
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: aslater3/LibreEcho
           ref: ${{ needs.resolve-and-preflight.outputs.product_sha }}
@@ -465,7 +638,11 @@ jobs:
         with:
           name: armhf-root-${{ needs.resolve-and-preflight.outputs.source_set_id }}
           path: ${{ runner.temp }}/armhf-root
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: mdns-packages-${{ needs.resolve-and-preflight.outputs.source_set_id }}
+          path: ${{ runner.temp }}/mdns-packages
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
       - name: Install reviewed OTA signing dependency closure
@@ -485,6 +662,48 @@ jobs:
             --find-links "$wheelhouse" \
             --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
+      - name: Install the pinned mbedTLS build interpreter
+        run: |
+          set -euo pipefail
+          # The Platform mbedTLS builder regenerates the PSA driver wrappers
+          # from the bundled Jinja templates, so it needs the exact jinja2 and
+          # jsonschema versions recorded in its SOURCE.lock.  The closure is
+          # installed from the reviewed wheel set only: --no-index plus
+          # --require-hashes refuses any package that is not the reviewed file,
+          # and the closure pins cp311 wheels, so the interpreter is checked
+          # before anything is installed.
+          wheelhouse="$RUNNER_TEMP/public-deps/python-wheels"
+          venv="$RUNNER_TEMP/mbedtls-build-venv"
+          test -f "$wheelhouse/mbedtls-build-requirements.txt"
+          test -f "$wheelhouse/jinja2-3.1.6-py3-none-any.whl"
+          test -f "$wheelhouse/jsonschema-4.25.1-py3-none-any.whl"
+          python - <<'PY'
+          import sys
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit(
+                  "ERROR: the reviewed mbedTLS build wheel closure targets "
+                  "CPython 3.11, found " + ".".join(map(str, sys.version_info[:3]))
+              )
+          PY
+          rm -rf "$venv"
+          python -m venv "$venv"
+          "$venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-index \
+            --find-links "$wheelhouse" \
+            --require-hashes \
+            --requirement "$wheelhouse/mbedtls-build-requirements.txt"
+          "$venv/bin/python" - <<'PY'
+          import importlib.metadata as metadata
+          for module, expected in (("jinja2", "3.1.6"), ("jsonschema", "4.25.1")):
+              actual = metadata.version(module)
+              if actual != expected:
+                  raise SystemExit(
+                      "ERROR: pinned mbedTLS build requirement mismatch: "
+                      f"{module}: expected {expected}, found {actual}"
+                  )
+          print("mbedTLS build interpreter ready")
+          PY
       - name: Verify stable UI version marker
         if: needs.resolve-and-preflight.outputs.channel == 'stable'
         env:
@@ -512,9 +731,17 @@ jobs:
           SSH_ROOT_PASSWORD_HASH: ${{ secrets.LIBREECHO_SSH_ROOT_PASSWORD_HASH }}
         run: |
           set -euo pipefail
-          test -n "$SSH_ROOT_PASSWORD_HASH"
+          # Enabling SSH ships the bundle and starts the supervisor; the root
+          # password is optional.  Without the secret this writes an empty file
+          # so the build-local path stays valid, and the image then carries no
+          # root password at all: credentials come from the users database that
+          # setup writes.
           umask 077
-          printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
+          if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then
+            printf '%s\n' "$SSH_ROOT_PASSWORD_HASH" >"$RUNNER_TEMP/ssh-root-password-hash"
+          else
+            : >"$RUNNER_TEMP/ssh-root-password-hash"
+          fi
       - name: Derive reviewed TTS voice models
         run: |
           set -euo pipefail
@@ -703,6 +930,44 @@ jobs:
           [[ "$copyright_count" -gt 0 ]] || { echo "ERROR: AirPlay sysroot has no copyright records" >&2; exit 1; }
           echo "airplay sysroot staged: $copyright_count copyright records"
 
+      - name: Build and verify the shared mDNS discovery runtime
+        run: |
+          set -euo pipefail
+          # The shared discovery runtime is boot-contained and independent of
+          # AirPlay feature selection: Home Assistant discovery must not require
+          # an AirPlay installation, so this component is built and verified
+          # unconditionally, from the exact package lock, and never through the
+          # AirPlay sysroot.  The Platform builder extracts the locked packages;
+          # the independent verifier pins the runtime to its own manifest
+          # identity; the Product closure gate fails closed unless every locked
+          # package carries a distribution notice record and every distinct
+          # source package has a public corresponding-source offer.
+          builder="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/mdns/build_runtime.py"
+          verifier="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/mdns/verify_runtime.py"
+          [[ -f "$builder" && ! -L "$builder" ]] || {
+            echo "ERROR: Platform shared mDNS runtime builder is missing: $builder" >&2; exit 1;
+          }
+          [[ -f "$verifier" && ! -L "$verifier" ]] || {
+            echo "ERROR: Platform shared mDNS runtime verifier is missing: $verifier" >&2; exit 1;
+          }
+          runtime="$RUNNER_TEMP/mdns-runtime"
+          rm -rf "$runtime"
+          python3 -B "$builder" \
+            --archives "$RUNNER_TEMP/mdns-packages" \
+            --lock build/inputs/mdns-packages.lock.json \
+            --output "$runtime"
+          manifest_sha256="$(sha256sum "$runtime/manifest.json" | awk '{print $1}')"
+          python3 -B "$verifier" \
+            --runtime "$runtime" --manifest-sha256 "$manifest_sha256"
+          python3 build/ci/mdns_runtime.py closure \
+            --lock build/inputs/mdns-packages.lock.json \
+            --runtime "$runtime" \
+            --source-offers build/inputs/mdns-source-offers.json \
+            --manifest-sha256 "$manifest_sha256" \
+            --output "$RUNNER_TEMP/mdns-runtime-provenance.json"
+          printf 'mdns_runtime_manifest_sha256=%s\n' "$manifest_sha256" >> "$GITHUB_OUTPUT"
+        id: mdns-runtime
+
       - name: Stage qemu-arm-static for runtime contract checks
         run: |
           set -euo pipefail
@@ -723,6 +988,19 @@ jobs:
           install -m 0755 "$RUNNER_TEMP/qemu-root/usr/bin/qemu-arm-static" \
             "$RUNNER_TEMP/host-bin/qemu-arm-static"
           echo "$RUNNER_TEMP/host-bin" >> "$GITHUB_PATH"
+
+      - name: Run production shared mDNS startup under QEMU
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mdns_qemu_image="busybox@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f"
+          docker pull "$mdns_qemu_image"
+          python3 "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/mdns/test_packaged_runtime.py" \
+            --runtime "$RUNNER_TEMP/mdns-runtime" \
+            --manifest-sha256 "${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}" \
+            --init-wrapper "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/initramfs/libreecho-mdnsd" \
+            --qemu "$RUNNER_TEMP/host-bin/qemu-arm-static" \
+            --image "$mdns_qemu_image"
 
       - name: Stage device-tree tools for the DTB contract
         run: |
@@ -838,16 +1116,20 @@ jobs:
       # --- Layer 5: kernel object tree. Keyed by the exact locked kernel  ---
       # --- SHA plus the compiler and defconfig bytes: identical inputs    ---
       # --- restore the full object tree and make finishes in seconds.     ---
+      - name: Validate selected targets before cache restoration
+        env:
+          LIBREECHO_TARGETS: ${{ inputs.targets || 'radar_puffin' }}
+        run: python3 build/ci/validate-targets.py --targets "$LIBREECHO_TARGETS"
       - name: Compute kernel cache key
         id: kernel-key
         run: |
           set -euo pipefail
           compiler_sha="$(sha256sum "$RUNNER_TEMP/armhf-root/usr/bin/arm-linux-gnueabihf-gcc-13" | awk '{print $1}')"
-          printf 'kernel_key=libreecho-kernel-out-v1-%s-%s-%s-%s\n' \
+          printf 'kernel_key=libreecho-kernel-out-v2-parity-radar_puffin-biscuit-%s-%s-%s-%s\n' \
             "${{ needs.resolve-and-preflight.outputs.linux_sha }}" \
             "$compiler_sha" \
             "$(sha256sum sources/linux/arch/arm/configs/mt8163_arm32_defconfig | awk '{print $1}')" \
-            "${{ needs.prepare-public-inputs.outputs.armhf_root_digest }}" \
+            "${{ needs.prepare-public-inputs.outputs.armhf_root_digest }}-${{ hashFiles('release/targets/*.json') }}" \
             >> "$GITHUB_OUTPUT"
       - name: Restore kernel object cache
         id: restore-kernel
@@ -913,6 +1195,7 @@ jobs:
           }
           echo "$shim" >> "$GITHUB_PATH"
 
+
       - name: Build image and features
         env:
           # The staged ARMHF gcc/as/ld are dynamically linked against the
@@ -924,12 +1207,18 @@ jobs:
           LIBREECHO_TOOLING_SRC: ${{ github.workspace }}/sources/platform
           LIBREECHO_UI_SRC: ${{ github.workspace }}/sources/ui
           LIBREECHO_PRODUCT_SRC: ${{ github.workspace }}/sources/product
+          LIBREECHO_TARGETS: ${{ inputs.targets || 'radar_puffin' }}
           LIBREECHO_KERNEL_OUT: ${{ runner.temp }}/kernel-out
           LIBREECHO_COMPONENT_CACHE_ROOT: ${{ runner.temp }}/component-cache
           LIBREECHO_REUSE_COMPONENT_CACHE: "1"
           LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           LIBREECHO_OTA_SIGNING_MODE: ${{ needs.resolve-and-preflight.outputs.signing_mode }}
+          # Protected environment configuration, never a candidate field.
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           LIBREECHO_OTA_SIGNING_KEY: ${{ needs.resolve-and-preflight.outputs.signing_mode == 'local' && format('{0}/ota-signing-key.hex', runner.temp) || '' }}
+          LIBREECHO_OTA_FORMAT: ${{ needs.resolve-and-preflight.outputs.ota_format }}
+          LIBREECHO_OTA_RELEASE: ${{ needs.resolve-and-preflight.outputs.ota_release }}
+          LIBREECHO_TARGET_RELEASE_TAG: ${{ needs.resolve-and-preflight.outputs.release_tag }}
           LIBREECHO_SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
           LIBREECHO_SSH_ROOT_PASSWORD_HASH: ${{ needs.resolve-and-preflight.outputs.ssh_enabled == '1' && format('{0}/ssh-root-password-hash', runner.temp) || '' }}
           LIBREECHO_CORE_RUNTIME_SYSROOT: ${{ runner.temp }}/armhf-root/usr/arm-linux-gnueabihf
@@ -939,6 +1228,7 @@ jobs:
           # The musl builder resolves armv7-alpine-linux-musleabihf-* siblings
           # beside the compiler it is given; those copies live in usr/bin.
           LIBREECHO_MUSL_CROSS_PREFIX: ${{ runner.temp }}/toolchain/usr/bin/armv7-alpine-linux-musleabihf-
+          LIBREECHO_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_NATIVE_ROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_OTA_MUSL_SYSROOT: ${{ runner.temp }}/toolchain
           LIBREECHO_BUSYBOX_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/busybox-1.37.0.tar.bz2
@@ -949,6 +1239,13 @@ jobs:
           LIBREECHO_WIRELESS_REGDB_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/wireless-regdb-2025.10.07.tar.xz
           LIBREECHO_LIBSODIUM_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/libsodium-1.0.18.tar.gz
           LIBREECHO_ADBD_SOURCE: ${{ runner.temp }}/public-deps/aosp-system-core
+          # The production UI bundle links the pinned ARM32 Mbed TLS prefix:
+          # the reviewed source archive and the pinned wheel-closure
+          # interpreter are build inputs exactly like the other source-locked
+          # components.
+          LIBREECHO_OPUS_ARCHIVES_DIR: ${{ runner.temp }}/public-deps
+          LIBREECHO_MBEDTLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/mbedtls-3.6.4.tar.bz2
+          LIBREECHO_MBEDTLS_BUILD_PYTHON: ${{ runner.temp }}/mbedtls-build-venv/bin/python
           LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
           LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
           LIBREECHO_TTS_NORTHERN_MALE_MODEL: ${{ runner.temp }}/public-deps/northern-male.derived.onnx
@@ -964,6 +1261,11 @@ jobs:
           LIBREECHO_ESPEAK_SOURCE: ${{ runner.temp }}/public-deps/espeak-ng-source
           LIBREECHO_TTS_ESPEAK_DATA: ${{ runner.temp }}/public-deps/neural/espeak-ng-data
           LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot
+          # The shared discovery runtime is a separate, verified input: it is
+          # not the AirPlay sysroot and is not gated on AirPlay selection.
+          LIBREECHO_MDNS_RUNTIME_ROOT: ${{ runner.temp }}/mdns-runtime
+          LIBREECHO_MDNS_RUNTIME_SOURCE_MAP: ${{ runner.temp }}/mdns-runtime-provenance.json
+          LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256: ${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}
           LIBREECHO_AIRPLAY_CXX: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-g++
           LIBREECHO_AIRPLAY_ALSA_DATA: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/alsa
           LIBREECHO_AIRPLAY_ALSA_DATA_COPYRIGHT: ${{ runner.temp }}/public-deps/airplay-sysroot/usr/share/doc/libasound2-data/copyright
@@ -971,7 +1273,7 @@ jobs:
           LIBREECHO_FLITE_SOURCE: ${{ runner.temp }}/public-deps/flite-source
           LIBREECHO_FLITE_ROOT: ${{ runner.temp }}/public-deps/neural/flite-root
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
-        run: build/ci/build-public-release.sh --release-output image-and-features --no-publish
+        run: build/ci/build-public-release.sh --targets "$LIBREECHO_TARGETS" --release-output image-and-features --no-publish
 
       - name: Record release source commits
         env:
@@ -982,25 +1284,28 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
-          test "${#runs[@]}" -eq 1
+          test "${#runs[@]}" -ge 1
+          for run in "${runs[@]}"; do
           printf 'product=%s\nplatform=%s\nlinux=%s\nui=%s\n' \
             "$PRODUCT_SHA" "$PLATFORM_SHA" "$LINUX_SHA" "$UI_SHA" \
-            >"${runs[0]}/release-source-commits.txt"
+            >"$run/release-source-commits.txt"
+          done
 
       - name: Record release request and public OTA key
         env:
           BUILD_PURPOSE: ${{ needs.resolve-and-preflight.outputs.purpose }}
+          TARGETS: ${{ inputs.targets || 'radar_puffin' }}
           RELEASE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
           RELEASE_NOTES: ${{ needs.resolve-and-preflight.outputs.release_notes }}
-          AMONET_REPOSITORY: ${{ inputs.amonet_repository || '' }}
-          AMONET_TAG: ${{ inputs.amonet_tag || '' }}
-          AMONET_COMMIT: ${{ inputs.amonet_commit || '' }}
           SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
-          test "${#runs[@]}" -eq 1
+          test "${#runs[@]}" -ge 1
+          for run in "${runs[@]}"; do
+          install -m 0644 "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/ota/ota-public-key.hex" "$run/ota-public-key.hex"
+          done
           run="${runs[0]}"
           install -m 0644 \
             "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/ota/ota-public-key.hex" \
@@ -1011,14 +1316,12 @@ jobs:
               "schema": "libreecho-release-request-v1",
               "purpose": os.environ["BUILD_PURPOSE"],
               "publish": os.environ["BUILD_PURPOSE"] != "sandbox",
+              "targets": os.environ["TARGETS"].split(","),
               "channel": os.environ["RELEASE_CHANNEL"],
               "version": os.environ["RELEASE_VERSION"],
               "release_tag": (f"radar-puffin-v{os.environ['RELEASE_VERSION']}"
                               if os.environ["RELEASE_VERSION"] else ""),
               "release_notes": os.environ["RELEASE_NOTES"],
-              "amonet_repository": os.environ["AMONET_REPOSITORY"],
-              "amonet_tag": os.environ["AMONET_TAG"],
-              "amonet_commit": os.environ["AMONET_COMMIT"],
               "ssh_enabled": os.environ["SSH_ENABLED"],
           }, sort_keys=True) + "\n", encoding="utf-8")
           PY
@@ -1031,14 +1334,34 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
-          test "${#runs[@]}" -eq 1
+          test "${#runs[@]}" -ge 1
           src="$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/recovery-install"
           test -f "$src/build_install_bundle.py"
           test -f "$src/src/META-INF/com/google/android/update-binary"
           dest="${runs[0]}/twrp-builder"
           mkdir -p "$dest/src"
-          cp "$src/build_install_bundle.py" "$dest/"
+          cp "$src/"*.py "$dest/"
+          # Platform target registry is adjacent to the recovery builder.
+          # Preserve adjacent Python modules at the same relative import path.
+          cp "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/"*.py "${runs[0]}/"
           cp -r "$src/src/." "$dest/src/"
+
+      - name: Stage immutable target and gate fresh-install completeness
+        timeout-minutes: 15
+        env:
+          LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
+          LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/sources/platform
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -ge 1
+          for run in "${runs[@]}"; do
+            python3 build/ci/release_completeness.py stage --run "$run"
+            if [[ "${{ needs.resolve-and-preflight.outputs.signing_mode }}" == local ]]; then
+              python3 build/ci/release_completeness.py check \
+                --run "$run" --builder "${runs[0]}/twrp-builder"
+            fi
+          done
 
       - name: Name build artifact
         id: dev-build-name

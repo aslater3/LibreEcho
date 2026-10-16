@@ -3,10 +3,14 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
-## radar-puffin-v0.14.0 (UNRELEASED)
+## radar-puffin-v0.14.0
 
-In preparation on the `release/0.14.0` branch. See
-[the 0.14.0 release note](https://github.com/aslater3/LibreEcho/blob/release/0.14.0/release/radar-puffin-v0.14.0.md).
+See [the 0.14.0 release note](release/radar-puffin-v0.14.0.md). Devices on 0.13.x
+must reinstall to move to 0.14: the 0.13 updater cannot install OTA v3 packages.
+
+## radar-puffin-v0.13.20
+
+Published 13 October 2026. See [the 0.13.20 release](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.13.20).
 
 ## radar-puffin-v0.13.19
 
@@ -30,19 +34,19 @@ Published 11 September 2026. See [the 0.13.15 release](https://github.com/aslate
 
 ## radar-puffin-v0.13.14
 
-Published 8 September 2026. See [the 0.13.14 release](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.13.14).
+Published 8 September 2026. See [the 0.13.14 release note](release/radar-puffin-v0.13.14.md).
 
 ## radar-puffin-v0.13.13
 
-Published 8 September 2026. See [the 0.13.13 release](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.13.13).
+Published 8 September 2026. See [the 0.13.13 release note](release/radar-puffin-v0.13.13.md).
 
 ## radar-puffin-v0.13.12
 
-Published 8 September 2026. See [the 0.13.12 release](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.13.12).
+Published 8 September 2026. See [the 0.13.12 release note](release/radar-puffin-v0.13.12.md).
 
 ## radar-puffin-v0.13.11
 
-Published 8 September 2026. See [the 0.13.11 release](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.13.11).
+Published 8 September 2026. See [the 0.13.11 release note](release/radar-puffin-v0.13.11.md).
 
 ## radar-puffin-v0.13.10
 

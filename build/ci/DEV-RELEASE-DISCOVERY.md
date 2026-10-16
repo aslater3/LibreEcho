@@ -2,7 +2,7 @@
 
 The publisher requires an explicit purpose in the exact successful build
 artifact's release request; missing purpose fails closed. Manual runs use
-`build_purpose` (default `sandbox`), not `update_channel`:
+`build_purpose` (default `sandbox`):
 
 | Purpose | Channel | Publication / retention |
 | --- | --- | --- |
@@ -12,9 +12,9 @@ artifact's release request; missing purpose fails closed. Manual runs use
 
 PRs and pushes to `main` or `release/**` derive unsigned sandbox (3-day
 artifacts), never publication or pointer movement. Dev/prd
-are always signed and reject `sandbox_signing=signed`. Scheduled builds derive
-unsigned sandbox, keeping Actions caches warm with 3-day artifacts; the publisher
-accepts only dispatch events before downloading artifacts.
+are always signed and reject `sandbox_signing=signed`. The release-line scheduled
+build resolver remains unchanged, but publication routing rejects scheduled dev
+requests. The live default-branch schedule is an unsigned sandbox canary.
 Sandbox requests record `publish=false`; dev/prd record `publish=true`.
 Stable requests retain manual matching-release-branch and stable metadata gates.
 
@@ -24,12 +24,11 @@ with the selected ref's required inputs. Publication routing requires
 `workflow_dispatch` for dev on both source lines; a dev request from a push or
 schedule fails closed, even if it carries signed artifacts.
 
-After a complete signed development build (never a scheduled sandbox) is
-published and its asset names, sizes, and SHA-256 digests match the verified
-preparation, the publisher advances
+After the complete immutable dev release is published and its asset names,
+sizes, and SHA-256 digests match the verified preparation, the publisher advances
 `radar-puffin-dev-channel/release-pointer.txt`. This prerelease is a mutable
 transport pointer, not a source tag or a signing authority. It contains exactly
-an immutable `radar-puffin-build-*` tag and the SHA-256
+an immutable `radar-puffin-build-*` or `radar-puffin-nightly-*` tag and the SHA-256
 of that release's canonical OTA, one per newline-terminated line. Only this
 pointer asset is replaced. Source tags, signed OTAs and external assets remain
 immutable; stable/latest is never used or changed for dev discovery.

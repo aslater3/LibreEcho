@@ -6,9 +6,12 @@ on:
       - 'release/**'
       - 'tools/prepare-release.py'
       - 'build/ci/prepare-stable-release.py'
+      - 'build/ci/ota_v2_product.py'
+      - 'build/ci/validate-stable-publisher.py'
       - 'build/ci/publish-stable-release.sh'
       - 'build/ci/generate-release-notes.py'
       - 'build/tests/test_release_packaging.py'
+      - 'build/tests/test_ota_v2_complete_gate.py'
       - 'build/tests/test_generate_release_notes.py'
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
@@ -18,8 +21,9 @@ on:
       - 'tools/libreecho-install.py.sha256'
       - 'tools/run-one-shot.sh'
       - 'tools/test_initial_installer_publication.py'
-      - 'tools/test_brom_preflight.py'
+      - 'tools/test_fastbrick_gate.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'tools/test_installer_setup_reconnect.py'
       - 'build/ci/release_route.py'
       - 'build/ci/publish_dev_pointer.py'
       - 'build/tests/test_release_route.py'
@@ -32,9 +36,12 @@ on:
       - 'release/**'
       - 'tools/prepare-release.py'
       - 'build/ci/prepare-stable-release.py'
+      - 'build/ci/ota_v2_product.py'
+      - 'build/ci/validate-stable-publisher.py'
       - 'build/ci/publish-stable-release.sh'
       - 'build/ci/generate-release-notes.py'
       - 'build/tests/test_release_packaging.py'
+      - 'build/tests/test_ota_v2_complete_gate.py'
       - 'build/tests/test_generate_release_notes.py'
       - 'tools/prepare-sbom.py'
       - 'tools/check-release-components.py'
@@ -44,8 +51,9 @@ on:
       - 'tools/libreecho-install.py.sha256'
       - 'tools/run-one-shot.sh'
       - 'tools/test_initial_installer_publication.py'
-      - 'tools/test_brom_preflight.py'
+      - 'tools/test_fastbrick_gate.py'
       - 'tools/test_oneshot_host_preflight.py'
+      - 'tools/test_installer_setup_reconnect.py'
       - 'build/ci/release_route.py'
       - 'build/ci/publish_dev_pointer.py'
       - 'build/tests/test_release_route.py'
@@ -61,10 +69,10 @@ jobs:
   release-metadata:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: '3.11'
       - name: Validate metadata JSON
@@ -85,8 +93,9 @@ jobs:
             tools/test_release_tools.py \
             tools/libreecho-install.py \
             tools/test_initial_installer_publication.py \
-            tools/test_brom_preflight.py \
-            tools/test_oneshot_host_preflight.py
+            tools/test_fastbrick_gate.py \
+            tools/test_oneshot_host_preflight.py \
+            tools/test_installer_setup_reconnect.py
       - name: Reject private identifiers in public metadata
         run: python3 tools/check-public-metadata.py
       - name: Enforce full component and SBOM gate
@@ -102,13 +111,11 @@ jobs:
             --release-scope community-noncommercial
       - name: Verify build purpose and discovery routing
         run: python -B -m unittest build.tests.test_release_route build.tests.test_publish_dev_pointer -v
-      - name: Verify stable OTA packaging and publication contract
-        run: |
-          bash -n build/ci/publish-stable-release.sh
-          python -B -m unittest build.tests.test_release_packaging -v
       - name: Verify public installer mirror
         run: python -B -m unittest tools.test_initial_installer_publication -v
-      - name: Verify BROM permission preflight suite
-        run: python -B -m unittest tools.test_brom_preflight -v
+      - name: Verify fastbrick identity and payload gate suite
+        run: python -B -m unittest tools.test_fastbrick_gate -v
       - name: Verify host fastboot preflight suite
         run: python -B -m unittest tools.test_oneshot_host_preflight -v
+      - name: Verify installer setup reconnect after device reboot
+        run: python -B -m unittest tools.test_installer_setup_reconnect -v

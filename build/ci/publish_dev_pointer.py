@@ -12,12 +12,13 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+if __package__:
+    from .target_registry import DEFAULT, asset_prefix, load_target
+else:
+    from target_registry import DEFAULT, asset_prefix, load_target
 
-CHANNEL = 'radar-puffin-dev-channel'
-# The mutable dev pointer is advanced only by deliberate development builds.
-# Scheduled nightlies remain immutable test artifacts and must never supersede
-# an active release-branch candidate merely because they were published later.
-TAG = re.compile(r'radar-puffin-build-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}')
+POINTER_ASSET = 'release-pointer-v3.txt'
+TAG = re.compile(r'radar-puffin-(?:build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}')
 
 
 def sha(path):
@@ -37,7 +38,8 @@ def validate_request(path):
         raise ValueError('dev pointer requires a publishable dev request')
 
 
-def pointer_bytes(root, tag, release):
+def pointer_bytes(root, tag, release, target=DEFAULT):
+    prefix = asset_prefix(tag, target)
     if not TAG.fullmatch(tag) or release.get('tag_name') != tag:
         raise ValueError('invalid immutable dev identity')
     if release.get('draft') is not False or release.get('prerelease') is not True:
@@ -50,10 +52,12 @@ def pointer_bytes(root, tag, release):
     actual = {a['name']: (a['size'], a.get('digest')) for a in assets}
     if len(actual) != len(assets) or actual != expected:
         raise ValueError('published inventory differs from verified preparation')
-    ota = root / ('libreecho-' + tag + '.ota.tar')
+    ota = root / (prefix + '.ota.tar')
     if ota.name not in expected:
         raise ValueError('missing canonical signed OTA')
-    manifest = json.loads((root / ('libreecho-' + tag + '-build.json')).read_text())
+    manifest = json.loads((root / (prefix + '-build.json')).read_text())
+    if manifest.get('board', DEFAULT) != target:
+        raise ValueError('dev pointer target mismatch')
     if manifest.get('channel') != 'dev' or manifest.get('signed') is not True:
         raise ValueError('not a signed dev package')
     return (tag + '\n' + sha(ota) + '\n').encode('ascii')
@@ -65,37 +69,59 @@ def gh(*args):
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument('--target', default=DEFAULT)
+    p.add_argument('--advance-pointer', choices=('false', 'true'), default='false')
     p.add_argument('--repository', required=True)
     p.add_argument('--tag', required=True)
     p.add_argument('--head', required=True)
     p.add_argument('--assets', required=True, type=Path)
-    p.add_argument('--request', required=True, type=Path)
+    # Optional: when supplied (automated lanes) it is validated before any
+    # other work, so a sandbox/prd request can never reach GitHub. The manual
+    # v3 advancement job has no request; pointer_bytes() still requires a
+    # published, signed dev prerelease, which only dev-purpose runs produce.
+    p.add_argument('--request', type=Path)
     a = p.parse_args()
+    if a.request is not None:
+        validate_request(a.request)
+    if a.advance_pointer != 'true':
+        print('dev_pointer=NOT_ADVANCED')
+        return
     if a.repository != 'aslater3/LibreEcho' or not re.fullmatch('[a-f0-9]{40}', a.head):
         raise SystemExit('invalid publication scope')
-    validate_request(a.request)
     api = 'repos/' + a.repository + '/releases/tags/'
     source = json.loads(gh('api', api + a.tag))
-    data = pointer_bytes(a.assets, a.tag, source)
-    lookup = subprocess.run(['gh', 'api', api + CHANNEL], capture_output=True, text=True)
+    channel = load_target(a.target)["release_slug"] + "-dev-channel"
+    manifest = json.loads((a.assets / (asset_prefix(a.tag, a.target) + '-build.json')).read_text())
+    if manifest.get('ota_format') != 'v3':
+        raise ValueError('pointer advancement requires v3 package')
+    data = pointer_bytes(a.assets, a.tag, source, a.target)
+    # Verify signed target closure before the first possible channel mutation.
+    if __package__:
+        from .release_completeness import check_assets
+    else:
+        from release_completeness import check_assets
+    check_assets(a.assets, target=a.target)
+    lookup = subprocess.run(['gh', 'api', api + channel], capture_output=True, text=True)
     if lookup.returncode:
         if '(HTTP 404)' not in lookup.stderr:
             raise SystemExit('channel lookup failed; refusing mutation')
-        gh('release', 'create', CHANNEL, '--repo', a.repository, '--target', a.head,
+        gh('release', 'create', channel, '--repo', a.repository, '--target', a.head,
            '--prerelease', '--latest=false', '--title', 'LibreEcho dev update channel',
            '--notes', 'Mutable discovery pointer only. Source and signed assets remain in immutable development prereleases.')
-    current = json.loads(gh('api', api + CHANNEL))
-    if current.get('draft') is not False or current.get('prerelease') is not True or current.get('tag_name') != CHANNEL:
+    current = json.loads(gh('api', api + channel))
+    if current.get('draft') is not False or current.get('prerelease') is not True or current.get('tag_name') != channel:
         raise SystemExit('invalid channel release')
-    if any(x['name'] != 'release-pointer.txt' for x in current.get('assets', [])):
-        raise SystemExit('unexpected channel assets; refusing mutation')
+    frozen_assets = [x for x in current.get('assets', []) if x['name'] != POINTER_ASSET]
     with tempfile.TemporaryDirectory() as tmp:
-        file = Path(tmp) / 'release-pointer.txt'
+        file = Path(tmp) / POINTER_ASSET
         file.write_bytes(data)
-        gh('release', 'upload', CHANNEL, str(file), '--repo', a.repository, '--clobber')
-    current = json.loads(gh('api', api + CHANNEL))
-    assets = current.get('assets', [])
-    if len(assets) != 1 or assets[0].get('name') != 'release-pointer.txt' or assets[0].get('size') != len(data) or assets[0].get('digest') != 'sha256:' + hashlib.sha256(data).hexdigest():
+        gh('release', 'upload', channel, str(file), '--repo', a.repository, '--clobber')
+    current = json.loads(gh('api', api + channel))
+    all_assets = current.get('assets', [])
+    if [x for x in all_assets if x['name'] != POINTER_ASSET] != frozen_assets:
+        raise SystemExit('frozen channel assets changed')
+    assets = [x for x in all_assets if x['name'] == POINTER_ASSET]
+    if len(assets) != 1 or assets[0].get('size') != len(data) or assets[0].get('digest') != 'sha256:' + hashlib.sha256(data).hexdigest():
         raise SystemExit('published pointer readback mismatch')
     print('dev_pointer_verified=' + a.tag)
 

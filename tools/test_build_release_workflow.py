@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import json
+import os
 import re
+import shlex
+import subprocess
+import tempfile
 import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
@@ -45,6 +50,41 @@ class Tests(unittest.TestCase):
      stub='python3() { test -x verified-build/run0/twrp-builder/src/META-INF/com/google/android/update-binary || return 97; printf "asset_count=80\\n"; }\n'
      result=subprocess.run(['bash','-c','set -euo pipefail\n'+stub+textwrap.dedent(fragment)],cwd=tmp,env=env,capture_output=True,text=True)
      self.assertEqual(result.returncode==0,count==1,result.stderr)
+ def test_stable_request_reader_accepts_pinned_and_legacy_amonet_shapes(self):
+  import json, os, subprocess, tempfile, textwrap
+  stable = PUBLISH.split('  publish-stable:', 1)[1]
+  step = stable.split('      - name: Read stable release request', 1)[1].split('\n      - ', 1)[0]
+  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+  base = dict(channel='stable', version='0.14.0', release_tag='radar-puffin-v0.14.0',
+              release_notes='release/radar-puffin-v0.14.0.md', ssh_enabled='0')
+  legacy = dict(base, amonet_repository='https://github.com/aslater3/amonet-k32',
+                amonet_tag='v1.0.0', amonet_commit='a'*40)
+  # (source has build/ci/amonet_pins.py, request, expected exit, expected pinned flag)
+  cases = [(True, base, 0, '1'), (False, legacy, 0, '0'),
+           (False, base, 1, None), (True, legacy, 1, None),
+           (True, dict(base, channel='dev'), 1, None)]
+  for pinned, request, status, flag in cases:
+   with self.subTest(pinned=pinned, keys=sorted(request), status=status), tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root/'verified-build/run').mkdir(parents=True)
+    (root/'verified-build/run/release-request.json').write_text(json.dumps(request))
+    if pinned:
+     (root/'build/ci').mkdir(parents=True)
+     (root/'build/ci/amonet_pins.py').write_text('')
+    output = root/'output'
+    result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True,
+                            env={**os.environ, 'GITHUB_OUTPUT': str(output)}, timeout=30)
+    self.assertEqual(result.returncode, status, result.stdout+result.stderr)
+    if status == 0:
+     values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+     self.assertEqual(values['amonet_pinned'], flag)
+     self.assertEqual(values['release_tag'], 'radar-puffin-v0.14.0')
+     self.assertEqual('amonet_commit' in values, not pinned)
+  prepare = stable.split('      - name: Prepare signed stable release assets', 1)[1].split('\n      - ', 1)[0]
+  self.assertIn('AMONET_PINNED: ${{ steps.request.outputs.amonet_pinned }}', prepare)
+  self.assertIn('if [[ "$AMONET_PINNED" != 1 ]]; then', prepare)
+  self.assertIn('"${amonet_args[@]}" \\', prepare)
+  self.assertNotIn('--amonet-commit "$AMONET_COMMIT" \\', prepare)
  def test_hosted_only(self):
   self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W)
   self.assertIn('ports.ubuntu.com/ubuntu-ports', W)
@@ -80,7 +120,7 @@ class Tests(unittest.TestCase):
     'libreecho-musl-toolchain-v1-',
     'libreecho-neural-deps-v1-',
     'libreecho-components-v6-',
-    'libreecho-kernel-out-v1-',
+    'libreecho-kernel-out-v2-parity-radar_puffin-biscuit-',
   ):
    self.assertIn(key, W)
   # The neural cache key binds the exact compiler bytes and the ARMHF root
@@ -296,41 +336,6 @@ class Tests(unittest.TestCase):
   self.assertIn('--tree "reviewed-connectivity=$PIPELINE/inputs/reviewed/connectivity"', B)
   # The vendored path must not invoke the musl toolchain rebuild anymore.
   self.assertNotIn('build_connectivity_helpers.sh', B)
- def test_stable_request_reader_accepts_pinned_and_legacy_amonet_shapes(self):
-  import json, os, subprocess, tempfile, textwrap
-  stable = PUBLISH.split('  publish-stable:', 1)[1]
-  step = stable.split('      - name: Read stable release request', 1)[1].split('\n      - ', 1)[0]
-  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-  base = dict(channel='stable', version='0.14.0', release_tag='radar-puffin-v0.14.0',
-              release_notes='release/radar-puffin-v0.14.0.md', ssh_enabled='0')
-  legacy = dict(base, amonet_repository='https://github.com/aslater3/amonet-k32',
-                amonet_tag='v1.0.0', amonet_commit='a'*40)
-  # (source has build/ci/amonet_pins.py, request, expected exit, expected pinned flag)
-  cases = [(True, base, 0, '1'), (False, legacy, 0, '0'),
-           (False, base, 1, None), (True, legacy, 1, None),
-           (True, dict(base, channel='dev'), 1, None)]
-  for pinned, request, status, flag in cases:
-   with self.subTest(pinned=pinned, keys=sorted(request), status=status), tempfile.TemporaryDirectory() as tmp:
-    root = Path(tmp)
-    (root/'verified-build/run').mkdir(parents=True)
-    (root/'verified-build/run/release-request.json').write_text(json.dumps(request))
-    if pinned:
-     (root/'build/ci').mkdir(parents=True)
-     (root/'build/ci/amonet_pins.py').write_text('')
-    output = root/'output'
-    result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True,
-                            env={**os.environ, 'GITHUB_OUTPUT': str(output)}, timeout=30)
-    self.assertEqual(result.returncode, status, result.stdout+result.stderr)
-    if status == 0:
-     values = dict(line.split('=', 1) for line in output.read_text().splitlines())
-     self.assertEqual(values['amonet_pinned'], flag)
-     self.assertEqual(values['release_tag'], 'radar-puffin-v0.14.0')
-     self.assertEqual('amonet_commit' in values, not pinned)
-  prepare = stable.split('      - name: Prepare signed stable release assets', 1)[1].split('\n      - ', 1)[0]
-  self.assertIn('AMONET_PINNED: ${{ steps.request.outputs.amonet_pinned }}', prepare)
-  self.assertIn('if [[ "$AMONET_PINNED" != 1 ]]; then', prepare)
-  self.assertIn('"${amonet_args[@]}" \\', prepare)
-  self.assertNotIn('--amonet-commit "$AMONET_COMMIT" \\', prepare)
  def test_stable_publisher_installs_reviewed_verifier_closure(self):
   import os, subprocess, tempfile, textwrap, venv
   stable = PUBLISH.split('  publish-stable:', 1)[1]
@@ -410,10 +415,6 @@ class Tests(unittest.TestCase):
   self.assertIn("needs.route-publication.outputs.channel == 'stable'", PUBLISH)
   self.assertIn('python3 build/ci/release_route.py', PUBLISH)
   self.assertIn('python3 build/ci/publish_dev_pointer.py', PUBLISH)
-  pointer_step = PUBLISH.split('      - name: Advance verified dev discovery pointer', 1)[1].split('\n      - ', 1)[0]
-  self.assertNotIn('schedule', pointer_step)
-  self.assertIn("steps.prepare.outputs.signed == '1'", pointer_step)
-  self.assertIn('--request "$REQUEST_PATH"', pointer_step)
   self.assertIn('prepare-stable-release.py', PUBLISH)
   self.assertIn('publish-stable:', PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
@@ -439,6 +440,7 @@ class Tests(unittest.TestCase):
   # Execute the entire resolver with deterministic remote refs, not copied logic.
   script = script.replace('python3 build/ci/resolve-source-set.py',
                           'python3 "'+str(ROOT/'build/ci/resolve-source-set.py')+'"')
+  script = script.replace('python3 build/ci/ota_v2_inputs.py', 'python3 "'+str(ROOT/'build/ci/ota_v2_inputs.py')+'"')
   stub = 'git() { printf "%s\trefs/heads/test\n" '+('a'*40)+'; }\n'
   cases = [
    ('pull_request', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
@@ -457,6 +459,8 @@ class Tests(unittest.TestCase):
    ('workflow_dispatch', 'main', 'sandbox', 'unknown', '', '', '', '', False),
    ('workflow_dispatch', 'main', 'dev', 'unsigned', '0.14.0', '', '', '', False),
   ]
+  import json
+  script = script.replace('sys.path.insert(0,"build/ci")', 'sys.path.insert(0,'+json.dumps(str(ROOT/'build/ci'))+')')
   for event, ref, purpose, signing, version, expected, mode, channel, success in cases:
    with self.subTest(event=event, ref=ref, purpose=purpose, signing=signing), tempfile.TemporaryDirectory() as tmp:
     out = Path(tmp)/'output'
@@ -465,7 +469,10 @@ class Tests(unittest.TestCase):
     env = dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF='refs/heads/'+ref,
                GITHUB_REF_NAME=ref, GITHUB_BASE_REF='main', GITHUB_OUTPUT=str(out),
                PRODUCT_SHA='b'*40, BUILD_PURPOSE_INPUT=purpose, SANDBOX_SIGNING_INPUT=signing,
-               RELEASE_VERSION=version, AMONET_TAG='test-only', SSH_ENABLED_INPUT='disabled')
+               RELEASE_VERSION=version, SSH_ENABLED_INPUT='disabled',
+               OTA_FORMAT_INPUT='v3', OTA_RELEASE_INPUT='',
+               PR_HEAD_REPOSITORY='', GITHUB_REPOSITORY='aslater3/LibreEcho', GITHUB_HEAD_REF='test',
+               GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1')
     result = subprocess.run(['bash', '-c', stub+script], cwd=tmp, env=env,
                             capture_output=True, text=True)
     self.assertEqual(result.returncode == 0, success, result.stdout+result.stderr)
@@ -485,8 +492,7 @@ class Tests(unittest.TestCase):
     request = Path(tmp)/'release-request.json'
     env = dict(os.environ, BUILD_PURPOSE=purpose,
                RELEASE_CHANNEL='stable' if purpose == 'prd' else 'dev',
-               RELEASE_VERSION='', RELEASE_NOTES='', AMONET_REPOSITORY='',
-               AMONET_TAG='', AMONET_COMMIT='', SSH_ENABLED='0')
+               RELEASE_VERSION='', RELEASE_NOTES='', TARGETS='radar_puffin', SSH_ENABLED='0')
     result = subprocess.run(['python3', '-c', textwrap.dedent(body), str(request)],
                             env=env, capture_output=True, text=True)
     self.assertEqual(result.returncode, 0, result.stderr)
@@ -499,16 +505,31 @@ class Tests(unittest.TestCase):
   self.assertIn("retention-days: ${{ needs.resolve-and-preflight.outputs.purpose == 'sandbox' && 3 || 7 }}", W)
   self.assertIn('"purpose": os.environ["BUILD_PURPOSE"]', W)
   self.assertIn('"publish": os.environ["BUILD_PURPOSE"] != "sandbox"', W)
-  self.assertIn("jq -e '.purpose == \"dev\" and .publish == true'", PUBLISH)
-  self.assertLess(PUBLISH.index('Validate dev discovery purpose'), PUBLISH.index('Advance verified dev discovery pointer'))
-  self.assertIn('--request "$REQUEST_PATH"', PUBLISH)
+  # v3: the discovery pointer is never advanced by the automated publisher;
+  # only the manual, hardware-validated advance-v3-pointer dispatch moves it.
+  auto = PUBLISH.split('  publish-hosted-dev:', 1)[1].split('  publish-stable:', 1)[0]
+  self.assertNotIn('publish_dev_pointer.py', auto)
+  manual = PUBLISH.split('  advance-v3-pointer:', 1)[1].split('  route-publication:', 1)[0]
+  self.assertIn("inputs.advance_pointer == true", manual)
+  self.assertIn('--advance-pointer true', manual)
 
  def test_release_branch_dev_uses_release_component_refs(self):
   start = W.index('          component_ref=main')
-  end = W.index('          if [[ "$component_ref" != main ]]', start)
+  end = W.index('          python3 build/ci/resolve-source-set.py', start)
   selection = W[start:end]
   self.assertIn('elif [[ "$GITHUB_REF" == refs/heads/release/* ]]; then', selection)
   self.assertIn('component_ref="$GITHUB_REF_NAME"', selection)
+
+ def test_feature_pr_uses_immutable_sibling_component_heads(self):
+  self.assertIn('candidate_stem="${GITHUB_HEAD_REF%-product}"', W)
+  self.assertIn('platform_ref="${candidate_stem}-platform"', W)
+  self.assertIn('ui_ref="${candidate_stem}-ui"', W)
+  self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', W)
+  self.assertIn('LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source', W)
+  # The candidate checkout must also reach the canonical Platform parser,
+  # which reads LIBREECHO_PLATFORM_SOURCE; exporting only the test-suite name
+  # would silently fall back to the Product adapter.
+  self.assertIn('LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source', W)
 
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;
@@ -540,6 +561,21 @@ class Tests(unittest.TestCase):
   self.assertIn('stable release-notes title must match the requested version', W)
   self.assertIn('IFS= read -r release_notes_title <"$RELEASE_NOTES"', W)
   self.assertNotIn('checked-in release-notes file is required', (ROOT/'build/README.md').read_text())
+
+ def test_dev_adb_tcp_is_channel_scoped_and_cache_bound(self):
+  self.assertTrue('if [[ "$UPDATE_CHANNEL" == dev ]]; then\n  ADBD_TCP_PORT=5555\nelse\n  ADBD_TCP_PORT=0\nfi' in B, 'channel-specific port policy missing')
+  self.assertTrue('--value "tcp_port=$ADBD_TCP_PORT"' in B, 'cache does not bind port')
+  self.assertTrue('--tcp-port "$ADBD_TCP_PORT"' in B, 'adbd builder does not receive port')
+
+ def test_ssh_enabled_default(self):
+  # Manual selection keeps the non-dispatch gate; the protected password is
+  # optional and no longer a condition of enabling SSH.
+  field = W.split('      ssh_enabled:', 1)[1].split('      release_version:', 1)[0]
+  self.assertIn('default: enabled', field)
+  self.assertIn('options: [disabled, enabled]', field)
+  self.assertIn("SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}", W)
+  self.assertIn("needs.resolve-and-preflight.outputs.ssh_enabled == '1'", W)
+  self.assertIn('LIBREECHO_SSH_ROOT_PASSWORD_HASH', W)
 
  def test_nightly_release_tag_is_accepted(self):
   installer = (ROOT/'tools/libreecho-install.py').read_text()
@@ -582,4 +618,252 @@ class Tests(unittest.TestCase):
                   'libstdc++-13-dev-armhf-cross', 'libc6-armhf-cross'):
    self.assertIn(package, W)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
+ def test_shared_mdns_runtime_is_acquired_and_verified_without_airplay(self):
+  # The shared discovery runtime is boot-contained: it is built and verified
+  # independently of AirPlay feature selection, from an exact public package
+  # lock, and its corresponding-source/notice closure is a fail-closed gate.
+  lock_path = ROOT/'build/inputs/mdns-packages.lock.json'
+  offers_path = ROOT/'build/inputs/mdns-source-offers.json'
+  self.assertTrue((ROOT/'build/ci/mdns_runtime.py').is_file())
+  self.assertTrue((ROOT/'build/ci/mdns-runtime-key.sh').is_file())
+  # Exact acquisition: pinned versions, an isolated apt state/cache, and the
+  # public ports.ubuntu.com pattern reused rather than a second archive.
+  self.assertIn('libreecho-mdns-packages-v1-', W)
+  self.assertIn('Acquire exact shared mDNS dependency packages', W)
+  self.assertIn('python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json', W)
+  self.assertIn('python3 build/ci/mdns_runtime.py fetch-missing', W)
+  self.assertLess(W.index('mdns_runtime.py fetch-missing'), W.index('python3 build/ci/mdns_runtime.py verify'))
+  self.assertIn('-o Dir::Etc::sourceparts=-', W)
+  self.assertIn('-o Dir::State::lists="$apt_root/lists"', W)
+  self.assertIn('-o Dir::Cache::archives="$archives"', W)
+  self.assertIn('-o Dir::State::status="$empty_status"', W)
+  self.assertIn('-o APT::Architecture=armhf', W)
+  self.assertIn('-o APT::Install-Recommends=false', W)
+  self.assertIn('ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted', W)
+  # Exact archive hash and package/version/source/architecture provenance is
+  # recorded on both the cold and restored cache paths.
+  self.assertIn('Record exact shared mDNS package provenance', W)
+  self.assertIn('--source-map "$RUNNER_TEMP/mdns-packages-provenance/mdns-packages-source-map.json"', W)
+  self.assertIn('name: mdns-packages-${{ needs.resolve-and-preflight.outputs.source_set_id }}', W)
+  self.assertIn('name: mdns-packages-provenance-${{ needs.resolve-and-preflight.outputs.source_set_id }}', W)
+  self.assertIn('path: ${{ runner.temp }}/mdns-packages', W)
+  self.assertIn('path: ${{ runner.temp }}/mdns-packages-provenance', W)
+  # The Platform runtime builder/verifier are invoked from the pinned Platform
+  # checkout, and the Product closure gate runs before the image build.
+  self.assertIn('Build and verify the shared mDNS discovery runtime', W)
+  self.assertIn('sources/platform/tools/mt8163-arm32/mdns/build_runtime.py', W)
+  self.assertIn('sources/platform/tools/mt8163-arm32/mdns/verify_runtime.py', W)
+  self.assertIn('build/ci/mdns_runtime.py closure', W)
+  self.assertIn('--source-offers build/inputs/mdns-source-offers.json', W)
+  self.assertIn('LIBREECHO_MDNS_RUNTIME_ROOT: ${{ runner.temp }}/mdns-runtime', W)
+  self.assertIn('LIBREECHO_MDNS_RUNTIME_SOURCE_MAP: ${{ runner.temp }}/mdns-runtime-provenance.json', W)
+  self.assertIn('LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256: ${{ steps.mdns-runtime.outputs.mdns_runtime_manifest_sha256 }}', W)
+  # Run the production init wrapper with the real packaged ARM daemons. The
+  # image is digest-pinned and the wrapper must create its own machine ID,
+  # sockets, pidfile, and lifecycle state inside the disposable namespace.
+  self.assertIn('Run production shared mDNS startup under QEMU', W)
+  self.assertIn('tools/mt8163-arm32/mdns/test_packaged_runtime.py', W)
+  self.assertIn('--init-wrapper "$GITHUB_WORKSPACE/sources/platform/tools/mt8163-arm32/initramfs/libreecho-mdnsd"', W)
+  self.assertIn('busybox@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f', W)
+  self.assertIn('--qemu "$RUNNER_TEMP/host-bin/qemu-arm-static"', W)
+  # The runtime stage carries no feature-selection condition and no channel
+  # condition: it must run for every build that produces an image.
+  step = W.split('      - name: Build and verify the shared mDNS discovery runtime', 1)[1].split('\n      - ', 1)[0]
+  self.assertNotIn('if:', step)
+  self.assertNotIn('FEATURES_ENABLED', step)
+  # No private or host path is committed anywhere in the workflow.
+  self.assertNotIn('/home/', W)
+  # The shared runtime uses its own resolved-path identity, not the AirPlay
+  # sysroot identity, and existing AirPlay wiring is untouched.
+  self.assertIn('"$PIPELINE/ci/mdns-runtime-key.sh" "$MDNS_RUNTIME_ROOT" "$TOOLS_DIR/mdns"', B)
+  self.assertIn('record_component_identity mdns-runtime "$MDNS_RUNTIME_KEY"', B)
+  self.assertIn('airplay-sysroot-key.sh', B)
+  self.assertIn('LIBREECHO_AIRPLAY_SYSROOT: ${{ runner.temp }}/public-deps/airplay-sysroot', W)
+  # The image contract re-verifies and records the runtime outside the
+  # feature-enabled conditions, and exports the runtime plus its manifest and
+  # provenance identity to the recovery-image builder and independent verifier.
+  marker = '=== verifying the shared mDNS discovery runtime contract ==='
+  self.assertIn(marker, B)
+  contract = B[B.index(marker):B.index('BUILDER="$TOOLS_DIR/build_recovery_image.py"', B.index(marker))]
+  self.assertNotIn('FEATURES_ENABLED', contract)
+  self.assertIn('mdns-runtime-verify.log', contract)
+  self.assertIn('mdns-runtime-provenance.json', contract)
+  self.assertIn('export LIBREECHO_MDNS_RUNTIME_ROOT="$MDNS_RUNTIME_ROOT"', contract)
+  self.assertIn('export LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256="$MDNS_RUNTIME_MANIFEST_SHA256"', contract)
+  for variable in ('LIBREECHO_MDNS_RUNTIME_ROOT', 'LIBREECHO_MDNS_RUNTIME_SOURCE_MAP',
+                   'LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256'):
+   self.assertIn(variable, PUBLIC_WRAPPER)
+  self.assertIn('--manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256"', B)
+  # The lock and the corresponding-source offer index are committed inputs and
+  # cover exactly one source set; the closure gate is the only writer of
+  # source_offer_verified.
+  import importlib.util
+  spec = importlib.util.spec_from_file_location('mdns_runtime', ROOT/'build/ci/mdns_runtime.py')
+  assert spec and spec.loader
+  module = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(module)
+  records = module.load_lock(lock_path)
+  offers = module.load_source_offers(offers_path, records)
+  self.assertEqual({offer['source'] for offer in offers}, {record['source'] for record in records})
+  self.assertIn("'source_offer_verified': True", (ROOT/'build/ci/mdns_runtime.py').read_text())
+  self.assertIn("'source_offer_verified': False", (ROOT/'build/ci/mdns_runtime.py').read_text())
+  # The user-facing release note records that HA discovery no longer needs an
+  # AirPlay installation, without claiming hardware acceptance.
+  note = (ROOT/'release/radar-puffin-v0.14.0.md').read_text()
+  self.assertIn('Home Assistant discovery no longer requires an AirPlay installation', note)
+  self.assertIn('no longer require an AirPlay payload', note)
+  self.assertIn('not a second responder', note)
+
+class SshOptionTests(unittest.TestCase):
+ """Enabling SSH ships the bundle; the root password is optional."""
+
+ SSH_BLOCK_START='case "$SSH_ENABLED" in'
+
+ @staticmethod
+ def _ssh_validation_block():
+  start=B.index(SshOptionTests.SSH_BLOCK_START)
+  end=B.index('\nesac\n',start)+len('\nesac\n')
+  return B[start:end]
+
+ def _run_ssh_validation(self,enabled,hash_value):
+  script=(f'SSH_ENABLED={enabled}\n'
+          f'SSH_ROOT_PASSWORD_HASH={shlex.quote(hash_value)}\n'
+          f'{self._ssh_validation_block()}\n'
+          'echo VALIDATION_OK\n')
+  return subprocess.run(['bash','-c',script],capture_output=True,text=True)
+
+ def test_ssh_without_a_root_password_builds(self):
+  # The behaviour the change exists for: enabling SSH must not require a
+  # credential, because the supervisor waits for the users database instead.
+  result=self._run_ssh_validation('1','')
+  self.assertEqual(0,result.returncode,result.stderr)
+  self.assertIn('VALIDATION_OK',result.stdout)
+  self.assertIn('no root password',result.stderr)
+
+ def test_ssh_with_an_empty_hash_file_builds(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   path=os.path.join(tmp,'hash'); Path(path).write_text(''); os.chmod(path,0o600)
+   result=self._run_ssh_validation('1',path)
+  self.assertEqual(0,result.returncode,result.stderr)
+  self.assertIn('no root password',result.stderr)
+
+ def test_ssh_with_a_staged_hash_file_builds(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   path=os.path.join(tmp,'hash'); Path(path).write_text('$6$salt$digest\n'); os.chmod(path,0o600)
+   result=self._run_ssh_validation('1',path)
+  self.assertEqual(0,result.returncode,result.stderr)
+  self.assertNotIn('no root password',result.stderr)
+
+ def test_ssh_rejects_a_missing_hash_path(self):
+  result=self._run_ssh_validation('1','/nonexistent/root-password-hash')
+  self.assertEqual(1,result.returncode)
+  self.assertIn('regular build-local root password hash file',result.stderr)
+
+ def test_ssh_rejects_a_symlinked_hash_file(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   target=os.path.join(tmp,'real'); Path(target).write_text('$6$salt$digest\n'); os.chmod(target,0o600)
+   link=os.path.join(tmp,'link'); os.symlink(target,link)
+   result=self._run_ssh_validation('1',link)
+  self.assertEqual(1,result.returncode)
+  self.assertIn('regular build-local root password hash file',result.stderr)
+
+ def test_ssh_rejects_a_world_writable_hash_file(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   path=os.path.join(tmp,'hash'); Path(path).write_text('$6$salt$digest\n'); os.chmod(path,0o666)
+   result=self._run_ssh_validation('1',path)
+  self.assertEqual(1,result.returncode)
+  self.assertIn('group/world-writable',result.stderr)
+
+ def test_disabled_ssh_still_rejects_a_hash(self):
+  result=self._run_ssh_validation('0','/tmp/root-password-hash')
+  self.assertEqual(1,result.returncode)
+  self.assertIn('requires LIBREECHO_SSH_ENABLED=1',result.stderr)
+
+ def test_ssh_enabled_value_must_be_binary(self):
+  result=self._run_ssh_validation('2','')
+  self.assertEqual(1,result.returncode)
+  self.assertIn('must be 0 or 1',result.stderr)
+
+ def test_workflow_stages_the_root_password_only_when_present(self):
+  step=W.split('      - name: Materialize protected SSH root password hash',1)[1].split('      - name:',1)[0]
+  self.assertNotIn('test -n "$SSH_ROOT_PASSWORD_HASH"',step)
+  self.assertIn('if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then',step)
+  self.assertIn(': >"$RUNNER_TEMP/ssh-root-password-hash"',step)
+
+ def test_documentation_states_the_root_password_is_optional(self):
+  flat=' '.join((ROOT/'build/README.md').read_text().split())
+  self.assertIn('`LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional',flat)
+  self.assertNotIn('password-only root login',flat)
+  self.assertNotIn('enabled run requires the protected LIBREECHO_SSH_ROOT_PASSWORD_HASH secret',flat)
+
+
+class SshInputInventoryTests(unittest.TestCase):
+ """The SSH build needs three pinned inputs, and must be handed the fetched
+ copies rather than a path under the build root that nothing populates."""
+
+ # Mirrors the Platform builder's EXPECTED_* pins. If the builder's pins move,
+ # this fails here instead of at the end of a hosted build.
+ SSH_INPUTS={
+  'dropbear-2026.93.tar.bz2':'310a6087952897c182efbe16088fa0c4d07c467e850a22699472137278fabf09',
+  'libcrypt-dev_4.4.36-4build1_armhf.deb':'58010a8f588477dae4444f3b92636ef4e02aa2d21ab4587d33702299163a5380',
+  'libcrypt1_4.4.36-4build1_armhf.deb':'198990e999add09e21b0ab3522c94333a0e135656c7f00960f534cec15477a74',
+ }
+
+ def test_inventory_carries_every_ssh_builder_input(self):
+  records=json.loads((ROOT/'build/inputs/public-inputs.json').read_text())['inputs']
+  by_filename={record['url'].rsplit('/',1)[-1]:record for record in records}
+  for filename,digest in self.SSH_INPUTS.items():
+   with self.subTest(input=filename):
+    self.assertIn(filename,by_filename)
+    record=by_filename[filename]
+    self.assertEqual(digest,record['sha256'])
+    self.assertTrue(record['url'].startswith('https://'))
+    self.assertEqual('cleared',record['redistribution'])
+    self.assertTrue(record['license'])
+
+ def test_build_passes_the_fetched_inputs_to_the_ssh_builder(self):
+  block=B.split('DROPBEAR_BUILDER=',1)[1].split('DROPBEAR_OUTPUT=',1)[0]
+  for variable in ('DROPBEAR_SOURCE_ARCHIVE','DROPBEAR_LIBCRYPT_DEV_PACKAGE',
+                   'DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE'):
+   with self.subTest(variable=variable):
+    self.assertIn(f'{variable}="$INPUTS/',block)
+  for filename in self.SSH_INPUTS:
+   self.assertIn(f'/{filename}"',block)
+
+ def test_build_points_the_ssh_builder_at_the_pipeline_toolchain(self):
+  # The builder defaults to /usr/bin/arm-linux-gnueabihf-, which a hosted runner
+  # does not have. $CROSS is the pipeline's own ARMHF prefix, and the workflow
+  # is what points it at the relocated shim.
+  block=B.split('DROPBEAR_BUILDER=',1)[1].split('DROPBEAR_OUTPUT=',1)[0]
+  self.assertIn('DROPBEAR_CROSS_PREFIX="$CROSS"',block)
+  self.assertIn('CROSS="${CROSS:-/usr/bin/arm-linux-gnueabihf-}"',B)
+  self.assertIn('CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-',
+                (ROOT/'.github/workflows/build-release.yml').read_text())
+
+ def test_ssh_bundle_passes_what_the_image_builder_requires(self):
+  # build_recovery_image.py accepts exactly --ssh-enabled/--dropbear/
+  # --dropbearkey/--scp and rejects an enabled bundle missing any of them.
+  block=B.split('ssh_builder_args=(\n',1)[1].split('ssh_verifier_args=(\n',1)[0]
+  self.assertIn('--ssh-enabled',block)
+  self.assertIn('--dropbear "$DROPBEAR_OUTPUT/dropbear"',block)
+  self.assertIn('--dropbearkey "$DROPBEAR_OUTPUT/dropbearkey"',block)
+  self.assertIn('--scp "$DROPBEAR_OUTPUT/scp"',block)
+  # The image has root login disabled, so no root password argument exists.
+  self.assertNotIn('--ssh-root-password-hash',B)
+
+ def test_ssh_verifier_expects_all_three_binaries(self):
+  block=B.split('ssh_verifier_args=(\n',1)[1].split('\nfi',1)[0]
+  self.assertIn('--expected-dropbear-sha256',block)
+  self.assertIn('--expected-dropbearkey-sha256',block)
+  self.assertIn('--expected-scp-sha256',block)
+  self.assertIn('-f "$DROPBEAR_OUTPUT/scp"',B)
+
+ def test_documentation_denies_root_login(self):
+  flat=' '.join((ROOT/'build/README.md').read_text().split())
+  self.assertIn('root login disabled',flat)
+  self.assertNotIn('accepts password-only root login',flat)
+
+ def test_dropbear_is_only_built_when_ssh_is_enabled(self):
+  self.assertIn('if [[ "$SSH_ENABLED" == 1 ]]; then',B[:B.index('DROPBEAR_BUILDER=')][-400:])
+
 if __name__=='__main__': unittest.main()

@@ -2,7 +2,6 @@
 # Publish one fully prepared stable Product release.
 set -euo pipefail
 
-: "${GH_TOKEN:?set GH_TOKEN}"
 : "${RELEASE_TAG:?set RELEASE_TAG}"
 : "${RELEASE_DIR:?set RELEASE_DIR}"
 : "${RELEASE_NOTES:?set RELEASE_NOTES}"
@@ -22,20 +21,18 @@ set -euo pipefail
 }
 
 sums="$RELEASE_DIR/libreecho-${RELEASE_TAG}-SHA256SUMS"
-[[ -f "$sums" ]] || { echo "ERROR: stable release is missing SHA256SUMS" >&2; exit 1; }
-(cd "$RELEASE_DIR" && sha256sum -c "$(basename "$sums")")
+# The pre-mutation gate validates libreecho-${RELEASE_TAG}.ota.tar and the full
+# immutable asset set before this script can call gh.
+python3 "$(dirname "$0")/validate-stable-publisher.py" \
+  --release-dir "$RELEASE_DIR" --release-tag "$RELEASE_TAG"
 
 mapfile -t assets < <(find "$RELEASE_DIR" -maxdepth 1 -type f -printf '%f\n' | sort)
-test "${#assets[@]}" -ge 5
-printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${RELEASE_TAG}.ota.tar"
-printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${RELEASE_TAG}-initial-install.tar"
-printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${RELEASE_TAG}-installer.py"
-printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${RELEASE_TAG}-boot.img"
-printf '%s\n' "${assets[@]}" | grep -qx "libreecho-${RELEASE_TAG}-SHA256SUMS"
-if printf '%s\n' "${assets[@]}" | grep -Eiq 'source-offer|provenance|\.spdx\.json|source-closure'; then
-  echo "ERROR: stable release contains compliance material" >&2
-  exit 1
+
+if [[ "${PUBLISH_DRY_RUN:-0}" == 1 ]]; then
+  echo "stable_release_publish=PREPARED_NOT_PUBLISHED tag=$RELEASE_TAG assets=${#assets[@]}"
+  exit 0
 fi
+: "${GH_TOKEN:?set GH_TOKEN}"
 
 alias="$RELEASE_DIR/libreecho-radar-puffin-stable.ota.tar"
 [[ -f "$alias" && ! -L "$alias" ]] &&

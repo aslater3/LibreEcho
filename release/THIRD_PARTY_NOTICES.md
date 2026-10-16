@@ -11,6 +11,13 @@ complete notices and component inventory.
 
 ## Core boot image and OTA
 
+- **libogg 1.3.5, opus 1.4, and opusfile 0.12** — BSD-3-Clause; the radio
+  daemon links a static ARM32 Opus decoder rebuilt from source-locked archives.
+  The Platform source includes each complete upstream COPYING notice in
+  `tools/mt8163-arm32/ui/opus/licenses/`; exact source pins and build instructions
+  are recorded in `release/CORE-RUNTIME-SOURCE-OFFER.md`. libopusfile is built
+  without HTTP/URL or TLS entry points.
+
 - **Linux 6.1 and MT8163 product drivers** — GPL-2.0-only. Exact corresponding
   source is released from
   <https://github.com/aslater3/LibreEcho-Linux-6.1>.
@@ -30,6 +37,12 @@ complete notices and component inventory.
 - **libnl 3.11.0** — LGPL-2.1-only; the pinned source archive and public
   Platform build instructions allow rebuilding and relinking the statically
   incorporated `libnl-3` and `libnl-genl-3` code.
+- **Mbed TLS 3.6.4** — Apache-2.0; rebuilt from the pinned upstream release
+  archive as static ARM32 `libmbedcrypto`, `libmbedx509`, and `libmbedtls`
+  archives and linked into the Web UI (`libreecho-web`) and the radio client
+  (`libreecho-radiod`). The upstream `LICENSE` ships beside the archives and the
+  pinned source + build record is named in
+  `release/CORE-RUNTIME-SOURCE-OFFER.md`.
 - **wireless-tools, wireless-regdb, libsodium, and TinyALSA** are source-locked and
   independently checked or rebuilt for the exact core-image/OTA outputs. Their
   GPL/LGPL, ISC, and BSD-3-Clause terms remain applicable.

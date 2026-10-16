@@ -63,18 +63,23 @@ are deliberately separate. Manual runs default to `build_purpose=sandbox`:
 PRs and pushes to `main` or `release/**` are unsigned sandbox builds: no
 publication or pointer movement, with 3-day artifact retention.
 `sandbox_signing=signed` is rejected for dev/prd (which are always signed).
-Scheduled builds are unsigned sandbox builds: the daily canary keeps Actions
-caches warm, retains artifacts for 3 days, and never publishes or moves discovery.
+The release-line scheduled build resolver remains unchanged, but scheduled
+requests fail closed at publication routing and cannot move the dev pointer.
 
 - **PR validation:** pull requests targeting `main` or `release/**` build a
   no-publish OTA-profile image with the development channel. The run artifact is
   validation evidence only and never publishes a release.
 - **SSH option:** all non-dispatch builds keep SSH disabled. A manual GitHub
-  Actions run may select `ssh_enabled=enabled`; that run requires the protected
-  `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret and embeds the static ARM32 Dropbear
-  server plus `dropbearkey` in the initramfs. The image uses password-only root
-  login, does not include public-key authorization or persistent host keys, and
-  records both binary hashes in the release manifest.
+  Actions run defaults to `ssh_enabled=enabled` and may select `disabled`; an
+  enabled run embeds the static ARM32 `dropbear`, `dropbearkey` and `scp`
+  binaries in the initramfs and starts the SSH supervisor, which stays in a
+  waiting state until setup writes the WebUI users database
+  (`/data/libreecho/config/users`). Authentication is against that database and
+  nothing else: the image has **root login disabled**, uses non-root ephemeral
+  accounts, carries no public-key authorization and no persistent host keys, and
+  records all three binary hashes in the release manifest. The protected
+  `LIBREECHO_SSH_ROOT_PASSWORD_HASH` secret is optional and is not consumed by
+  the build, because the image accepts no root password.
 - **Development:** only an explicit `workflow_dispatch` with `build_purpose=dev`
   on `main` or `release/X.Y.Z` publishes a bounded signed `dev`-channel GitHub
   prerelease from the exact workflow artifact and moves the dev discovery pointer.
@@ -82,8 +87,9 @@ caches warm, retains artifacts for 3 days, and never publishes or moves discover
   with the selected ref's required inputs. Routine merges only produce sandbox
   artifacts. These releases are `PREPARED_NOT_FLASHED`, are not marked latest,
   and are not hardware-acceptance evidence.
-- **Scheduled sandbox:** the daily `main` canary is unsigned and publishes nothing.
-  Its verified Actions artifact expires after 3 days.
+- **Scheduled validation:** this release line retains its existing signed build
+  derivation and retention, but publication routing rejects scheduled dev requests.
+  The live default-branch schedule is an unsigned sandbox canary.
 - **Stable/product:** a maintainer manually dispatches the workflow from a
   matching `release/X.Y.Z` branch with `build_purpose=prd`, the release
   version, release notes, and the reviewed Amonet tag. The protected

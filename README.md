@@ -16,7 +16,7 @@
 </div>
 
 LibreEcho is an open embedded voice-assistant operating system focused on
-privacy, repairability, and local control. The current development line targets
+privacy, repairability, and local control (see [Privacy and telemetry](docs/privacy.md)). The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
 tooling, a native web control centre, and a signed A/B update path.
 
@@ -27,8 +27,8 @@ hardware support for other targets remains under development.
 
 ## Getting Started
 
-- **Echo Gen 2 Disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
-- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md)
+- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md). No shorting is needed: reach the USB pins on the bottom of the Echo and enter fastboot. With pogo pins, only the outer cover on the base comes off.
+- **Echo Gen 2 Disassembly (only if soldering a USB cable):** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
 
 ```sh
 TAG=latest
@@ -41,7 +41,7 @@ chmod +x run-one-shot.sh
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
-- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, BROM sequence, first-boot steps, and recovery guidance for the latest stable release.
+- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, the Amonet step for locked devices, first-boot steps, and recovery guidance for the latest stable release. Supported targets: Echo 2nd Gen (`radar_puffin`) and Echo Dot 2nd Gen (`biscuit`).
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
@@ -93,6 +93,14 @@ priority.
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 
 See [the repository boundary guide](docs/repositories.md) for where a change belongs.
+
+## Hardware modifications
+
+Optional, irreversible changes to the device itself.
+
+| Guide | What it enables |
+|---|---|
+| [Adding a USB tail](docs/usb-tail-mod.md) | ADB and external USB storage, by bringing a short cable out of the case |
 
 ## Support
 

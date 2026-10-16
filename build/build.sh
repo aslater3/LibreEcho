@@ -95,10 +95,33 @@ AIRPLAY_HOST_LIB="$INPUTS/host-tools/lib"
 AIRPLAY_PLISTUTIL="$AIRPLAY_HOST_BIN/plistutil"
 AIRPLAY_ALSA_DATA="${LIBREECHO_AIRPLAY_ALSA_DATA:-/usr/share/alsa}"
 AIRPLAY_TINYALSA_ARCHIVE="$INPUTS/tinyalsa-e43025bbf702eb7dd8edd48c1eb50530c60f1de8.tar.gz"
+# The shared mDNS discovery runtime is a boot-contained dependency, not a
+# feature payload: Home Assistant discovery must work without an AirPlay
+# installation.  The hosted pipeline builds it from the exact package lock and
+# independently verifies it; these inputs are the verified runtime root, its
+# manifest identity, and the corresponding-source/notice provenance record.
+MDNS_RUNTIME_ROOT="${LIBREECHO_MDNS_RUNTIME_ROOT:?ERROR: set the verified shared mDNS runtime root}"
+MDNS_RUNTIME_SOURCE_MAP="${LIBREECHO_MDNS_RUNTIME_SOURCE_MAP:?ERROR: set the verified shared mDNS runtime provenance record}"
+MDNS_RUNTIME_MANIFEST_SHA256="${LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256:?ERROR: set the verified shared mDNS runtime manifest identity}"
+MDNS_RUNTIME_LOCK="$PIPELINE/inputs/mdns-packages.lock.json"
+MDNS_RUNTIME_SOURCE_OFFERS="$PIPELINE/inputs/mdns-source-offers.json"
 UI_SOURCE="${LIBREECHO_UI_SRC:?ERROR: set LIBREECHO_UI_SRC explicitly}"
 UI_CROSS="${LIBREECHO_UI_CROSS:-/usr/bin/arm-linux-gnueabihf-}"
 CORE_RUNTIME_SYSROOT="${LIBREECHO_CORE_RUNTIME_SYSROOT:?ERROR: set exact ARMHF glibc sysroot}"
 CORE_GCC_LIBDIR="${LIBREECHO_CORE_GCC_LIBDIR:?ERROR: set exact ARMHF GCC runtime directory}"
+# HTTPS is a shipped production capability, so the production UI bundle links
+# the pinned ARM32 Mbed TLS prefix instead of the stub TLS implementation that
+# let the Web UI advertise an HTTPS toggle which could never listen
+# (LibreEcho-UI#250).  The source archive is a reviewed public input; the
+# mbedtls-arm32 component block below independently validates it against the
+# Platform source lock, and the build interpreter is the pinned wheel closure
+# the release workflow installs outside the source trees.
+MBEDTLS_SOURCE_ARCHIVE="${LIBREECHO_MBEDTLS_SOURCE_ARCHIVE:?ERROR: set LIBREECHO_MBEDTLS_SOURCE_ARCHIVE explicitly}"
+MBEDTLS_BUILD_PYTHON="${LIBREECHO_MBEDTLS_BUILD_PYTHON:?ERROR: set LIBREECHO_MBEDTLS_BUILD_PYTHON explicitly}"
+MBEDTLS_BUILDER="$TOOLS_DIR/mbedtls/build_mbedtls.sh"
+MBEDTLS_SOURCE_LOCK="$TOOLS_DIR/mbedtls/SOURCE.lock"
+# The bundle builds its own source-locked Opus stack, not a caller-certified prefix.
+OPUS_ARCHIVES_DIR="${LIBREECHO_OPUS_ARCHIVES_DIR:?ERROR: set LIBREECHO_OPUS_ARCHIVES_DIR explicitly}"
 SHERPA_SOURCE=
 SHERPA_PREFIX=
 ORT_BUILD=
@@ -133,9 +156,17 @@ SSH_ENABLED="${LIBREECHO_SSH_ENABLED:-0}"
 SSH_ROOT_PASSWORD_HASH="${LIBREECHO_SSH_ROOT_PASSWORD_HASH:-}"
 JOBS="${JOBS:-$(nproc)}"
 OTA_DIR="$TOOLS_DIR/ota"
+PLATFORM_RUNTIME_VERIFIER="$TOOLS_DIR/feature_runtime/verify_runtime.py"
 OTA_PUBLIC_KEY="$OTA_DIR/ota-public-key.hex"
 OTA_SIGNING_KEY="${LIBREECHO_OTA_SIGNING_KEY:-$PRIVATE_ROOT/ota-signing-key.hex}"
 OTA_SIGNING_MODE="${LIBREECHO_OTA_SIGNING_MODE:-github}"
+# Release workflow dispatches pass v2 explicitly. Local builds which do not
+# name a format retain the v1 bridge fallback. v2 uses the verified prior
+# release catalog; no Product-side compatibility fields are invented here.
+OTA_FORMAT="${LIBREECHO_OTA_FORMAT:-v1}"
+OTA_RELEASE="${LIBREECHO_OTA_RELEASE:-}"
+OTA_TARGET_RELEASE_TAG="${LIBREECHO_TARGET_RELEASE_TAG:-}"
+OTA_EXPECTED_PUBLIC_KEY_SHA256="${LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256:-}"
 OTA_SODIUM_ROOT="$LIBSODIUM_OUTPUT"
 OTA_SODIUM_A="$OTA_SODIUM_ROOT/lib/libsodium.a"
 OTA_MUSL_NATIVE_ROOT="${LIBREECHO_OTA_MUSL_NATIVE_ROOT:?ERROR: set LIBREECHO_OTA_MUSL_NATIVE_ROOT explicitly}"
@@ -299,7 +330,8 @@ adopt_feature_payload() {
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [--defconfig] [--profile development|ota] \
+Usage: ./build.sh [--target radar_puffin|biscuit] [--targets radar_puffin,biscuit] \
+  [--defconfig] [--profile development|ota] \
   [--service-profile diagnostic|production] \
   [--feature-policy exclude|preserve|redistributable|community-noncommercial] \
   [--update-channel dev|stable] \
@@ -318,10 +350,14 @@ No image is overwritten. Every run gets its own immutable directory.
 EOF
 }
 
+TARGET="${LIBREECHO_TARGET:-radar_puffin}"
+TARGETS="${LIBREECHO_TARGETS:-}"
 defconfig=0
 publish_current=1
 while (($#)); do
   case "$1" in
+    --target) shift; TARGET="${1:?--target requires a value}"; TARGETS="$TARGET" ;;
+    --targets) shift; TARGETS="${1:?--targets requires a comma-separated list}" ;;
     --defconfig) defconfig=1 ;;
     --no-publish) publish_current=0 ;;
     --profile)
@@ -352,9 +388,35 @@ while (($#)); do
   esac
   shift
 done
+# Resolve the registry before cache restore/compilation. Scaffolding requires
+# identical kernel/DTB/feature inputs across the selected target set.
+TARGETS="${TARGETS:-$TARGET}"
+python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGETS"
+IFS=, read -r -a selected_targets <<< "$TARGETS"
+TARGET="${selected_targets[0]}"
+target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
+eval "$target_values" # only schema-validated identifiers/digests; no user strings
+TOOLS_DIR="$TOOLING_SRC/tools/$TOOLS_PROFILE"
+platform_args() {
+  local output
+  output="$(python3 -B "$PIPELINE/ci/platform-target-args.py" --tool "$1" --target "$TARGET" "${@:2}")" || return
+  TARGET_TOOL_ARGS=()
+  [[ -z "$output" ]] || mapfile -t TARGET_TOOL_ARGS <<< "$output"
+}
+# Probe the whole target/tool frontier now, not after an expensive build.
+for probe_target in "${selected_targets[@]}"; do
+  for probe_tool in generate_boot_envelope.py build_recovery_image.py verify_recovery_image.py ota/make_ota_bundle.py; do
+    python3 -B "$PIPELINE/ci/platform-target-args.py" --tool "$TOOLS_DIR/$probe_tool" --target "$probe_target" >/dev/null
+  done
+done
 case "$IMAGE_PROFILE" in development|ota) ;; *) echo "ERROR: invalid image profile: $IMAGE_PROFILE" >&2; exit 1 ;; esac
 case "$SERVICE_PROFILE" in diagnostic|production) ;; *) echo "ERROR: invalid service profile: $SERVICE_PROFILE" >&2; exit 1 ;; esac
 case "$UPDATE_CHANNEL" in dev|stable) ;; *) echo "ERROR: invalid update channel: $UPDATE_CHANNEL" >&2; exit 1 ;; esac
+if [[ "$UPDATE_CHANNEL" == dev ]]; then
+  ADBD_TCP_PORT=5555
+else
+  ADBD_TCP_PORT=0
+fi
 FEATURES_ENABLED=0
 WAKEWORD_ENABLED=0
 policy_token=
@@ -408,11 +470,22 @@ if [[ "$FEATURES_ENABLED" == 1 && "$SERVICE_PROFILE" == production ]]; then
     echo "ERROR: MT8163 audio FPGA firmware identity mismatch" >&2; exit 1
   }
   grep -qx 'CONFIG_SND_SOC_AMZN_MT8163_SPI_AUDIO=y' \
-    "$KERNEL_SRC/arch/arm/configs/mt8163_arm32_defconfig" || {
+    "$KERNEL_SRC/arch/arm/configs/$KERNEL_DEFCONFIG" || {
     echo "ERROR: full-feature production build requires the verified MT8163 audio driver" >&2; exit 1
   }
 fi
 case "$OTA_SIGNING_MODE" in github|local) ;; *) echo "ERROR: invalid OTA signing mode: $OTA_SIGNING_MODE" >&2; exit 1 ;; esac
+case "$OTA_FORMAT" in
+  v1) ;;
+  v3)
+    [[ "$OTA_RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: v3 requires version X.Y.Z" >&2; exit 1; }
+    [[ "$OTA_TARGET_RELEASE_TAG" =~ ^radar-puffin-(v[0-9]+\.[0-9]+\.[0-9]+|(build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16})$ ]] || { echo "ERROR: v3 requires immutable LIBREECHO_TARGET_RELEASE_TAG" >&2; exit 1; }
+    [[ "$OTA_EXPECTED_PUBLIC_KEY_SHA256" =~ ^[0-9a-f]{64}$ && -f "$OTA_PUBLIC_KEY" && ! -L "$OTA_PUBLIC_KEY" ]] || { echo "ERROR: v3 requires trusted image key anchor" >&2; exit 1; }
+    [[ "$(sha256sum "$OTA_PUBLIC_KEY" | awk '{print $1}')" == "$OTA_EXPECTED_PUBLIC_KEY_SHA256" ]] || { echo "ERROR: v3 image key anchor mismatch" >&2; exit 1; }
+    [[ "$IMAGE_PROFILE" == ota ]] || { echo "ERROR: v3 requires OTA image profile" >&2; exit 1; }
+    ;;
+  *) echo "ERROR: invalid OTA format: $OTA_FORMAT (expected v1 or v3)" >&2; exit 1 ;;
+esac
 
 [[ -x "${CROSS}gcc" ]] || { echo "ERROR: ARM32 compiler not found: ${CROSS}gcc" >&2; exit 1; }
 [[ -x "$AUDIO_CC" ]] || { echo "ERROR: ARM32 audio probe compiler not found: $AUDIO_CC" >&2; exit 1; }
@@ -530,14 +603,27 @@ case "$SSH_ENABLED" in
        echo "ERROR: LIBREECHO_SSH_ROOT_PASSWORD_HASH requires LIBREECHO_SSH_ENABLED=1" >&2
        exit 1
      } ;;
-  1) [[ -n "$SSH_ROOT_PASSWORD_HASH" && -f "$SSH_ROOT_PASSWORD_HASH" && ! -L "$SSH_ROOT_PASSWORD_HASH" ]] || {
-       echo "ERROR: SSH requires a regular build-local root password hash file" >&2
-       exit 1
-     }
-     hash_mode="$(stat -c %a "$SSH_ROOT_PASSWORD_HASH")"
-     if (( 8#$hash_mode & 022 )); then
-       echo "ERROR: SSH root password hash file is group/world-writable" >&2
-       exit 1
+  1) # Enabling SSH ships the bundle, not a credential: init starts the
+     # supervisor, which waits for the WebUI users database that setup writes.
+     # A staged hash adds password-only root login on top of that, and is
+     # optional.  An absent, unset or empty-path hash simply means the image
+     # carries no root password, which is the intended default for a device
+     # whose credentials come from setup.
+     if [[ -n "$SSH_ROOT_PASSWORD_HASH" ]]; then
+       [[ -f "$SSH_ROOT_PASSWORD_HASH" && ! -L "$SSH_ROOT_PASSWORD_HASH" ]] || {
+         echo "ERROR: SSH requires a regular build-local root password hash file" >&2
+         exit 1
+       }
+       hash_mode="$(stat -c %a "$SSH_ROOT_PASSWORD_HASH")"
+       if (( 8#$hash_mode & 022 )); then
+         echo "ERROR: SSH root password hash file is group/world-writable" >&2
+         exit 1
+       fi
+       if [[ ! -s "$SSH_ROOT_PASSWORD_HASH" ]]; then
+         echo "SSH enabled without a root password hash: no root password will be set" >&2
+       fi
+     else
+       echo "SSH enabled without a root password hash: no root password will be set" >&2
      fi ;;
   *) echo "ERROR: LIBREECHO_SSH_ENABLED must be 0 or 1" >&2; exit 1 ;;
 esac
@@ -793,7 +879,7 @@ if ((defconfig)) || [[ ! -f "$KERNEL_OUT/.config" ]]; then
     echo "=== generating ARM32 defconfig (new build directory) ==="
   fi
   make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-    LD="${CROSS}ld.bfd" mt8163_arm32_defconfig
+    LD="${CROSS}ld.bfd" "$KERNEL_DEFCONFIG"
 fi
 
 recovery_marker_kconfig=0
@@ -947,11 +1033,16 @@ if [[ -f "$radar_machine_source" && -f "$radar_codec_header" &&
   require_source_marker "$radar_machine_source" \
     'RADAR_PUFFIN_DAC_PROCESSING_BLOCK' 'PRB_P2 profile'
   require_source_marker "$radar_machine_source" \
-    'radar_speaker_apply_profile(component)' 'speaker coefficients'
+    'radar_speaker_apply_profile(component, priv->speaker_profile)' \
+    'speaker coefficients (selected per-target codec profile, Radar default)'
   require_source_marker "$radar_machine_source" \
-    'RADAR_LDACVOL, 0' 'left DAC 0 dB volume'
-  require_source_marker "$radar_machine_source" \
-    'RADAR_RDACVOL, 0' 'right DAC 0 dB volume'
+    'RADAR_SPEAKER_PROFILE_RADAR = 0' 'Radar crossover as the default codec profile'
+  radar_volume_contract="$KERNEL_SRC/sound/soc/mediatek/mt8163/test_radar_puffin_volume_preservation.py"
+  [[ -f "$radar_volume_contract" && ! -L "$radar_volume_contract" ]] || {
+    echo "ERROR: Radar-Puffin PCM volume preservation contract missing: $radar_volume_contract" >&2
+    exit 1
+  }
+  python3 "$radar_volume_contract"
   # The accepted Linux 6.1 transport is duplicated stereo: the mono
   # programme is duplicated by userspace into L/R, and both physical HP
   # drivers must be unmuted.  The former MonoRight marker is obsolete and
@@ -978,15 +1069,15 @@ fi
 
 echo "=== building ARM32 zImage and Radar-Puffin DTB (-j$JOBS) ==="
 make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-  LD="${CROSS}ld.bfd" -j"$JOBS" zImage libreecho-radar-puffin.dtb
+  LD="${CROSS}ld.bfd" -j"$JOBS" zImage "$KERNEL_DTB_NAME"
 
 ZIMAGE_BUILD="$KERNEL_OUT/arch/arm/boot/zImage"
 SYSMAP_BUILD="$KERNEL_OUT/System.map"
-KERNEL_DTB="$KERNEL_OUT/arch/arm/boot/dts/libreecho-radar-puffin.dtb"
+KERNEL_DTB="$KERNEL_OUT/arch/arm/boot/dts/$KERNEL_DTB_NAME"
 [[ -f "$ZIMAGE_BUILD" && -f "$SYSMAP_BUILD" && -f "$KERNEL_DTB" ]] || {
   echo "ERROR: kernel or DTB outputs missing" >&2; exit 1;
 }
-DTB_VERIFIER="$TOOLS_DIR/verify_radar_puffin_dtb.py"
+DTB_VERIFIER="$TOOLS_DIR/verify_${DTB_VERIFIER_ID}_dtb.py"
 [[ -f "$DTB_VERIFIER" && ! -L "$DTB_VERIFIER" ]] || {
   echo "ERROR: Radar-Puffin DTB verifier missing: $DTB_VERIFIER" >&2
   exit 1
@@ -1025,6 +1116,7 @@ build_state=clean
 [[ -z "$(git -C "$PIPELINE" status --porcelain)" ]] || build_state=dirty
 build_diffsha="$(source_state_sha256 "$PIPELINE")"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${head}-${dirty}-${IMAGE_PROFILE}-${SERVICE_PROFILE}-${UPDATE_CHANNEL}-${policy_token}-ssh${SSH_ENABLED}-ui${ui_commit:0:8}-${zsha:0:8}"
+[[ "$TARGET" == radar_puffin ]] || run_id="$run_id-$TARGET"
 RUN="$RUNS/$run_id"
 mkdir -p "$RUN/components"
 COMPONENTS_MANIFEST="$RUN/components.json"
@@ -1072,7 +1164,7 @@ else
   cp -- "$ZIMAGE_BUILD" "$RUN/zImage"
   cp -- "$SYSMAP_BUILD" "$RUN/System.map"
 fi
-cp -- "$KERNEL_DTB" "$RUN/libreecho-radar-puffin.dtb"
+cp -- "$KERNEL_DTB" "$RUN/$KERNEL_DTB_NAME"
 cp -- "$KERNEL_OUT/.config" "$RUN/kernel.config"
 kernel_config_sha="$(sha256sum "$RUN/kernel.config" | awk '{print $1}')"
 echo "kernel_config_sha256=$kernel_config_sha"
@@ -1141,7 +1233,8 @@ echo "=== building or restoring source-pinned ARM32 adbd ==="
 adbd_cache_key="$(component_cache_key adbd \
   --tree "aosp-system-core=$ADBD_SOURCE" --tree "linux-uapi=$ADBD_KERNEL_HEADERS" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --tree "adbd-tooling=$TOOLS_DIR/adbd" \
-  --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static")"
+  --file "ota-musl-cc=$OTA_MUSL_CC" --value "target=arm32-static" \
+  --value "tcp_port=$ADBD_TCP_PORT")"
 ADBD_STAGE="$RUN/adbd-stage"
 adbd_status=rebuilt
 rm -rf "$ADBD_STAGE" "$RUN/components/adbd"
@@ -1150,7 +1243,8 @@ if ! component_cache_restore adbd "$adbd_cache_key" "$ADBD_STAGE"; then
   env LD_LIBRARY_PATH="$OTA_MUSL_NATIVE_ROOT/usr/lib" \
     "$ADBD_BUILDER" --source "$ADBD_SOURCE" --output "$ADBD_STAGE" \
     --cc "$OTA_MUSL_CC" --sysroot "$OTA_MUSL_SYSROOT" \
-    --kernel-headers "$ADBD_KERNEL_HEADERS" | tee "$RUN/adbd-build.log"
+    --kernel-headers "$ADBD_KERNEL_HEADERS" \
+    --tcp-port "$ADBD_TCP_PORT" | tee "$RUN/adbd-build.log"
   component_cache_store adbd "$adbd_cache_key" "$ADBD_STAGE"
 else
   adbd_status=hit
@@ -1184,12 +1278,155 @@ UI_TOOLCHAIN_KEY="$(component_cache_key ui-armhf-toolchain \
   --tree "runtime-sysroot=$CORE_RUNTIME_SYSROOT" \
   --tree "gcc-runtime=$CORE_GCC_LIBDIR")"
 record_component_identity ui-armhf-toolchain "$UI_TOOLCHAIN_KEY"
+
+# --- mbedtls-arm32 component block
+# The production UI bundle must link the pinned ARM32 Mbed TLS prefix: without
+# it the UI Makefile silently selects src/tls_stub.c and the shipped Web UI
+# advertises an HTTPS toggle that can never listen (LibreEcho-UI#250, Platform
+# #164).  Every pinned input is validated before anything is built, cached, or
+# materialised, and the resulting component identity is bound into the UI
+# bundle cache key below so a cached stub bundle can never satisfy a production
+# build.  Source acquisition stays with the reviewed public-input inventory;
+# this block never downloads anything.
+echo "=== building or restoring pinned ARM32 Mbed TLS for the UI bundle ==="
+MBEDTLS_OUTPUT="$RUN/components/mbedtls-arm32"
+MBEDTLS_STAGE="$RUN/mbedtls-stage"
+MBEDTLS_METADATA="$MBEDTLS_OUTPUT/mbedtls-source.json"
+mbedtls_version=
+mbedtls_lock_sha256=
+mbedtls_lock_target=
+mbedtls_target=arm-linux-gnueabihf-static
+mbedtls_input_error=0
+mbedtls_reject() {
+  echo "ERROR: $1" >&2
+  mbedtls_input_error=1
+}
+[[ -f "$MBEDTLS_SOURCE_LOCK" && ! -L "$MBEDTLS_SOURCE_LOCK" ]] ||
+  mbedtls_reject "missing pinned mbedTLS source lock: $MBEDTLS_SOURCE_LOCK"
+[[ -x "$MBEDTLS_BUILDER" ]] ||
+  mbedtls_reject "mbedTLS builder is missing or not executable: $MBEDTLS_BUILDER"
+[[ -f "$MBEDTLS_SOURCE_ARCHIVE" && ! -L "$MBEDTLS_SOURCE_ARCHIVE" ]] ||
+  mbedtls_reject "missing pinned mbedTLS source archive: $MBEDTLS_SOURCE_ARCHIVE"
+[[ -x "$MBEDTLS_BUILD_PYTHON" ]] ||
+  mbedtls_reject "pinned mbedTLS build interpreter is unavailable: $MBEDTLS_BUILD_PYTHON"
+((mbedtls_input_error == 0)) || exit 1
+# The Platform lock is the packaging contract for the archive, its target, and
+# the build requirements the pinned interpreter must satisfy.
+mbedtls_lock_record=
+if ! mbedtls_lock_record="$(python3 -B - "$MBEDTLS_SOURCE_LOCK" <<'PY'
+import json
+import sys
+
+lock = json.load(open(sys.argv[1], encoding="utf-8"))
+fields = []
+for name in ("version", "source_sha256", "target"):
+    value = lock.get(name)
+    if not isinstance(value, str) or not value:
+        raise SystemExit(f"missing {name}")
+    fields.append(value)
+print("\t".join(fields))
+PY
+)"; then
+  mbedtls_reject "the pinned mbedTLS source lock is unreadable: $MBEDTLS_SOURCE_LOCK"
+else
+  mbedtls_version="${mbedtls_lock_record%%$'\t'*}"
+  mbedtls_lock_remainder="${mbedtls_lock_record#*$'\t'}"
+  mbedtls_lock_sha256="${mbedtls_lock_remainder%%$'\t'*}"
+  mbedtls_lock_target="${mbedtls_lock_remainder#*$'\t'}"
+fi
+((mbedtls_input_error == 0)) || exit 1
+[[ "$mbedtls_lock_target" == "$mbedtls_target" ]] ||
+  mbedtls_reject "pinned mbedTLS source lock targets $mbedtls_lock_target, not $mbedtls_target"
+((mbedtls_input_error == 0)) || exit 1
+mbedtls_archive_sha="$(sha256sum "$MBEDTLS_SOURCE_ARCHIVE" | awk '{print $1}')"
+[[ "$mbedtls_archive_sha" == "$mbedtls_lock_sha256" ]] || {
+  echo "ERROR: mbedTLS source archive $MBEDTLS_SOURCE_ARCHIVE does not match the pinned source lock" >&2
+  exit 1
+}
+# The builder regenerates its sources with this interpreter, so the installed
+# dependency closure is part of the component identity: a prefix produced by a
+# different jinja2/jsonschema set must never satisfy this key.
+mbedtls_interpreter_identity=
+if ! mbedtls_interpreter_identity="$("$MBEDTLS_BUILD_PYTHON" -B - <<'PY'
+import importlib.metadata as metadata
+import platform
+
+records = ["python==" + platform.python_version()]
+for distribution in metadata.distributions():
+    name = distribution.metadata["Name"]
+    if name:
+        records.append(f"{name}=={distribution.version}")
+print("\n".join(sorted(records)))
+PY
+)"; then
+  echo "ERROR: the pinned mbedTLS build interpreter cannot report its closure: $MBEDTLS_BUILD_PYTHON" >&2
+  exit 1
+fi
+[[ -n "$mbedtls_interpreter_identity" ]] || {
+  echo "ERROR: the pinned mbedTLS build interpreter reported an empty closure: $MBEDTLS_BUILD_PYTHON" >&2
+  exit 1
+}
+mbedtls_interpreter_sha="$(printf '%s\n' "$mbedtls_interpreter_identity" | sha256sum | awk '{print $1}')"
+mbedtls_cache_key="$(component_cache_key mbedtls-arm32 \
+  --tree "platform-mbedtls=$TOOLS_DIR/mbedtls" \
+  --file "builder=$MBEDTLS_BUILDER" \
+  --file "source-lock=$MBEDTLS_SOURCE_LOCK" \
+  --file "source-archive=$MBEDTLS_SOURCE_ARCHIVE" \
+  --file "cross-gcc=${UI_CROSS}gcc" --file "cross-ar=${UI_CROSS}ar" \
+  --value "version=$mbedtls_version" \
+  --value "source_sha256=$mbedtls_archive_sha" \
+  --value "target=$mbedtls_target" \
+  --value "build-interpreter=$mbedtls_interpreter_sha" \
+  --value "ui-toolchain=$UI_TOOLCHAIN_KEY" \
+  --value "core-toolchain=$CORE_TOOLCHAIN_KEY")"
+record_component_identity mbedtls-arm32 "$mbedtls_cache_key"
+rm -rf "$MBEDTLS_STAGE" "$MBEDTLS_OUTPUT"
+mbedtls_status=rebuilt
+if ! component_cache_restore mbedtls-arm32 "$mbedtls_cache_key" "$MBEDTLS_STAGE"; then
+  # The builder owns creation of the prefix at --output and refuses a path that
+  # already exists, so do not pre-create it here: an existing directory (from
+  # `mkdir -p`, or a leftover from an earlier attempt in the same run) makes the
+  # build refuse before it starts.
+  "$MBEDTLS_BUILDER" --archive "$MBEDTLS_SOURCE_ARCHIVE" \
+    --output "$MBEDTLS_STAGE" --cc "${UI_CROSS}gcc" \
+    --python "$MBEDTLS_BUILD_PYTHON" --jobs "$JOBS" \
+    | tee "$RUN/mbedtls-build.log"
+  component_cache_store mbedtls-arm32 "$mbedtls_cache_key" "$MBEDTLS_STAGE"
+else
+  mbedtls_status=hit
+  printf 'component_cache_hit=mbedtls-arm32\n' >"$RUN/mbedtls-build.log"
+fi
+component_materialize mbedtls-arm32 "$mbedtls_cache_key" "$mbedtls_status" \
+  "$MBEDTLS_STAGE" "$MBEDTLS_OUTPUT"
+rm -rf "$MBEDTLS_STAGE"
+for mbedtls_archive in libmbedcrypto.a libmbedx509.a libmbedtls.a; do
+  [[ -f "$MBEDTLS_OUTPUT/lib/$mbedtls_archive" ]] || {
+    echo "ERROR: mbedTLS prefix is incomplete: $MBEDTLS_OUTPUT/lib/$mbedtls_archive" >&2
+    exit 1
+  }
+done
+# The source record lives inside the materialised prefix and is copied beside
+# the other component records so the run keeps its own provenance copy.
+[[ -f "$MBEDTLS_METADATA" && ! -L "$MBEDTLS_METADATA" ]] || {
+  echo "ERROR: mbedTLS source record is missing inside the prefix: $MBEDTLS_METADATA" >&2
+  exit 1
+}
+install -m 0644 "$MBEDTLS_METADATA" "$RUN/mbedtls-source.json"
+echo "mbedtls_component_key=$mbedtls_cache_key"
+echo "mbedtls_source_sha256=$mbedtls_archive_sha"
+# --- end mbedtls-arm32 component block ---
 ui_bundle_cache_key="$(component_cache_key ui-bundle \
   --value "payload_layout=bundle-relink-v1" \
   --value "ui_head=$ui_commit" --value "ui_diff=$ui_diff_sha" \
   --value "ui_toolchain=$UI_TOOLCHAIN_KEY" \
   --file "builder=$UI_BUILDER" \
   --file "ui-musl-gcc=$AUDIO_CC" \
+  --value "ui_mbedtls=$mbedtls_cache_key" \
+  --file "opus-builder=$TOOLS_DIR/ui/build_opus.sh" \
+  --file "opus-lock=$TOOLS_DIR/ui/opus/SOURCE.lock" \
+  --file "ogg-source=$OPUS_ARCHIVES_DIR/libogg-1.3.5.tar.gz" \
+  --file "opus-source=$OPUS_ARCHIVES_DIR/opus-1.4.tar.gz" \
+  --file "opusfile-source=$OPUS_ARCHIVES_DIR/opusfile-0.12.tar.gz" \
   --value "cross_target=armhf" --value "musl_cc_target=armhf" \
   --value "core-toolchain=$CORE_TOOLCHAIN_KEY" --value "service_profile=$SERVICE_PROFILE")"
 UI_BUNDLE_STAGE="$RUN/ui-bundle-stage"
@@ -1198,6 +1435,10 @@ ui_bundle_status=rebuilt
 if ! component_cache_restore ui-bundle "$ui_bundle_cache_key" "$UI_BUNDLE_STAGE"; then
   mkdir -p "$UI_BUNDLE_STAGE"
   LIBREECHO_UI_CROSS_COMPILE="$UI_CROSS" \
+  LIBREECHO_UI_MBEDTLS_ROOT="$MBEDTLS_OUTPUT" \
+  LIBREECHO_OPUS_ARCHIVES_DIR="$OPUS_ARCHIVES_DIR" \
+  LIBREECHO_OPUS_CC="${UI_CROSS}gcc" \
+  LIBREECHO_OPUS_AR="${UI_CROSS}ar" \
   LIBREECHO_UI_MUSL_NATIVE_ROOT="$OTA_MUSL_NATIVE_ROOT" \
   LIBREECHO_UI_MUSL_SYSROOT="$OTA_MUSL_SYSROOT" \
   LIBREECHO_UI_MUSL_CC="$AUDIO_CC" \
@@ -1283,7 +1524,7 @@ if [[ "$WAKEWORD_ENABLED" == 1 ]]; then
   wake_ort_head="$(git -C "$WAKE_ORT_SOURCE" rev-parse HEAD)"
   wake_ort_diff="$(source_state_sha256 "$WAKE_ORT_SOURCE")"
   wake_ort_cache_key="$(component_cache_key wake-ort \
-    --value "contract=reduced-static-archives-v5-abseil-closure" \
+    --value "contract=reduced-static-archives-v7-pinned-ort-closure" \
     --value "jobs=$JOBS" --value "ui_toolchain=$UI_TOOLCHAIN_KEY" \
     --value "ort_head=$wake_ort_head" --value "ort_diff=$wake_ort_diff" \
     --tree "platform-wakeword=$TOOLS_DIR/wakeword" \
@@ -1376,7 +1617,8 @@ if [[ "$WAKEWORD_ENABLED" == 1 ]]; then
         install -m 0644 "$WAKE_ORT_BUILD/$archive" "$WAKE_ORT_WORK/$archive"
       done
       # The wakeword daemon relink also consumes the reduced ORT dependency
-      # archives (onnx, protobuf-lite, flatbuffers, and Abseil). They must be
+      # archives (onnx, protobuf-lite, flatbuffers, and Abseil). Pinned ORT
+      # 8f0278c7 has no nsync target. Required dependencies must be
       # part of the cached wake-ort payload; otherwise a wake-ort cache hit
       # combined with a wake-runtime cache miss relinks against an incomplete
       # tree.
@@ -1922,26 +2164,45 @@ if [[ "$SSH_ENABLED" == 1 ]]; then
     echo "ERROR: SSH builder is missing or not executable: $DROPBEAR_BUILDER" >&2
     exit 1
   }
+  # The builder resolves its inputs and its ARM32 toolchain from defaults that do
+  # not hold in a hosted build: inputs from LIBREECHO_PIPELINE_ROOT (nothing
+  # populates $BUILD_ROOT/inputs) and the compiler from /usr/bin.  Both are
+  # pointed at the pipeline's own locations here, and the builder still hashes
+  # every input against its own pins.  The output root needs no override: both
+  # sides already agree on $BUILD_ROOT/work/dropbear-2026.93.
   LIBREECHO_PIPELINE_ROOT="$BUILD_ROOT" \
+    DROPBEAR_CROSS_PREFIX="$CROSS" \
+    DROPBEAR_SOURCE_ARCHIVE="$INPUTS/dropbear-2026.93.tar.bz2" \
+    DROPBEAR_LIBCRYPT_DEV_PACKAGE="$INPUTS/libcrypt-dev_4.4.36-4build1_armhf.deb" \
+    DROPBEAR_LIBCRYPT_RUNTIME_PACKAGE="$INPUTS/libcrypt1_4.4.36-4build1_armhf.deb" \
     "$DROPBEAR_BUILDER" | tee "$RUN/dropbear-build.log"
   DROPBEAR_OUTPUT="$WORK_ROOT/dropbear-2026.93/output"
-  [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" ]] || {
-    echo "ERROR: SSH builder did not produce both Dropbear binaries" >&2
+  [[ -f "$DROPBEAR_OUTPUT/dropbear" && -f "$DROPBEAR_OUTPUT/dropbearkey" &&
+     -f "$DROPBEAR_OUTPUT/scp" ]] || {
+    echo "ERROR: SSH builder did not produce dropbear, dropbearkey and scp" >&2
     exit 1
   }
   dropbear_sha="$(sha256sum "$DROPBEAR_OUTPUT/dropbear" | awk '{print $1}')"
   dropbearkey_sha="$(sha256sum "$DROPBEAR_OUTPUT/dropbearkey" | awk '{print $1}')"
+  scp_sha="$(sha256sum "$DROPBEAR_OUTPUT/scp" | awk '{print $1}')"
   echo "dropbear_sha256=$dropbear_sha"
   echo "dropbearkey_sha256=$dropbearkey_sha"
+  # The image bundles all three binaries and the verifier rejects an SSH image
+  # whose binary identities are incomplete, so all three paths are passed and
+  # all three digests are expected.  There is deliberately no root password
+  # argument: the image has root login disabled and authenticates against the
+  # users database setup writes, so the optional
+  # LIBREECHO_SSH_ROOT_PASSWORD_HASH secret is staged but never consumed.
   ssh_builder_args=(
     --ssh-enabled
     --dropbear "$DROPBEAR_OUTPUT/dropbear"
     --dropbearkey "$DROPBEAR_OUTPUT/dropbearkey"
-    --ssh-root-password-hash "$SSH_ROOT_PASSWORD_HASH"
+    --scp "$DROPBEAR_OUTPUT/scp"
   )
   ssh_verifier_args=(
     --expected-dropbear-sha256 "$dropbear_sha"
     --expected-dropbearkey-sha256 "$dropbearkey_sha"
+    --expected-scp-sha256 "$scp_sha"
   )
 fi
 
@@ -1949,15 +2210,92 @@ echo "=== checking kernel marker contract ==="
 "$PIPELINE/check_marker_contract.sh" "$RUN/System.map" "$IMAGE_PROFILE" \
   "$KERNEL_SRC" "$TOOLING_SRC"
 
+echo "=== verifying the shared mDNS discovery runtime contract ==="
+# The shared discovery runtime is boot-contained and is not a feature payload:
+# Home Assistant discovery must not acquire an AirPlay installation dependency.
+# The hosted pipeline builds it from the exact package lock, verifies it with
+# the Platform verifier, and records the corresponding-source/notice closure.
+# Re-check the identity and the closure here, so a missing, swapped, or
+# unverified runtime can never reach the recovery-image contract.
+[[ -d "$MDNS_RUNTIME_ROOT" && ! -L "$MDNS_RUNTIME_ROOT" ]] || {
+  echo "ERROR: shared mDNS runtime root is missing or unsafe: $MDNS_RUNTIME_ROOT" >&2
+  exit 1
+}
+[[ -f "$MDNS_RUNTIME_ROOT/manifest.json" && ! -L "$MDNS_RUNTIME_ROOT/manifest.json" ]] || {
+  echo "ERROR: shared mDNS runtime manifest is missing: $MDNS_RUNTIME_ROOT/manifest.json" >&2
+  exit 1
+}
+mdns_runtime_manifest_sha="$(sha256sum "$MDNS_RUNTIME_ROOT/manifest.json" | awk '{print $1}')"
+[[ "$mdns_runtime_manifest_sha" == "$MDNS_RUNTIME_MANIFEST_SHA256" ]] || {
+  echo "ERROR: shared mDNS runtime manifest identity changed: $mdns_runtime_manifest_sha" >&2
+  exit 1
+}
+MDNS_RUNTIME_VERIFIER="$TOOLS_DIR/mdns/verify_runtime.py"
+[[ -f "$MDNS_RUNTIME_VERIFIER" && ! -L "$MDNS_RUNTIME_VERIFIER" ]] || {
+  echo "ERROR: Platform shared mDNS runtime verifier is missing: $MDNS_RUNTIME_VERIFIER" >&2
+  exit 1
+}
+python3 -B "$MDNS_RUNTIME_VERIFIER" \
+  --runtime "$MDNS_RUNTIME_ROOT" \
+  --manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" | tee "$RUN/mdns-runtime-verify.log"
+[[ -f "$MDNS_RUNTIME_SOURCE_MAP" && ! -L "$MDNS_RUNTIME_SOURCE_MAP" ]] || {
+  echo "ERROR: shared mDNS runtime provenance record is missing: $MDNS_RUNTIME_SOURCE_MAP" >&2
+  exit 1
+}
+python3 -B "$PIPELINE/ci/mdns_runtime.py" closure \
+  --lock "$MDNS_RUNTIME_LOCK" \
+  --runtime "$MDNS_RUNTIME_ROOT" \
+  --source-offers "$MDNS_RUNTIME_SOURCE_OFFERS" \
+  --manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" \
+  --output "$RUN/mdns-runtime-provenance.json" | tee "$RUN/mdns-runtime-contract.log"
+mdns_runtime_source_map_sha="$(sha256sum "$MDNS_RUNTIME_SOURCE_MAP" | awk '{print $1}')"
+mdns_runtime_provenance_sha="$(sha256sum "$RUN/mdns-runtime-provenance.json" | awk '{print $1}')"
+[[ "$mdns_runtime_source_map_sha" == "$mdns_runtime_provenance_sha" ]] || {
+  echo "ERROR: supplied shared mDNS runtime provenance disagrees with the rebuilt record" >&2
+  exit 1
+}
+MDNS_RUNTIME_KEY="$("$PIPELINE/ci/mdns-runtime-key.sh" "$MDNS_RUNTIME_ROOT" "$TOOLS_DIR/mdns")"
+record_component_identity mdns-runtime "$MDNS_RUNTIME_KEY"
+# Pass the runtime output and its verified manifest/provenance identity into the
+# recovery-image builder and the independent image verifier contract.
+export LIBREECHO_MDNS_RUNTIME_ROOT="$MDNS_RUNTIME_ROOT"
+export LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256="$MDNS_RUNTIME_MANIFEST_SHA256"
+export LIBREECHO_MDNS_RUNTIME_SOURCE_MAP="$RUN/mdns-runtime-provenance.json"
+echo "mdns_runtime_key=$MDNS_RUNTIME_KEY"
+echo "mdns_runtime_manifest_sha256=$MDNS_RUNTIME_MANIFEST_SHA256"
+echo "mdns_runtime_provenance_sha256=$mdns_runtime_provenance_sha"
+
+# Snapshot the shared kernel/userspace/features ONCE before target packaging.
+# Target-sensitive outputs never enter this shared snapshot.
+SHARED_RUN="$RUN"
+SHARED_RUN_ID="$run_id"
+for package_target in "${selected_targets[@]}"; do
+  if [[ "$package_target" != "${selected_targets[0]}" ]]; then
+    cp -a -- "$SHARED_RUN" "$RUNS/${SHARED_RUN_ID}-$package_target"
+  fi
+done
+package_target_image() (
+TARGET=$1
+# The legacy CURRENT is Radar-only; Biscuit never replaces Radar discovery.
+[[ "$TARGET" == radar_puffin ]] || publish_current=0
+export LIBREECHO_TARGET="$TARGET"
+target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
+eval "$target_values"
+run_id="$SHARED_RUN_ID"
+[[ "$TARGET" == "${selected_targets[0]}" ]] || run_id="$SHARED_RUN_ID-$TARGET"
+RUN="$RUNS/$run_id"
+COMPONENTS_MANIFEST="$RUN/components.json"
 BUILDER="$TOOLS_DIR/build_recovery_image.py"
 VERIFIER="$TOOLS_DIR/verify_recovery_image.py"
-IMAGE_DTB="$RUN/libreecho-radar-puffin.dtb"
+IMAGE_DTB="$RUN/$KERNEL_DTB_NAME"
 IMAGE_DTB_SHA256="$dtbsha"
 echo "radar_puffin_dtb_sha256=$IMAGE_DTB_SHA256"
 echo "=== packaging canonical ARM32 recovery image ==="
 BOOT_ENVELOPE="$RUN/boot-envelope.bin"
-python3 -B "$BOOT_ENVELOPE_GENERATOR" --output "$BOOT_ENVELOPE" | tee "$RUN/boot-envelope-build.log"
-python3 -B "$BUILDER" \
+platform_args "$BOOT_ENVELOPE_GENERATOR"
+python3 -B "$BOOT_ENVELOPE_GENERATOR" "${TARGET_TOOL_ARGS[@]}" --output "$BOOT_ENVELOPE" | tee "$RUN/boot-envelope-build.log"
+platform_args "$BUILDER" --descriptor "$TARGET_DESCRIPTOR_SHA256"
+python3 -B "$BUILDER" "${TARGET_TOOL_ARGS[@]}" \
   --boot-envelope "$BOOT_ENVELOPE" \
   --adbd "$ADBD_BINARY" --adbd-source-metadata "$ADBD_METADATA" \
   --busybox "$BUSYBOX_OUTPUT/busybox" --expected-busybox-sha256 "$busybox_sha" \
@@ -1971,7 +2309,7 @@ python3 -B "$BUILDER" \
   --tinyplay "$RUN/tinyplay" --tinycap "$RUN/tinycap" --tinymix "$RUN/tinymix" \
   --iwconfig "$RUN/iwconfig" \
   --iwconfig-source-metadata "$RUN/wireless-tools-source.json" \
-  --ui-bundle "$UI_BUNDLE" --ui-source "$UI_SOURCE" \
+  --ui-bundle "$UI_BUNDLE" --mdns-runtime "$MDNS_RUNTIME_ROOT" --ui-source "$UI_SOURCE" \
   --expected-ui-commit "$ui_commit" --expected-ui-diff-sha256 "$ui_diff_sha" \
   "${feature_builder_args[@]}" \
   --wmt-config-helper "$CONNECTIVITY_HELPERS/wmt_configure" \
@@ -1987,16 +2325,17 @@ python3 -B "$BUILDER" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
   --dtb "$IMAGE_DTB" --expected-dtb-sha256 "$IMAGE_DTB_SHA256" \
   --output "$RUN/boot.img" \
-  --ramdisk-output "$RUN/boot.ramdisk.cpio.gz" \
+  --ramdisk-output "$RUN/boot.ramdisk.cpio.xz" \
   --manifest "$RUN/manifest.json" | tee "$RUN/build.log"
 
 bootsha="$(sha256sum "$RUN/boot.img" | awk '{print $1}')"
 echo "=== independent image verification ==="
-python3 -B "$VERIFIER" \
+platform_args "$VERIFIER"
+python3 -B "$VERIFIER" "${TARGET_TOOL_ARGS[@]}" \
   --boot-envelope "$BOOT_ENVELOPE" \
   --zimage "$RUN/zImage" --expected-zimage-sha256 "$zsha" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
-  --ramdisk "$RUN/boot.ramdisk.cpio.gz" --manifest "$RUN/manifest.json" \
+  --ramdisk "$RUN/boot.ramdisk.cpio.xz" --manifest "$RUN/manifest.json" \
   --boot-image "$RUN/boot.img" --expected-boot-sha256 "$bootsha" \
   --expected-busybox-sha256 "$busybox_sha" \
   --expected-musl-loader-sha256 "$musl_loader_sha" \
@@ -2009,6 +2348,7 @@ python3 -B "$VERIFIER" \
   "${feature_verifier_args[@]}" \
   --expected-iwconfig-sha256 "$iwconfig_sha" \
   --expected-wpa-supplicant-sha256 "$wpa_supplicant_sha" \
+  --expected-mdns-runtime-manifest-sha256 "$MDNS_RUNTIME_MANIFEST_SHA256" \
   --expected-image-profile "$IMAGE_PROFILE" \
   --expected-service-profile "$SERVICE_PROFILE" \
   --expected-feature-policy "$FEATURE_POLICY" \
@@ -2115,18 +2455,85 @@ if [[ "$FEATURES_ENABLED" == 1 && "$PUBLIC_RELEASE_MODE" != 1 ]]; then
   echo "source_offer_manifest_sha256=$source_offer_manifest_sha256"
 fi
 
+feature_plan=
+feature_asset_inventory=
+feature_candidate_catalog=
+if [[ "$OTA_FORMAT" == v3 ]]; then
+  [[ "$FEATURES_ENABLED" == 1 && "$WAKEWORD_ENABLED" == 1 && "$SERVICE_PROFILE" == production ]] || {
+    echo "ERROR: OTA v3 requires the complete five-feature production catalog; feature-only builds are rejected" >&2
+    exit 1
+  }
+  feature_candidate_catalog="$RUN/feature-candidate-catalog.json"
+  feature_plan="$RUN/feature-plan.json"
+  feature_asset_inventory="$RUN/feature-assets.json"
+  python3 - "$RUN/manifest.json" "$feature_candidate_catalog" \
+    airplay2 "$AIRPLAY_PAYLOAD" "$AIRPLAY_FEATURE_MANIFEST" \
+    tts "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" \
+    wakeword "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" \
+    stt "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" \
+    assistant "$ASSISTANT_PAYLOAD" "$ASSISTANT_FEATURE_MANIFEST" <<'PY'
+import hashlib, json, pathlib, sys
+manifest_path, output_path = map(pathlib.Path, sys.argv[1:3])
+args = sys.argv[3:]
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+features = {}
+for offset in range(0, len(args), 3):
+    feature, payload_name, feature_manifest_name = args[offset:offset + 3]
+    manifest_feature = "airplay" if feature == "airplay2" else feature
+    payload = pathlib.Path(payload_name)
+    feature_manifest = pathlib.Path(feature_manifest_name)
+    feature_record = manifest.get(manifest_feature)
+    record = feature_record.get("payload", {}) if isinstance(feature_record, dict) else {}
+    if (payload.is_symlink() or not payload.is_file() or
+            feature_manifest.is_symlink() or not feature_manifest.is_file() or
+            not isinstance(record, dict) or record.get("filename") != payload.name):
+        raise SystemExit(f"ERROR: image manifest has no complete feature identity: {feature}")
+    payload_hash = hashlib.sha256(payload.read_bytes()).hexdigest()
+    manifest_hash = hashlib.sha256(feature_manifest.read_bytes()).hexdigest()
+    if (record.get("sha256") != payload_hash or record.get("size") != payload.stat().st_size or
+            record.get("manifest_sha256") != manifest_hash):
+        raise SystemExit(f"ERROR: feature payload identity changed after image verification: {feature}")
+    features[feature] = {
+        "payload": {"path": str(payload), "sha256": payload_hash, "size": payload.stat().st_size},
+        "manifest": {"path": str(feature_manifest), "sha256": manifest_hash, "size": feature_manifest.stat().st_size},
+    }
+target = __import__("os").environ["LIBREECHO_TARGET"]
+catalog = {"features": features}
+if target != "radar_puffin": catalog["board"] = target
+output_path.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  python3 -B "$PIPELINE/ci/plan-target-manifest.py" \
+    --target "$TARGET" --candidate-catalog "$feature_candidate_catalog" \
+    --boot-image "$RUN/boot.img" --release "$OTA_TARGET_RELEASE_TAG" \
+    --version "$OTA_RELEASE" --update-channel "$UPDATE_CHANNEL" --config-schema 1 \
+    --output "$RUN/target.manifest" --asset-output-dir "$RUN/ota-assets" \
+    | tee "$RUN/feature-plan.log"
+fi
+
+if [[ "$OTA_FORMAT" == v3 ]]; then install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"; fi
 ota_bundle=
 ota_bundle_sha=
 if [[ "$IMAGE_PROFILE" == ota && "$OTA_SIGNING_MODE" == local ]]; then
   echo "=== creating signed LibreEcho OTA bundle ==="
   ota_bundle="$RUN/libreecho-${run_id}.ota.tar"
-  python3 -B "$OTA_DIR/make_ota_bundle.py" \
-    --boot-image "$RUN/boot.img" --build-manifest "$RUN/manifest.json" \
-    --version "$run_id" \
-    --signing-key "$OTA_SIGNING_KEY" --public-key "$OTA_PUBLIC_KEY" \
-    --service-profile "$SERVICE_PROFILE" --feature-policy "$FEATURE_POLICY" \
-    --update-channel "$UPDATE_CHANNEL" \
-    --output "$ota_bundle" | tee "$RUN/ota-bundle.log"
+  if [[ "$OTA_FORMAT" == v3 ]]; then
+    install -m 0644 "$OTA_PUBLIC_KEY" "$RUN/ota-public-key.hex"
+    python3 -B "$PIPELINE/ci/ota_v3_product.py" --run "$RUN" \
+      --signing-key "$OTA_SIGNING_KEY" --public-key "$OTA_PUBLIC_KEY" \
+      --expected-key-sha256 "$OTA_EXPECTED_PUBLIC_KEY_SHA256" --output "$ota_bundle" \
+      | tee "$RUN/ota-bundle.log"
+  else
+    ota_args=(
+      --format "$OTA_FORMAT"
+      --boot-image "$RUN/boot.img" --build-manifest "$RUN/manifest.json"
+      --signing-key "$OTA_SIGNING_KEY" --public-key "$OTA_PUBLIC_KEY"
+      --service-profile "$SERVICE_PROFILE" --feature-policy "$FEATURE_POLICY"
+      --update-channel "$UPDATE_CHANNEL" --output "$ota_bundle"
+      --version "$run_id"
+    )
+    platform_args "$OTA_DIR/make_ota_bundle.py"
+    python3 -B "$OTA_DIR/make_ota_bundle.py" "${TARGET_TOOL_ARGS[@]}" "${ota_args[@]}" | tee "$RUN/ota-bundle.log"
+  fi
   ota_bundle_sha="$(sha256sum "$ota_bundle" | awk '{print $1}')"
 fi
 
@@ -2142,6 +2549,8 @@ components_manifest_sha="$(sha256sum "$COMPONENTS_MANIFEST" | awk '{print $1}')"
 
 cat > "$RUN/provenance.txt" <<EOF
 schema=1
+board=$TARGET
+target_descriptor_sha256=$TARGET_DESCRIPTOR_SHA256
 status=PREPARED_NOT_FLASHED
 image_profile=$IMAGE_PROFILE
 service_profile=$SERVICE_PROFILE
@@ -2196,6 +2605,10 @@ tinyalsa_source_metadata=$RUN/tinyalsa-source.json
 wireless_tools_source_metadata=$RUN/wireless-tools-source.json
 wireless_regdb_source_metadata=$RUN/wireless-regdb-source.json
 libsodium_source_metadata=$RUN/libsodium-source.json
+mbedtls_prefix=$MBEDTLS_OUTPUT
+mbedtls_source_metadata=$RUN/mbedtls-source.json
+mbedtls_source_sha256=$mbedtls_archive_sha
+mbedtls_component_key=$mbedtls_cache_key
 audio_probe=$RUN/audio_probe
 audio_probe_sha256=$audio_probe_sha
 tinyplay=$RUN/tinyplay
@@ -2252,7 +2665,14 @@ marker_contract=PASS
 ota_bootctl_sha256=$ota_bootctl_sha
 ota_update_verifier_sha256=$ota_verifier_sha
 ota_public_key_sha256=$ota_public_key_sha
+ota_expected_public_key_sha256=$OTA_EXPECTED_PUBLIC_KEY_SHA256
 ota_signing_mode=$OTA_SIGNING_MODE
+ota_format=$OTA_FORMAT
+ota_release=$OTA_RELEASE
+feature_candidate_catalog=$feature_candidate_catalog
+feature_plan=$feature_plan
+feature_asset_inventory=$feature_asset_inventory
+feature_asset_dir=${RUN}/ota-assets
 ota_bundle=$ota_bundle
 ota_bundle_sha256=$ota_bundle_sha
 EOF
@@ -2261,6 +2681,8 @@ provenance_sha="$(sha256sum "$RUN/provenance.txt" | awk '{print $1}')"
 tmp_current="$OUT/.CURRENT.$$"
 cat > "$tmp_current" <<EOF
 schema=1
+board=$TARGET
+target_descriptor_sha256=$TARGET_DESCRIPTOR_SHA256
 status=PREPARED_NOT_FLASHED
 image_profile=$IMAGE_PROFILE
 service_profile=$SERVICE_PROFILE
@@ -2312,6 +2734,10 @@ tinyalsa_source_metadata=$RUN/tinyalsa-source.json
 wireless_tools_source_metadata=$RUN/wireless-tools-source.json
 wireless_regdb_source_metadata=$RUN/wireless-regdb-source.json
 libsodium_source_metadata=$RUN/libsodium-source.json
+mbedtls_prefix=$MBEDTLS_OUTPUT
+mbedtls_source_metadata=$RUN/mbedtls-source.json
+mbedtls_source_sha256=$mbedtls_archive_sha
+mbedtls_component_key=$mbedtls_cache_key
 audio_probe=$RUN/audio_probe
 audio_probe_sha256=$audio_probe_sha
 tinyplay=$RUN/tinyplay
@@ -2367,11 +2793,18 @@ userdata_tree_manifest_sha256=$userdata_manifest_sha
 userdata_tree_bytes=$userdata_tree_bytes
 source_offer_index=$source_offer_index
 source_offer_manifest_sha256=$source_offer_manifest_sha256
-ramdisk=$RUN/boot.ramdisk.cpio.gz
+ramdisk=$RUN/boot.ramdisk.cpio.xz
 ota_bootctl_sha256=$ota_bootctl_sha
 ota_update_verifier_sha256=$ota_verifier_sha
 ota_public_key_sha256=$ota_public_key_sha
+ota_expected_public_key_sha256=$OTA_EXPECTED_PUBLIC_KEY_SHA256
 ota_signing_mode=$OTA_SIGNING_MODE
+ota_format=$OTA_FORMAT
+ota_release=$OTA_RELEASE
+feature_candidate_catalog=$feature_candidate_catalog
+feature_plan=$feature_plan
+feature_asset_inventory=$feature_asset_inventory
+feature_asset_dir=${RUN}/ota-assets
 ota_bundle=$ota_bundle
 ota_bundle_sha256=$ota_bundle_sha
 EOF
@@ -2391,3 +2824,7 @@ echo "boot_sha256=$bootsha"
 echo "candidate_record=$RUN/CURRENT.candidate"
 echo "published_current=$publish_current"
 echo "status=PREPARED_NOT_FLASHED"
+)
+for package_target in "${selected_targets[@]}"; do
+  package_target_image "$package_target"
+done

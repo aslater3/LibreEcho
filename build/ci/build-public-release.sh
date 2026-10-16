@@ -3,9 +3,12 @@
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
 OUTPUT=image-and-features
+TARGETS="${LIBREECHO_TARGETS:-radar_puffin}"
 while (($#)); do
   case "$1" in
     --release-output) OUTPUT="${2:?missing output mode}"; shift 2 ;;
+    --targets) TARGETS="${2:?missing targets}"; shift 2 ;;
+    --target) TARGETS="${2:?missing target}"; shift 2 ;;
     --no-publish) shift ;;
     *) echo "ERROR: unsupported option: $1" >&2; exit 2 ;;
   esac
@@ -18,7 +21,10 @@ done
 : "${LIBREECHO_PRODUCT_SRC:?set exact Product source checkout}"
 : "${LIBREECHO_MUSL_CROSS_PREFIX:?set generated public ARM32 musl compiler prefix}"
 : "${LIBREECHO_OTA_MUSL_NATIVE_ROOT:?set generated public native toolchain root}"
-: "${LIBREECHO_OTA_MUSL_SYSROOT:?set generated public ARM32 sysroot}"
+: "${LIBREECHO_MUSL_SYSROOT:?set generated public ARM32 sysroot}"
+: "${LIBREECHO_MDNS_RUNTIME_ROOT:?set the verified shared mDNS runtime root}"
+: "${LIBREECHO_MDNS_RUNTIME_SOURCE_MAP:?set the verified shared mDNS runtime provenance record}"
+: "${LIBREECHO_MDNS_RUNTIME_MANIFEST_SHA256:?set the verified shared mDNS runtime manifest identity}"
 export LIBREECHO_INPUTS_ROOT="$LIBREECHO_PUBLIC_DEPS_ROOT"
 export LIBREECHO_BUILD_ROOT="${LIBREECHO_BUILD_ROOT:-${RUNNER_TEMP:?set RUNNER_TEMP}/libreecho-build}"
 export LIBREECHO_PRIVATE_ROOT="${LIBREECHO_PRIVATE_ROOT:-$RUNNER_TEMP/libreecho-private}"
@@ -35,4 +41,4 @@ case "$signing_mode" in
   *) echo "ERROR: unsupported OTA signing mode: $signing_mode" >&2; exit 2 ;;
 esac
 export LIBREECHO_OTA_SIGNING_MODE="$signing_mode" LIBREECHO_UPDATE_CHANNEL="$channel" JOBS=2
-exec "$ROOT/build.sh" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish
+exec "$ROOT/build.sh" --targets "$TARGETS" --profile ota --service-profile production --feature-policy community-noncommercial --no-publish

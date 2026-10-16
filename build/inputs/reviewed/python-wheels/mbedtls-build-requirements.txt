@@ -1,0 +1,19 @@
+# Reviewed Python 3.11/Linux x86_64 closure for the pinned ARM32 Mbed TLS
+# builder (Platform tools/mt8163-arm32/mbedtls/build_mbedtls.sh): its
+# generated configuration needs jinja2 and jsonschema at build time.
+jinja2==3.1.6 \
+    --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+MarkupSafe==3.0.3 \
+    --hash=sha256:0bf2a864d67e76e5c9a34dc26ec616a66b9888e25e7b9460e1c76d3293bd9dbf
+jsonschema==4.25.1 \
+    --hash=sha256:3fba0169e345c7175110351d456342c364814cfcf3b964ba4587f22915230a63
+attrs==26.1.0 \
+    --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+jsonschema-specifications==2025.9.1 \
+    --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe
+referencing==0.37.0 \
+    --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231
+rpds-py==2026.6.3 \
+    --hash=sha256:9c1255b302953c86a486b81d330d5ee1d5bd937691ce271b6be0ef0e299eaab7
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

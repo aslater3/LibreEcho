@@ -2,6 +2,8 @@
 
 This guide explains how to disassemble the Echo Gen 2. Proceed slowly and carefully to avoid damaging the ribbon cable, speaker cable, or other components.
 
+> **You only need this guide if you are soldering a USB cable.** Installing LibreEcho needs nothing shorted, only the USB pins on the bottom and fastboot. With a pogo-pin adapter, remove the outer cover on the base and do not take the device apart. See the [installation guide](../../install/README.md#2-connect-the-device).
+
 ## Required tools
 
 - T10 screwdriver
@@ -49,7 +51,6 @@ This guide explains how to disassemble the Echo Gen 2. Proceed slowly and carefu
 	![Removing the metal plate](assets/11.jpg)
 	![Metal shield removed](assets/12.jpg)
 
-10. The resistor that must be shorted to GND should now be accessible. Solder the USB cable as described in the [installation guide](../../install/README.md).
+10. Solder the USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND), as described in the [installation guide](../../install/README.md#2-connect-the-device). Do not short any pad or component; current releases install over fastboot.
 
-	![Accessing the resistor](assets/13.jpg)
 	![USB cable soldering point](assets/14.jpg)

@@ -2,8 +2,10 @@
 """Ensure the public Product installer mirror is complete and immutable."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -15,8 +17,256 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALLER = ROOT / "tools" / "libreecho-install.py"
+INSTALLER = Path(os.environ.get("LIBREECHO_INSTALLER_UNDER_TEST", ROOT / "tools" / "libreecho-install.py"))
 CHECKSUM = ROOT / "tools" / "libreecho-install.py.sha256"
+
+
+def load_installer_module():
+    """Load the published installer as a module so its helpers can be exercised."""
+    spec = importlib.util.spec_from_file_location("installer", INSTALLER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class BootSlotVerificationTests(unittest.TestCase):
+    """The installer must not leave a device on an unconfirmed slot.
+
+    The preloader refuses a slot whose retry counter reaches zero while success
+    is 0, and only libreecho-bootctl confirm clears that counter, so an install
+    that leaves the slot unconfirmed stops booting after a handful of restarts.
+    """
+
+    STATUS_CONFIRMED = (
+        "selected_slot=a\ninactive_slot=b\nslot_suffix=a\n"
+        "slot_a_priority=15\nslot_a_tries=0\nslot_a_success=1\n"
+        "slot_b_priority=14\nslot_b_tries=7\nslot_b_success=0\n"
+    )
+    STATUS_UNCONFIRMED = (
+        "selected_slot=a\ninactive_slot=b\nslot_suffix=a\n"
+        "slot_a_priority=15\nslot_a_tries=2\nslot_a_success=0\n"
+        "slot_b_priority=14\nslot_b_tries=7\nslot_b_success=0\n"
+    )
+
+    def _run(self, statuses, uptime="200", functionfs_rc=0, web_rc=0, confirm_rc=0):
+        module = load_installer_module()
+        module.BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 0
+        module.BOOT_SLOT_PREFLIGHT_TIMEOUT = 5
+        calls: list[list[str]] = []
+        pending = list(statuses)
+
+        def fake(argv, timeout=None, check=True):
+            calls.append(list(argv))
+            joined = " ".join(argv)
+            stdout = ""
+            returncode = 0
+            if "/proc/uptime" in joined:
+                stdout = f"{uptime}\n"
+            if "/usr/local/sbin/libreecho-bootctl" in joined:
+                if "confirm" in argv:
+                    returncode = confirm_rc
+                else:
+                    stdout = pending.pop(0) if pending else ""
+            elif "/dev/usb-ffs/adb/" in joined:
+                returncode = functionfs_rc
+            elif "libreecho-web.init" in joined:
+                returncode = web_rc
+            return subprocess.CompletedProcess(argv, returncode, stdout, "")
+
+        module._run_command = fake
+        return module, calls, module.verify_boot_slot("adb", "serial", 5)
+
+    def test_confirmed_slot_is_observed_without_a_write(self):
+        _, calls, observations = self._run([self.STATUS_CONFIRMED])
+        self.assertEqual(observations["confirmed_by"], "device")
+        self.assertEqual(observations["selected_slot"], "a")
+        self.assertEqual(observations["slot_a_success"], "1")
+        self.assertFalse(any("confirm" in call for call in calls))
+
+    def test_unconfirmed_slot_is_confirmed_and_read_back(self):
+        _, calls, observations = self._run([self.STATUS_UNCONFIRMED, self.STATUS_CONFIRMED])
+        self.assertEqual(observations["confirmed_by"], "installer")
+        self.assertEqual(observations["preflight"], "ok")
+        confirmations = [call for call in calls if "confirm" in call]
+        self.assertEqual(len(confirmations), 1)
+        # The confirmed slot is the one the bootloader reported as selected.
+        self.assertEqual(confirmations[0][-2:], ["confirm", "a"])
+        self.assertEqual(confirmations[0][-3], "/usr/local/sbin/libreecho-bootctl")
+
+    def test_preflight_refusal_never_writes_the_bcb(self):
+        _, calls, observations = self._run([self.STATUS_UNCONFIRMED], web_rc=1)
+        self.assertEqual(observations["confirmed_by"], "refused")
+        self.assertEqual(observations["preflight"], "web-service")
+        self.assertFalse(any("confirm" in call for call in calls))
+
+    def test_unreported_slot_is_reported_without_a_write(self):
+        _, calls, observations = self._run(["selected_slot=-\n"])
+        self.assertEqual(observations["selected_slot"], "unavailable")
+        self.assertNotIn("confirmed_by", observations)
+        self.assertFalse(any("confirm" in call for call in calls))
+
+    def test_functionfs_missing_refuses_the_write(self):
+        module = load_installer_module()
+        module.BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 0
+        module.BOOT_SLOT_PREFLIGHT_TIMEOUT = 5
+        calls: list[list[str]] = []
+
+        def fake(argv, timeout=None, check=True):
+            calls.append(list(argv))
+            joined = " ".join(argv)
+            if "/proc/uptime" in joined:
+                return subprocess.CompletedProcess(argv, 0, "300\n", "")
+            if "/dev/usb-ffs/adb/ep1" in joined:
+                return subprocess.CompletedProcess(argv, 1, "", "")
+            if "libreecho-web.init" in joined:
+                return subprocess.CompletedProcess(argv, 0, "running\n", "")
+            return subprocess.CompletedProcess(argv, 0, self.STATUS_UNCONFIRMED, "")
+
+        module._run_command = fake
+        observations = module.verify_boot_slot("adb", "serial", 5)
+        self.assertEqual(observations["preflight"], "adb-functionfs-ep1")
+        self.assertEqual(observations["confirmed_by"], "refused")
+
+    def test_preflight_waits_for_uptime_before_deciding(self):
+        module = load_installer_module()
+        module.BOOT_SLOT_PREFLIGHT_UPTIME_SECONDS = 120
+        module.BOOT_SLOT_PREFLIGHT_TIMEOUT = 0
+        calls: list[list[str]] = []
+
+        def fake(argv, timeout=None, check=True):
+            calls.append(list(argv))
+            if "/proc/uptime" in " ".join(argv):
+                return subprocess.CompletedProcess(argv, 0, "5\n", "")
+            return subprocess.CompletedProcess(argv, 0, self.STATUS_UNCONFIRMED, "")
+
+        module._run_command = fake
+        observations = module.verify_boot_slot("adb", "serial", 5)
+        self.assertEqual(observations["preflight"], "uptime-below-120s")
+        self.assertTrue(any("/proc/uptime" in " ".join(call) for call in calls))
+
+
+class CompleteInstallBootSlotTests(unittest.TestCase):
+    """0.14 routes fresh and resumed installs through _complete_install.
+
+    The slot check must run after the final reboot (so it inspects the slot
+    the device will keep booting), and it must still run when startup-ready
+    never arrives, because that is exactly the optional-service failure that
+    leaves a fresh slot unconfirmed.
+    """
+
+    def _module(self, finish):
+        module = load_installer_module()
+        order: list[str] = []
+
+        def fake_finish(*args, **kwargs):
+            order.append("finish")
+            return finish()
+
+        def fake_verify(adb_bin, serial, timeout=60):
+            order.append("verify")
+            return {"confirmed": "true"}
+
+        module.finish_install = fake_finish
+        module.verify_boot_slot = fake_verify
+        module.collect_adb_diagnostics = lambda *a, **k: order.append("diagnostics")
+        module._run_command = lambda argv, timeout=None, check=True: subprocess.CompletedProcess(argv, 0, "", "")
+        module._write_state = lambda *a, **k: None
+        return module, order
+
+    def _call(self, module, setup=None):
+        return module._complete_install(
+            "adb", "serial", "/cache", "/release", {"release": "r"}, "radar_puffin", setup,
+            5, 18080, False, Path("/state"), "r", "sha",
+        )
+
+    def test_slot_verified_after_final_boot_on_web_setup(self):
+        module, order = self._module(lambda: "web")
+        result = self._call(module)
+        self.assertEqual(order, ["finish", "verify"])
+        self.assertEqual(result["phase"], "WEBUI_FORWARDED")
+
+    def test_slot_verified_after_final_boot_on_cli_setup(self):
+        module, order = self._module(lambda: "delivered")
+        result = self._call(module, setup={"name": "x"})
+        self.assertEqual(order, ["finish", "verify"])
+        self.assertEqual(result["phase"], "SETUP_DELIVERED")
+
+    def test_slot_still_verified_when_startup_ready_never_arrives(self):
+        module, order = self._module(lambda: "web")
+
+        def startup_ready_timeout(*args, **kwargs):
+            order.append("finish")
+            raise module.InstallerError("device booted but did not report startup-ready within 300s")
+
+        module.finish_install = startup_ready_timeout
+        with self.assertRaises(module.InstallerError):
+            self._call(module)
+        self.assertEqual(order, ["finish", "verify"])
+
+    def test_slot_verification_error_never_masks_install_result(self):
+        module, order = self._module(lambda: "web")
+
+        def broken(*a, **k):
+            order.append("verify")
+            raise module.InstallerError("adb vanished")
+
+        module.verify_boot_slot = broken
+        result = self._call(module)
+        self.assertEqual(order, ["finish", "verify", "diagnostics"])
+        self.assertEqual(result["phase"], "WEBUI_FORWARDED")
+
+
+class StickyFastbootCommandTests(unittest.TestCase):
+    """Leaving fastboot must not strand the device on Amonet's sticky marker.
+
+    Amonet's BROM handoff leaves FASTBOOT_PLEASE in misc and Kaeru keeps
+    honouring it, so a plain `fastboot reboot` re-enters fastboot.  The
+    installer replaces it with Kaeru's one-shot command via `reboot
+    bootloader`, then reboots normally once the device is back in fastboot.
+    """
+
+    def exercise(self, *, returns_to_fastboot: bool):
+        import types
+        installer = load_installer_module()
+        events: list[str] = []
+        polls = {"count": 0}
+
+        def fake_run(command, *args, **kwargs):
+            events.append(" ".join(command[3:]))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def devices(binary):
+            polls["count"] += 1
+            return ["SERIAL123"] if returns_to_fastboot and polls["count"] >= 2 else []
+
+        clock = {"now": 0.0}
+        installer.subprocess = types.SimpleNamespace(run=fake_run, TimeoutExpired=subprocess.TimeoutExpired)
+        installer.fastboot_devices = devices
+        installer.time = types.SimpleNamespace(
+            monotonic=lambda: clock["now"],
+            sleep=lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            installer.reboot_to_installed_system("fastboot", "SERIAL123", 600.0)
+        return events, output.getvalue(), clock["now"]
+
+    def test_one_shot_request_then_normal_reboot(self) -> None:
+        events, output, _ = self.exercise(returns_to_fastboot=True)
+        self.assertEqual(events, ["reboot bootloader", "reboot"])
+        self.assertIn("one-shot command consumed", output)
+
+    def test_device_that_boots_straight_through_is_not_rebooted_again(self) -> None:
+        events, output, elapsed = self.exercise(returns_to_fastboot=False)
+        self.assertEqual(events, ["reboot bootloader"])
+        self.assertIn("did not return to fastboot", output)
+        self.assertLessEqual(elapsed, 95.0)
+
+    def test_every_post_flash_reboot_uses_the_sticky_safe_path(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        self.assertNotRegex(source, r'\[fastboot_bin, "-s", \w+, "reboot"\]')
+        self.assertGreaterEqual(source.count("reboot_to_installed_system(fastboot_bin,"), 4)
+        # Only Kaeru's own fastboot commands: never a raw misc or expdb write.
+        self.assertNotRegex(source, r'"(flash|erase)", "(misc|expdb)"')
 
 
 class InstallerPublicationTests(unittest.TestCase):
@@ -76,7 +326,9 @@ class InstallerPublicationTests(unittest.TestCase):
         source = INSTALLER.read_text(encoding="utf-8")
         self.assertIn("radar-puffin-build-", source)
         self.assertIn("def download_release", source)
-        self.assertIn("def download_amonet", source)
+        self.assertIn("AMONET_PINS = {", source)
+        self.assertIn("ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a", source)
+        self.assertIn("98297293701082bc7272efe077f941c56fc7b6e1f27ef6f2e93b6e4c6fc7b62d", source)
         self.assertIn("release_dir = download_release", source)
 
     def test_installer_starts_with_readable_libreecho_banner(self) -> None:
@@ -111,14 +363,6 @@ class InstallerPublicationTests(unittest.TestCase):
             log_text = log.read_text(encoding="utf-8")
             self.assertIn("LibreEcho initial installer", log_text)
             self.assertNotIn("\x1b[", log_text)
-
-        prompt_output = io.StringIO()
-        with contextlib.redirect_stdout(prompt_output):
-            installer.print_brom_action_prompt()
-        prompt = prompt_output.getvalue()
-        self.assertIn("ACTION REQUIRED - ENTER BROM MODE", prompt)
-        self.assertIn("Connect the USB data pins: D+, D-, and GND.", prompt)
-        self.assertIn("Do not apply power yet.", prompt)
 
         console = io.StringIO()
         logfile = io.StringIO()
@@ -169,18 +413,18 @@ class InstallerPublicationTests(unittest.TestCase):
     def test_tools_readme_documents_self_download_and_full_flow(self) -> None:
         readme = (ROOT / "tools" / "README.md").read_text(encoding="utf-8")
         for marker in (
-            "release checksum inventory",
-            "download and verify pinned Amonet",
+            "downloads the release checksum",
+            "pinned Amonet",
             "./run-one-shot.sh \"$TAG\"",
             "--execute-hardware",
             "initial-install.tar",
             "stage and verify all five feature payloads",
             "adb",
             "fastboot",
-            "android-sdk-libsparse-utils",
-            "--install-host-deps` can install only",
-            "does **not** install `adb` or `fastboot`",
-            "command -v adb fastboot mke2fs img2simg",
+            "e2fsprogs",
+            "`--install-host-deps` installs only `e2fsprogs`",
+            "does **not** install `adb`",
+            "command -v adb fastboot mke2fs dumpe2fs",
         ):
             self.assertIn(marker, readme)
 
@@ -216,7 +460,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "  url=$1; shift\n"
                 "done\n"
                 "case \"$url\" in\n"
-                f"  */releases/latest) printf '%s\\n' '{{\"draft\":false,\"prerelease\":false,\"tag_name\":\"{tag}\"}}' ;;\n"
+                f"  */releases/latest) printf '%s\\n' '{{\"draft\":false,\"prerelease\":false,\"tag_name\":\"{tag}\",\"assets\":[{{\"name\":\"{prefix}-initial-install.tar\"}}]}}' ;;\n"
                 f"  *SHA256SUMS) printf '%s  %s\\n' '{digest}' '{prefix}-installer.py' >\"$out\" ;;\n"
                 "  *-installer.py) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n"
                 "  *) exit 9 ;;\n"
@@ -232,21 +476,111 @@ class InstallerPublicationTests(unittest.TestCase):
             )
             for tool in (bindir / "curl", bindir / "python3"):
                 tool.chmod(0o755)
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), LIBREECHO_TARGET="radar_puffin")
             result = subprocess.run(
                 ["bash", str(ROOT / "tools/run-one-shot.sh"), "latest",
                  "--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
                 text=True, capture_output=True, env=env,
             )
             self.assertEqual(result.returncode, 23, result.stderr)
-            self.assertIn(f"Resolved latest stable release: {tag}", result.stdout)
+            self.assertIn(f"Resolved target-qualified latest stable release: {tag}", result.stdout)
             argv = argv_log.read_text(encoding="utf-8").splitlines()
             self.assertEqual(argv[1:4], ["one-shot", "--release-tag", tag])
             self.assertEqual(
                 argv[4:],
-                ["--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
+                ["--target", "radar_puffin", "--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
             )
             self.assertEqual(list(tmpdir.iterdir()), [])
+            result = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--continue",
+                 "--fastboot-serial", "SERIAL", "--execute-hardware"],
+                text=True, capture_output=True, env=env, timeout=10,
+            )
+            self.assertEqual(result.returncode, 23, result.stderr)
+            argv = argv_log.read_text().splitlines()
+            self.assertEqual(argv[1:4], ["continue-one-shot", "--release-tag", tag])
+            self.assertEqual(argv[4:], ["--target", "radar_puffin", "--fastboot-serial", "SERIAL", "--execute-hardware"])
+            self.assertEqual(list(tmpdir.iterdir()), [])
+            argv_log.unlink()
+            result = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), "latest", "--continue"],
+                text=True, capture_output=True, env=env, timeout=10,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("saved immutable release tag", result.stderr)
+            self.assertFalse(argv_log.exists())
+
+    def test_run_one_shot_continuation_without_fastboot_uses_saved_or_adb_target(self) -> None:
+        """TWRP/recovery has no fastboot product; continuation must not demand --target."""
+        tag = "radar-puffin-v1.2.3"
+        prefix = f"libreecho-{tag}"
+        digest = hashlib.sha256(b"#!/usr/bin/env python3\n").hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir, tmpdir, state = root / "bin", root / "tmp", root / "state"
+            argv_log = root / "installer-argv"
+            for directory in (bindir, tmpdir, state / "default"):
+                directory.mkdir(parents=True)
+            (bindir / "curl").write_text(
+                "#!/bin/sh\nout=\nurl=\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = -o ]; then out=$2; shift 2; continue; fi\n  url=$1; shift\ndone\n"
+                "case \"$url\" in\n"
+                f"  *SHA256SUMS) printf '%s  %s\\n%s  %s\\n' '{digest}' '{prefix}-installer.py' '{digest}' "
+                "'libreecho-biscuit-v1.2.3-installer.py' >\"$out\" ;;\n"
+                "  *-installer.py) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n  *) exit 9 ;;\nesac\n",
+                encoding="utf-8")
+            (bindir / "python3").write_text(
+                "#!/bin/sh\n"
+                f"if [ \"${{1:-}}\" = -c ]; then exec {sys.executable} \"$@\"; fi\n"
+                f"printf '%s\\n' \"$@\" > {argv_log}\nexit 23\n", encoding="utf-8")
+            # fastboot sees nothing (device is in recovery); adb sees one recovery device.
+            (bindir / "fastboot").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (bindir / "adb").write_text(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  devices) printf 'List of devices attached\\nSERIAL\\trecovery\\n' ;;\n"
+                "  -s) printf 'biscuit\\r\\n' ;;\n"
+                "esac\n", encoding="utf-8")
+            for tool in bindir.iterdir():
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), HOME=str(root))
+            env.pop("LIBREECHO_TARGET", None)
+
+            def run(*extra: str) -> list[str]:
+                result = subprocess.run(
+                    ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--continue", *extra, "--execute-hardware"],
+                    text=True, capture_output=True, env=env, timeout=20)
+                self.assertEqual(result.returncode, 23, result.stderr)
+                return argv_log.read_text(encoding="utf-8").splitlines()
+
+            # Saved state wins: the board the installation was started for.
+            (state / "default" / "state.json").write_text('{"board": "radar_puffin"}', encoding="utf-8")
+            argv = run("--state-root", str(state))
+            self.assertEqual(argv[1:6], ["continue-one-shot", "--release-tag", tag, "--target", "radar_puffin"])
+            # A fresh fastboot Radar and an unrelated ADB Biscuit must select
+            # only the fastboot product, never the ADB board's payload.
+            (state / "default" / "state.json").unlink()
+            (bindir / "fastboot").write_text(
+                "#!/bin/sh\ncase \"$1\" in\n"
+                " devices) printf 'FASTBOOT_SERIAL\\tfastboot\\n' ;;\n"
+                " -s) printf 'product: RADAR\\n' ;;\nesac\n", encoding="utf-8")
+            fresh = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--execute-hardware"],
+                text=True, capture_output=True, env=env, timeout=20)
+            self.assertEqual(fresh.returncode, 23, fresh.stderr)
+            self.assertEqual(argv_log.read_text().splitlines()[4:6], ["--target", "radar_puffin"])
+            (bindir / "fastboot").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            # Recovery discovery is allowed only for an explicitly bound serial.
+            argv = run("--state-root", str(state), "--fastboot-serial", "SERIAL")
+            self.assertEqual(argv[4:6], ["--target", "biscuit"])
+            argv_log.unlink()
+            wrong_serial = subprocess.run(
+                ["bash", str(ROOT / "tools/run-one-shot.sh"), tag, "--continue",
+                 "--state-root", str(state), "--fastboot-serial", "OTHER_SERIAL"],
+                text=True, capture_output=True, env=env, timeout=20)
+            self.assertNotEqual(wrong_serial.returncode, 23)
+            self.assertFalse(argv_log.exists(), "unrelated recovery device must not launch an installer")
 
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"
@@ -274,7 +608,7 @@ class InstallerPublicationTests(unittest.TestCase):
             (bindir / "python3").write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
             for tool in (bindir / "curl", bindir / "python3"):
                 tool.chmod(0o755)
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), LIBREECHO_TARGET="radar_puffin")
             result = subprocess.run(
                 ["bash", str(ROOT / "tools/run-one-shot.sh"), tag],
                 text=True, capture_output=True, env=env,
@@ -315,7 +649,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "boot": {"name": f"{prefix}-boot.img", "size": len(files[f"{prefix}-boot.img"]), "sha256": hashlib.sha256(files[f"{prefix}-boot.img"]).hexdigest()},
                 "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": len(files[f"{prefix}-ota-public-key.hex"]), "sha256": hashlib.sha256(files[f"{prefix}-ota-public-key.hex"]).hexdigest()},
                 "features": [],
-                "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+                "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
             }
             bundle = release / f"{prefix}-initial-install.tar"
             with tarfile.open(bundle, "w") as archive:
@@ -376,8 +710,14 @@ class InstallerPublicationTests(unittest.TestCase):
             }
             files[f"{prefix}-feature-assets.json"] = (
                 json.dumps(inventory, sort_keys=True) + "\n").encode()
-            files[f"{prefix}-feature-plan.json"] = (
-                b'{"schema": "libreecho-product-feature-plan-v1"}\n')
+            files[f"{prefix}-feature-plan.json"] = (json.dumps({
+                "schema": "libreecho-product-feature-plan-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release_name,
+                "source_commit": "4" * 40,
+                "features": [],
+            }, sort_keys=True) + "\n").encode()
             files.update(asset_names)
             files.update(extra_files)
             return files
@@ -392,7 +732,7 @@ class InstallerPublicationTests(unittest.TestCase):
             "boot": {"name": f"{prefix}-boot.img", "size": 4, "sha256": hashlib.sha256(b"boot").hexdigest()},
             "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65, "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
             "features": [],
-            "amonet": {"repository": "https://github.com/example/amonet", "tag": "v1", "commit": "a" * 40},
+            "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
         }
 
         def materialize(release: Path, files: dict) -> Path:
@@ -448,6 +788,151 @@ class InstallerPublicationTests(unittest.TestCase):
             with self.assertRaises(module.InstallerError):
                 module._prepare(release, root / "cache", tag)
 
+    def test_prepare_accepts_dev_and_nightly_v2_feature_inventory(self) -> None:
+        spec = importlib.util.spec_from_file_location("installer_dev_v2", INSTALLER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        release_name = "0.14.0"
+        replacement = f"libreecho-radar-puffin-{release_name}-assistant.runtime.squashfs"
+        asset_bytes = b"assistant runtime capsule"
+        unset = object()
+
+        def dev_tag(kind: str) -> str:
+            return f"radar-puffin-{kind}-abcdef0-{'1' * 16}-{'2' * 16}"
+
+        def plan(release: str = release_name) -> dict:
+            return {
+                "schema": "libreecho-product-feature-plan-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release,
+                "source_commit": "4" * 40,
+                "features": [],
+            }
+
+        def inventory(release: str = release_name, asset: str = replacement) -> dict:
+            return {
+                "schema": "libreecho-product-feature-assets-v1",
+                "transaction_type": "system",
+                "activation": "reboot",
+                "release": release,
+                "source_commit": "4" * 40,
+                "assets": [
+                    {
+                        "feature_id": "assistant", "action": "runtime", "kind": "payload",
+                        "name": asset, "size": len(asset_bytes),
+                        "sha256": hashlib.sha256(asset_bytes).hexdigest(),
+                    },
+                ],
+            }
+
+        def materialize(release: Path, tag: str, *, inv: dict | None, plan_doc: dict | None,
+                        extra: dict | None = None) -> None:
+            prefix = f"libreecho-{tag}"
+            bundle_name = f"{prefix}-initial-install.tar"
+            files = {
+                f"{prefix}-boot.img": b"boot",
+                f"{prefix}-ota-public-key.hex": b"a" * 64 + b"\n",
+                f"{prefix}-release-notes.md": b"notes\n",
+                f"{prefix}-installer.py": b"#!/usr/bin/env python3\n",
+                f"{prefix}.ota.tar": b"signed ota",
+                f"{prefix}-build.json": b'{"ota_format": "v2"}\n',
+                f"{prefix}-verification.txt": b"status=PREPARED_NOT_FLASHED\n",
+                f"{prefix}-run-one-shot.sh": b"#!/usr/bin/env bash\n",
+                replacement: asset_bytes,
+            }
+            if inv is not None:
+                files[f"{prefix}-feature-assets.json"] = (json.dumps(inv, sort_keys=True) + "\n").encode()
+            if plan_doc is not None:
+                files[f"{prefix}-feature-plan.json"] = (json.dumps(plan_doc, sort_keys=True) + "\n").encode()
+            files.update(extra or {})
+            manifest = {
+                "schema": "libreecho-initial-install-v1",
+                "release": tag,
+                "board": "radar_puffin",
+                "soc": "mt8163",
+                "image_profile": "ota",
+                "service_profile": "production",
+                "boot": {"name": f"{prefix}-boot.img", "size": 4, "sha256": hashlib.sha256(b"boot").hexdigest()},
+                "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65,
+                                   "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
+                "features": [],
+                "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
+            }
+            bundle = release / bundle_name
+            with tarfile.open(bundle, "w") as archive:
+                info = tarfile.TarInfo("manifest.json")
+                data = json.dumps(manifest).encode()
+                info.size = len(data)
+                archive.addfile(info, __import__("io").BytesIO(data))
+                for name in (f"{prefix}-boot.img", f"{prefix}-ota-public-key.hex"):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(files[name])
+                    archive.addfile(info, __import__("io").BytesIO(files[name]))
+            files[bundle_name] = bundle.read_bytes()
+            for name, data in files.items():
+                if name != bundle_name:
+                    (release / name).write_bytes(data)
+            sums = release / f"{prefix}-SHA256SUMS"
+            sums.write_text("".join(
+                f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n"
+                for name in sorted(files)), encoding="ascii")
+
+        def prepare(tag: str, *, inv=unset, plan_doc=unset, extra: dict | None = None) -> dict:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                release = root / "release"
+                release.mkdir()
+                materialize(
+                    release, tag,
+                    inv=inventory() if inv is unset else inv,
+                    plan_doc=plan() if plan_doc is unset else plan_doc,
+                    extra=extra,
+                )
+                prepared, _ = module._prepare(release, root / "cache", tag)
+                return prepared
+
+        # A dev/nightly one-shot release publishes the plan and inventory that
+        # name its replacement assets, so both dev identities are accepted.
+        for kind in ("build", "nightly"):
+            with self.subTest(kind=kind):
+                tag = dev_tag(kind)
+                self.assertEqual(prepare(tag)["release"], tag)
+
+        # Without the published inventory the replacement asset is unexpected,
+        # and a checksum-covered file the inventory does not name is rejected.
+        for label, kwargs in (
+            ("inventory-absent", {"inv": None, "plan_doc": plan()}),
+            ("unnamed-checksum", {"extra": {f"libreecho-{dev_tag('build')}-sneaky.bin": b"x"}}),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaises(module.InstallerError):
+                    prepare(dev_tag("build"), **kwargs)
+
+        # A malformed inventory, a mismatched release, a missing plan, and an
+        # asset outside the release namespace are all rejected.
+        tag = dev_tag("nightly")
+        for label, kwargs in (
+            ("bad-schema", {"inv": {"schema": "wrong"}}),
+            ("bad-release", {"inv": inventory(release="not-a-version")}),
+            ("plan-mismatch", {"plan_doc": plan(release="0.15.0")}),
+            ("plan-missing", {"plan_doc": None}),
+            ("foreign-namespace", {"inv": inventory(asset="libreecho-radar-puffin-0.15.0-assistant.runtime.squashfs")}),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                release = root / "release"
+                release.mkdir()
+                materialize(
+                    release, tag,
+                    inv=kwargs.get("inv", inventory()),
+                    plan_doc=kwargs.get("plan_doc", plan()),
+                )
+                with self.assertRaises(module.InstallerError):
+                    module._prepare(release, root / "cache", tag)
+
     def test_stable_release_publishes_checksum_covered_wrapper(self) -> None:
         source = (ROOT / "build/ci/prepare-stable-release.py").read_text(encoding="utf-8")
         self.assertIn('"tools/run-one-shot.sh"', source)
@@ -456,13 +941,65 @@ class InstallerPublicationTests(unittest.TestCase):
     def test_install_guide_documents_initial_forward_and_safe_reassembly(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
         self.assertIn("http://127.0.0.1:18080/setup.html", guide)
-        self.assertIn("power before reconnecting any flex cables", guide.lower())
+        self.assertIn("power before reconnecting any", guide.lower())
         self.assertIn("adb wait-for-device", guide)
-        self.assertIn("Start the installer now", guide)
-        self.assertLess(guide.index("Start the installer now"),
-                        guide.index("## 5. Complete the installer transaction"))
-        self.assertGreater(guide.index("./run-one-shot.sh \"$TAG\""),
-                           guide.index("## 4. Enter BROM mode"))
+        self.assertIn("## 3. Run the installer", guide)
+        self.assertLess(guide.index("## 2. Connect the device"), guide.index("## 3. Run the installer"))
+        self.assertIn("fastboot flash brick", guide)
+        self.assertNotIn("BROM", guide)
+        self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND|BROM short", guide, re.I))
+
+    def test_install_docs_use_bottom_usb_pins_and_fastboot_without_shorting(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        connect = guide.split("## 2. Connect the device", 1)[1].split("\n## 3. ", 1)[0]
+        self.assertIn("No shorting is needed", guide)
+        self.assertIn("USB pins on the bottom", guide)
+        self.assertIn("Remove only the outer cover", connect)
+        self.assertIn("disassembly/echo-gen-2/README.md", connect)
+        self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", connect)
+        self.assertIn("Press and hold the **Action** button", connect)
+        self.assertIn("fastboot devices", connect)
+        disassembly = (ROOT / "docs/disassembly/echo-gen-2/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        tools = (ROOT / "tools/README.md").read_text(encoding="utf-8")
+        for text in (guide, disassembly, product, tools):
+            self.assertIsNone(
+                re.search(r"must be shorted|shorted to GND|hold the (marked )?short|CLK-to-GND", text, re.I)
+            )
+        self.assertIn("only need this guide if you are soldering", disassembly)
+        self.assertIn("No shorting is needed", product)
+        self.assertFalse((ROOT / "docs/disassembly/echo-gen-2/assets/13.jpg").exists())
+
+    def test_install_docs_have_no_bare_step_references_and_links_resolve(self) -> None:
+        def anchors(markdown: str) -> set[str]:
+            found = set()
+            for heading in re.findall(r"^#{1,6} +(.+?)\s*$", markdown, re.M):
+                slug = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+                found.add(slug)
+            return found
+
+        pages = (
+            "README.md",
+            "docs/install/README.md",
+            "docs/disassembly/echo-gen-2/README.md",
+            "tools/README.md",
+        )
+        for page in pages:
+            path = ROOT / page
+            text = path.read_text(encoding="utf-8")
+            if page == "docs/install/README.md":
+                self.assertIsNone(re.search(r"\bsee\s+step \d|\bin\s+step \d", text, re.I))
+            for target in re.findall(r"\]\(([^)\s]+)\)", text):
+                if re.match(r"[a-z]+:", target):
+                    continue
+                file_part, _, anchor = target.partition("#")
+                linked = (path.parent / file_part).resolve() if file_part else path
+                self.assertTrue(linked.exists(), f"{page}: missing link target {target}")
+                if anchor and linked.suffix == ".md":
+                    self.assertIn(
+                        anchor, anchors(linked.read_text(encoding="utf-8")),
+                        f"{page}: missing anchor {target}",
+                    )
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
@@ -486,6 +1023,268 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertNotIn("/home/andy", source)
         self.assertNotIn("/media/andy", source)
         self.assertNotIn("PRIVATE", source)
+
+
+    def test_continuation_from_boot_written_reissues_pending_fastboot_reboot(self) -> None:
+        """A BOOT_WRITTEN resume must recover a device still stuck in fastboot.
+
+        `BOOT_WRITTEN` is saved directly before `fastboot reboot`; if the
+        installer exits first, the device stays in fastboot and an ADB-only
+        resume can never recover it. Exercise the real `continue_one_shot` with
+        a stub fastboot/ADB transport and assert the pending reboot is issued
+        when a fastboot device is still present, and skipped once it has gone.
+        """
+        import contextlib
+        import io
+        import types
+
+        spec = importlib.util.spec_from_file_location("installer_resume", INSTALLER)
+        assert spec is not None and spec.loader is not None
+        release = "radar-puffin-v0.14.0"
+
+        def exercise(*, fastboot_present: bool) -> dict:
+            installer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(installer)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                cache_root = root / "cache"
+                state_root = root / "state"
+                release_sources = cache_root / "downloads" / release
+                release_sources.mkdir(parents=True)
+                bundle = release_sources / f"libreecho-{release}.ota.tar"
+                bundle.write_bytes(b"bundle")
+                boot = cache_root / release / "bundle" / "boot.img"
+                boot.parent.mkdir(parents=True)
+                boot.write_bytes(b"boot")
+                state_dir = state_root / "resume-test"
+                state_dir.mkdir(parents=True)
+                (state_dir / "state.json").write_text(
+                    json.dumps(
+                        {
+                            "phase": "BOOT_WRITTEN",
+                            "release": release,
+                            "bundle_sha256": hashlib.sha256(b"bundle").hexdigest(),
+                            "userdata_formatted": True,
+                            "device_serial": "SERIAL123",
+                            "slots": "a",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                manifest = {
+                    "release": release,
+                    "boot": {"name": "boot.img", "sha256": hashlib.sha256(b"boot").hexdigest()},
+                    "features": [{"name": "tts"}],
+                }
+                # A real file makes `shutil.which`/`Path.is_file` resolve; the
+                # absent case uses a path that exists on neither.
+                fastboot_bin = root / ("fastboot" if fastboot_present else "missing-fastboot")
+                if fastboot_present:
+                    fastboot_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                    fastboot_bin.chmod(0o755)
+
+                events: list[str] = []
+                installer._prepare = lambda *a, **k: (manifest, bundle)
+                installer.validate_public_boot_image = lambda *a, **k: None
+                installer.require_host_commands = lambda *a, **k: None
+                installer.prepare_fastboot_tools = lambda binary, *a, **k: binary
+                installer.fastboot_devices = lambda binary: ["SERIAL123"] if fastboot_present else []
+                installer.select_fastboot_serial = lambda binary, requested: "SERIAL123"
+                installer.select_adb_serial = lambda binary, requested: "SERIAL123"
+                installer.wait_for_transport = lambda probe, expected, timeout, label: events.append(
+                    "wait:" + label
+                )
+                installer.collect_adb_diagnostics = lambda *a, **k: None
+                installer.verify_adb_payload_readback = lambda *a, **k: None
+                installer.stage_device_features = lambda *a, **k: events.append("stage")
+                installer.adb_forward_command = lambda *a, **k: ["adb", "forward"]
+                installer._run_command = lambda command, timeout, check=True: subprocess.CompletedProcess(
+                    command, 0, "", ""
+                )
+
+                def fake_run(command, *args, **kwargs):
+                    events.append(
+                        "fastboot-reboot" if str(command[0]).endswith("fastboot") else "subprocess"
+                    )
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                installer.subprocess = types.SimpleNamespace(
+                    run=fake_run, TimeoutExpired=subprocess.TimeoutExpired
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = installer.continue_one_shot(
+                        cache_root=cache_root,
+                        state_root=state_root,
+                        install_id="resume-test",
+                        release_tag=release,
+                        fastboot_bin=str(fastboot_bin),
+                        adb_bin="adb",
+                        fastboot_serial="SERIAL123",
+                        slots="a",
+                        fastboot_timeout=5.0,
+                        adb_timeout=5.0,
+                        local_port=8080,
+                        open_browser=False,
+                        execute_hardware=True,
+                    )
+                return {"events": events, "result": result}
+
+        waiting = exercise(fastboot_present=True)
+        self.assertIn("fastboot-reboot", waiting["events"])
+        self.assertIn("wait:ADB", waiting["events"])
+        self.assertEqual("stage", waiting["events"][-1])
+        self.assertEqual("WEBUI_FORWARDED", waiting["result"]["phase"])
+
+        rebooted = exercise(fastboot_present=False)
+        self.assertNotIn("fastboot-reboot", rebooted["events"])
+        self.assertNotIn("wait:ADB", rebooted["events"])
+        self.assertEqual("stage", rebooted["events"][-1])
+        self.assertEqual("WEBUI_FORWARDED", rebooted["result"]["phase"])
+
+
+    def test_continuation_ignores_unrelated_fastboot_device(self) -> None:
+        """A BOOT_WRITTEN resume must not divert to an unrelated fastboot device.
+
+        If the saved target has already rebooted into ADB but some other device
+        is sitting in fastboot, the recovery probe must not treat that device as
+        the pending reboot: `select_fastboot_serial` would then fail for the
+        saved serial even though the saved device is available over ADB. The
+        probe must match the requested serial (or the single-device rule for
+        `auto`) before issuing the pending reboot.
+        """
+        import contextlib
+        import io
+        import types
+
+        spec = importlib.util.spec_from_file_location(
+            "installer_resume_unrelated", INSTALLER
+        )
+        assert spec is not None and spec.loader is not None
+        release = "radar-puffin-v0.14.0"
+
+        def exercise(*, fastboot_devices_present: list[str], requested: str) -> dict:
+            installer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(installer)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                cache_root = root / "cache"
+                state_root = root / "state"
+                release_sources = cache_root / "downloads" / release
+                release_sources.mkdir(parents=True)
+                bundle = release_sources / f"libreecho-{release}.ota.tar"
+                bundle.write_bytes(b"bundle")
+                boot = cache_root / release / "bundle" / "boot.img"
+                boot.parent.mkdir(parents=True)
+                boot.write_bytes(b"boot")
+                state_dir = state_root / "resume-test"
+                state_dir.mkdir(parents=True)
+                (state_dir / "state.json").write_text(
+                    json.dumps(
+                        {
+                            "phase": "BOOT_WRITTEN",
+                            "release": release,
+                            "bundle_sha256": hashlib.sha256(b"bundle").hexdigest(),
+                            "userdata_formatted": True,
+                            "device_serial": "SERIAL123",
+                            "slots": "a",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                manifest = {
+                    "release": release,
+                    "boot": {"name": "boot.img", "sha256": hashlib.sha256(b"boot").hexdigest()},
+                    "features": [{"name": "tts"}],
+                }
+                fastboot_bin = root / "fastboot"
+                fastboot_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                fastboot_bin.chmod(0o755)
+
+                events: list[str] = []
+                installer._prepare = lambda *a, **k: (manifest, bundle)
+                installer.validate_public_boot_image = lambda *a, **k: None
+                installer.require_host_commands = lambda *a, **k: None
+                installer.prepare_fastboot_tools = lambda binary, *a, **k: binary
+                installer.fastboot_devices = lambda binary: list(fastboot_devices_present)
+
+                def forbidden_select_fastboot(binary, requested_serial):
+                    events.append("select-fastboot")
+                    raise AssertionError(
+                        "select_fastboot_serial must not run for an unrelated device"
+                    )
+
+                installer.select_fastboot_serial = forbidden_select_fastboot
+                installer.select_adb_serial = lambda binary, req: "SERIAL123"
+                installer.wait_for_transport = lambda probe, expected, timeout, label: events.append(
+                    "wait:" + label
+                )
+                installer.collect_adb_diagnostics = lambda *a, **k: None
+                installer.verify_adb_payload_readback = lambda *a, **k: None
+                installer.stage_device_features = lambda *a, **k: events.append("stage")
+                installer.adb_forward_command = lambda *a, **k: ["adb", "forward"]
+                installer._run_command = lambda command, timeout, check=True: subprocess.CompletedProcess(
+                    command, 0, "", ""
+                )
+
+                def fake_run(command, *args, **kwargs):
+                    events.append(
+                        "fastboot-reboot"
+                        if str(command[0]).endswith("fastboot")
+                        else "subprocess"
+                    )
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                installer.subprocess = types.SimpleNamespace(
+                    run=fake_run, TimeoutExpired=subprocess.TimeoutExpired
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = installer.continue_one_shot(
+                        cache_root=cache_root,
+                        state_root=state_root,
+                        install_id="resume-test",
+                        release_tag=release,
+                        fastboot_bin=str(fastboot_bin),
+                        adb_bin="adb",
+                        fastboot_serial=requested,
+                        slots="a",
+                        fastboot_timeout=5.0,
+                        adb_timeout=5.0,
+                        local_port=8080,
+                        open_browser=False,
+                        execute_hardware=True,
+                    )
+                return {"events": events, "result": result}
+
+        # Saved device is in ADB; an unrelated device is in fastboot.
+        unrelated = exercise(fastboot_devices_present=["OTHERSERIAL"], requested="SERIAL123")
+        self.assertNotIn("fastboot-reboot", unrelated["events"])
+        self.assertNotIn("select-fastboot", unrelated["events"])
+        self.assertNotIn("wait:ADB", unrelated["events"])
+        self.assertEqual("stage", unrelated["events"][-1])
+        self.assertEqual("WEBUI_FORWARDED", unrelated["result"]["phase"])
+
+        # `auto` with more than one fastboot device cannot be the saved target.
+        ambiguous = exercise(
+            fastboot_devices_present=["OTHERSERIAL", "THIRDSERIAL"], requested="auto"
+        )
+        self.assertNotIn("fastboot-reboot", ambiguous["events"])
+        self.assertNotIn("select-fastboot", ambiguous["events"])
+        self.assertEqual("stage", ambiguous["events"][-1])
+
+
+
+class SetupRebootGuidanceTest(unittest.TestCase):
+    def test_guide_restores_usb_forward_after_setup_reboot(self) -> None:
+        guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        section = re.split(r"\n## \d+\. First boot and setup\n", guide, maxsplit=1)[1].split("\n## ", 1)[0]
+        self.assertIn("Unrecognised Wi-Fi firmware detected", section)
+        self.assertIn("Reboot now", section)
+        self.assertIn("adb forward tcp:18080 tcp:8080", section)
+        reboot = section.index("adb forward tcp:18080 tcp:8080")
+        self.assertIn("adb wait-for-device", section[reboot - 120:reboot])
+        self.assertIn("http://127.0.0.1:18080/setup.html", section[reboot:])
+        self.assertIn("installer.py\" reconnect", section)
+        self.assertIn("Keep the installer window", section)
 
 
 if __name__ == "__main__":

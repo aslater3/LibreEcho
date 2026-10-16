@@ -37,10 +37,49 @@ runtime input has a complete corresponding-source and relink path.
   verifies the archive and patch hashes, static ARM32 outputs, and every
   shipped utility hash; BSD-3-Clause creates no static relinkable-object
   obligation.
+- `mbedTLS 3.6.4` is Apache-2.0 and is rebuilt from the pinned upstream release
+  archive
+  `https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/mbedtls-3.6.4.tar.bz2`,
+  SHA-256
+  `ec35b18a6c593cf98c3e30db8b98ff93e8940a8c4e690e66b41dfc011d678110`.
+  The public Platform builder `tools/mt8163-arm32/mbedtls/build_mbedtls.sh`
+  verifies that archive hash, builds static ARM32 `libmbedcrypto`,
+  `libmbedx509`, and `libmbedtls` with the pinned UI cross compiler, and records
+  the archive, compiler, interpreter, and per-archive digests in
+  `mbedtls-source.json` inside the materialized prefix. The Product pipeline
+  (`mbedtls-arm32` in `build/build.sh`) independently validates that archive
+  against the Platform `SOURCE.lock`, binds the component identity into the UI
+  bundle cache key, passes the materialized prefix to the UI bundle builder as
+  `LIBREECHO_UI_MBEDTLS_ROOT`, and links it into `libreecho-web` and
+  `libreecho-radiod`; a missing prefix or a stub TLS bundle fails the build.
+  The upstream `LICENSE` ships beside the archives, and the complete
+  application and library source plus build instructions provide the relink
+  path.
 
-These checks close provenance for these five inputs. The aggregate runtime
+These checks close provenance for these six inputs. The aggregate runtime
 closure is independently bound to the exact candidate source-offer and relink
 object records named in `release/components.json`.
+
+## Opus decoder source closure
+
+The Product fetcher stages these BSD-3-Clause source archives and verifies each
+SHA-256 before the Platform bundle builder independently checks its SOURCE.lock:
+
+- `libogg 1.3.5`: `https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz`, SHA-256
+  `0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664`.
+- `opus 1.4`: `https://downloads.xiph.org/releases/opus/opus-1.4.tar.gz`, SHA-256
+  `c9b32b4253be5ae63d1ff16eea06b94b5f0f2951b7a02aceef58e3a3ce49c51f`.
+- `opusfile 0.12`: `https://github.com/xiph/opusfile/archive/refs/tags/v0.12.tar.gz`, SHA-256
+  `a20a1dff1cdf0719d1e995112915e9966debf1470ee26bb31b2f510ccf00ef40`.
+
+`tools/mt8163-arm32/ui/build_ui_bundle.sh` invokes `build_opus.sh` in the same
+run with the pinned ARM32 UI compiler and archiver. It verifies static ARM32
+archives and actual decoder symbols before stripping the radio daemon, refuses
+HTTP/URL entry points, and checks the complete upstream license hashes. The
+UI bundle cache key includes all three source archives, the builder, and the
+source lock; no untrusted prebuilt Opus prefix is certified by Product CI.
+Complete COPYING notices are included in the corresponding Platform source
+under `tools/mt8163-arm32/ui/opus/licenses/`.
 
 ## Aggregate closure
 

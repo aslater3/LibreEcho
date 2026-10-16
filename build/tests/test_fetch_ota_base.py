@@ -1,0 +1,83 @@
+import importlib.util
+import json
+import hashlib
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+SCRIPT = Path(__file__).resolve().parents[1] / 'ci' / 'fetch-ota-base.py'
+
+class BaselineTests(unittest.TestCase):
+    def test_workflow_never_resolves_a_prior_baseline(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows/build-release.yml').read_text()
+        for token in ('fetch-ota-bases.py', 'LIBREECHO_OTA_BASE_CATALOG', 'device_baseline'):
+            self.assertNotIn(token, workflow)
+        self.assertIn('options: [v3]', workflow)
+
+    def test_release_assets_generate_local_catalog_and_reject_tampering(self):
+        spec = importlib.util.spec_from_file_location('fetch_base', SCRIPT)
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        releases = [{'tag_name': t, 'draft': False, 'prerelease': False} for t in
+                    ['radar-puffin-v0.13.9', 'radar-puffin-v0.13.10', 'radar-puffin-v0.14.0']]
+        self.assertEqual(mod.previous_release(releases, 'radar-puffin-v0.13.11'), 'radar-puffin-v0.13.10')
+        self.assertEqual(mod.previous_release(releases, 'radar-puffin-v0.14.1'), 'radar-puffin-v0.14.0')
+        releases[1]['prerelease'] = True
+        self.assertEqual(mod.previous_release(releases, 'radar-puffin-v0.13.11'), 'radar-puffin-v0.13.9')
+        with self.assertRaises(ValueError):
+            mod.previous_release([], 'radar-puffin-v0.13.11')
+
+        dev_tag = 'radar-puffin-build-' + 'a' * 7 + '-' + 'b' * 16 + '-' + 'c' * 16
+        dev_ota_sha = 'd' * 64
+        dev_release = {
+            'tag_name': dev_tag, 'draft': False, 'prerelease': True,
+            'assets': [{'name': 'libreecho-' + dev_tag + '.ota.tar',
+                        'digest': 'sha256:' + dev_ota_sha}],
+        }
+        dev_releases = releases + [dev_release]
+        pointer = dev_tag + '\n' + dev_ota_sha + '\n'
+        self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'dev', pointer), dev_tag)
+        self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'stable', pointer), 'radar-puffin-v0.14.0')
+        for invalid_pointer in (None, '', 'not-a-tag\n' + dev_ota_sha + '\n', dev_tag + '\n' + '0' * 64 + '\n'):
+            self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'dev', invalid_pointer), 'radar-puffin-v0.14.0')
+        dev_release['draft'] = True
+        self.assertEqual(mod.baseline_release(dev_releases, 'radar-puffin-v0.14.1', 'dev', pointer), 'radar-puffin-v0.14.0')
+        tag = 'radar-puffin-v0.13.10'
+        prefix = 'libreecho-' + tag
+        blobs = {}
+        records = []
+        for feature in mod.FEATURES:
+            payload = feature.encode()
+            manifest = json.dumps({'schema_version': 1, 'feature_id': feature,
+                'format': 'squashfs-lz4', 'files': {}, 'payload': {
+                    'filename': feature + '.squashfs', 'size': len(payload),
+                    'sha256': hashlib.sha256(payload).hexdigest()}}).encode()
+            for suffix, data in [('.squashfs', payload), ('.manifest.json', manifest)]:
+                name = prefix + '-' + feature + suffix
+                blobs[name] = data
+                records.append({'name': name, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+        blobs[prefix + '-build.json'] = json.dumps({'release': tag, 'channel': 'stable', 'board': 'radar_puffin', 'artifacts': records}).encode()
+        blobs[prefix + '-SHA256SUMS'] = ''.join(hashlib.sha256(v).hexdigest() + '  ' + k + '\n' for k, v in blobs.items()).encode()
+        assets = [{'name': k, 'size': len(v), 'digest': 'sha256:' + hashlib.sha256(v).hexdigest(), 'browser_download_url': mod.DOWNLOAD + tag + '/' + k} for k,v in blobs.items()]
+        release = {'id': 1, 'tag_name': tag, 'draft': False, 'prerelease': False, 'assets': assets}
+        def fetch(url, dest, limit):
+            data = json.dumps(release).encode() if '/releases/tags/' in url else blobs[url.rsplit('/',1)[1]]
+            self.assertLessEqual(len(data), limit)
+            dest.write_bytes(data)
+        with tempfile.TemporaryDirectory() as td, patch.object(mod, 'download', side_effect=fetch):
+            root = Path(td)
+            catalog = mod.resolve(tag, root / 'good')
+            data = json.loads(catalog.read_text())
+            self.assertEqual(set(data['features']), set(mod.FEATURES))
+            for feature, record in data['features'].items():
+                self.assertEqual(Path(record['payload']['path']).name, feature + '.squashfs')
+                self.assertTrue(Path(record['manifest']['path']).is_file())
+            blobs[prefix + '-tts.squashfs'] = b'bad'
+            with self.assertRaises(ValueError):
+                mod.resolve(tag, root / 'bad')
+            release['draft'] = True
+            with self.assertRaises(ValueError):
+                mod.resolve(tag, root / 'draft')

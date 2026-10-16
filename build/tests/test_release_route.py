@@ -10,16 +10,16 @@ class ReleaseRouteTests(unittest.TestCase):
                     version='', release_tag='', release_notes='')
 
     def test_manual_release_dev_is_not_stable(self):
-        self.assertEqual(route(self.request(), 'release/0.13.11', 'workflow_dispatch'), 'dev')
+        self.assertEqual(route(self.request(), 'release/0.14.0', 'workflow_dispatch'), 'dev')
 
     def test_release_dev_push_fails_closed(self):
         with self.assertRaises(ValueError):
-            route(self.request(), 'release/0.13.11', 'push')
+            route(self.request(), 'release/0.14.0', 'push')
 
     def test_sandbox_never_publishes(self):
         for branch, event in [('main', 'push'), ('main', 'workflow_dispatch'),
-                              ('release/0.13.11', 'workflow_dispatch'),
-                              ('release/0.13.11', 'push'), ('main', 'pull_request'), ('main', 'schedule')]:
+                              ('release/0.14.0', 'workflow_dispatch'),
+                              ('release/0.14.0', 'push'), ('main', 'pull_request')]:
             with self.subTest(branch=branch, event=event):
                 self.assertEqual(route(self.request(purpose='sandbox'), branch, event), 'none')
 
@@ -47,27 +47,21 @@ class ReleaseRouteTests(unittest.TestCase):
                 with self.subTest(branch=branch, event=event), self.assertRaises(ValueError):
                     route(self.request(), branch, event)
 
-    def test_schedule_publication_fails_closed(self):
-        for purpose, channel, branch in [('dev', 'dev', 'main'),
-                                         ('prd', 'stable', 'release/0.13.11')]:
-            with self.subTest(purpose=purpose), self.assertRaisesRegex(ValueError, 'unsupported publication event'):
-                route(self.request(channel, purpose), branch, 'schedule')
-
     def test_prd_retains_required_fields(self):
         request = self.request('stable')
         with self.assertRaises(ValueError):
-            route(request, 'release/0.13.11', 'workflow_dispatch')
-        request.update(version='0.13.11', release_tag='radar-puffin-v0.13.11',
+            route(request, 'release/0.14.0', 'workflow_dispatch')
+        request.update(version='0.14.0', release_tag='radar-puffin-v0.14.0',
                        release_notes='release/notes.md', amonet_repository='reviewed',
                        amonet_tag='reviewed', amonet_commit='a'*40, ssh_enabled='0')
-        self.assertEqual(route(request, 'release/0.13.11', 'workflow_dispatch'), 'stable')
-        for branch, event in [('main', 'workflow_dispatch'), ('release/0.13.11', 'push'),
+        self.assertEqual(route(request, 'release/0.14.0', 'workflow_dispatch'), 'stable')
+        for branch, event in [('main', 'workflow_dispatch'), ('release/0.14.0', 'push'),
                               ('release/0.13.12', 'workflow_dispatch')]:
             with self.assertRaises(ValueError):
                 route(request, branch, event)
 
     def test_invalid_request_rejected(self):
-        for request in (None, {}, self.request('unknown'), self.request() | {'version': '0.13.11'},
+        for request in (None, {}, self.request('unknown'), self.request() | {'version': '0.14.0'},
                         self.request(purpose='unknown')):
             with self.assertRaises(ValueError):
                 route(request, 'main', 'push')
