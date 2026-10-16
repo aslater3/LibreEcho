@@ -30,14 +30,15 @@ Biscuit accepts any LK build. An unknown or empty LK build stops before any writ
 
 - Data-capable USB cable
 - **Echo 2nd Gen only:** a way to reach the USB pins on the bottom — a pogo-pin
-  adapter, or a USB cable soldered to the pads (see step 2)
+  adapter, or a USB cable soldered to the pads (see
+  [Connect the device](#2-connect-the-device))
 - `adb` and `fastboot` (Debian/Ubuntu packages: `adb` and `fastboot`)
 - `bash`, `curl`, and Python 3
 - `mke2fs` and `dumpe2fs` (both from `e2fsprogs`)
 - The published **initial-install bundle** for the target and its matching
   SHA-256 file
 - **Only if the device is locked:** the pinned Amonet ZIP for your target (see
-  step 3). LibreEcho does not redistribute it.
+  [Run the installer](#3-run-the-installer)). LibreEcho does not redistribute it.
 
 On Debian/Ubuntu, install the host tools before starting the installer:
 
@@ -273,8 +274,9 @@ profiles, and other mutable configuration, then reboots to this first-run state.
 - Run `adb devices` and `fastboot devices`. If neither shows the device, try
   another cable or port.
 - Echo 2nd Gen: unplug the power adapter, re-seat the pogo pins (or check the
-  soldered D+, D− and GND joints), then repeat the Action-button sequence in
-  step 2. Do not short anything to force a different boot mode.
+  soldered D+, D− and GND joints), then repeat the **Enter fastboot** sequence
+  under [Connect the device](#2-connect-the-device). Do not short anything to
+  force a different boot mode.
 
 ### The product does not match the release
 

@@ -968,6 +968,38 @@ class InstallerPublicationTests(unittest.TestCase):
             )
         self.assertIn("only need this guide if you are soldering", disassembly)
         self.assertIn("No shorting is needed", product)
+        self.assertFalse((ROOT / "docs/disassembly/echo-gen-2/assets/13.jpg").exists())
+
+    def test_install_docs_have_no_bare_step_references_and_links_resolve(self) -> None:
+        def anchors(markdown: str) -> set[str]:
+            found = set()
+            for heading in re.findall(r"^#{1,6} +(.+?)\s*$", markdown, re.M):
+                slug = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+                found.add(slug)
+            return found
+
+        pages = (
+            "README.md",
+            "docs/install/README.md",
+            "docs/disassembly/echo-gen-2/README.md",
+            "tools/README.md",
+        )
+        for page in pages:
+            path = ROOT / page
+            text = path.read_text(encoding="utf-8")
+            if page == "docs/install/README.md":
+                self.assertIsNone(re.search(r"\bsee\s+step \d|\bin\s+step \d", text, re.I))
+            for target in re.findall(r"\]\(([^)\s]+)\)", text):
+                if re.match(r"[a-z]+:", target):
+                    continue
+                file_part, _, anchor = target.partition("#")
+                linked = (path.parent / file_part).resolve() if file_part else path
+                self.assertTrue(linked.exists(), f"{page}: missing link target {target}")
+                if anchor and linked.suffix == ".md":
+                    self.assertIn(
+                        anchor, anchors(linked.read_text(encoding="utf-8")),
+                        f"{page}: missing anchor {target}",
+                    )
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
