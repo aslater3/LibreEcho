@@ -4,8 +4,10 @@
 > generation (`biscuit`). The procedure uses USB fastboot on the stock device.
 > **No shorting is needed.** On the Echo 2nd Gen you only need to reach the USB
 > pins on the bottom of the device and enter fastboot. The Echo Dot 2nd Gen
-> connects through its own micro-USB port and enters fastboot the same way:
-> hold the **Action** button while plugging in.
+> connects through its own micro-USB port and enters fastboot the same way.
+> Which button you hold while plugging in depends on the bootloader: **Action**
+> on a stock device, **Volume Down (−)** on a device that is already unlocked
+> (Kaeru). See [Which button to hold](#which-button-to-hold).
 
 ## Safety first
 
@@ -104,8 +106,10 @@ to be shorted.
 
 1. Unplug the Echo's power adapter.
 2. Connect the USB pins to the computer.
-3. Press and hold the **Action** button, and plug the power adapter in while
-   still holding it.
+3. Press and hold the fastboot button for your device (see
+   [Which button to hold](#which-button-to-hold)) and plug the power adapter in
+   while still holding it: **Action** on a stock Echo, **Volume Down (−)** on
+   an Echo that has already been unlocked.
 4. Check that the computer sees the device in fastboot:
 
    ```sh
@@ -113,9 +117,9 @@ to be shorted.
    fastboot getvar product
    ```
 
-   Release the Action button once the device is listed. `product` should report
+   Release the button once the device is listed. `product` should report
    `RADAR`. If nothing is listed, unplug the power, check the pins, and repeat
-   the sequence.
+   the sequence with the other button.
 
 ### Echo Dot 2nd Gen (`biscuit`, experimental)
 
@@ -126,8 +130,10 @@ Nothing needs to be shorted.
 **Enter fastboot.**
 
 1. Unplug the Dot's micro-USB cable.
-2. Press and hold the **Action** button, and plug the micro-USB cable from the
-   computer in while still holding it.
+2. Press and hold the fastboot button for your device (see
+   [Which button to hold](#which-button-to-hold)) and plug the micro-USB cable
+   from the computer in while still holding it: **Action** on a stock Dot,
+   **Volume Down (−)** on a Dot that has already been unlocked.
 3. Check that the computer sees the device in fastboot:
 
    ```sh
@@ -135,12 +141,33 @@ Nothing needs to be shorted.
    fastboot getvar product
    ```
 
-   Release the Action button once the device is listed. `product` should report
+   Release the button once the device is listed. `product` should report
    `BISCUIT`. If nothing is listed, unplug the cable, try another data-capable
-   cable or a USB port directly on the computer, and repeat the sequence.
+   cable or a USB port directly on the computer, and repeat the sequence with
+   the other button.
 
 A Dot that already runs LibreEcho can also start from ADB (`adb devices`); the
 installer moves it to fastboot itself.
+
+### Which button to hold
+
+The button that opens fastboot depends on which bootloader the device has.
+
+| Device state | Hold while powering on | Result |
+|---|---|---|
+| Stock (never unlocked) | **Action** | Fastboot |
+| Unlocked with Kaeru (any device that has run LibreEcho, including every 0.13 → 0.14 reinstall) | **Volume Down (−)** only | Fastboot |
+| Unlocked with Kaeru | **Volume Up (+)** only | Recovery |
+| Unlocked with Kaeru | Volume Up and Volume Down together | Normal boot (ignored) |
+
+On an unlocked device, holding **Action** does nothing and the Echo boots
+normally. Hold **only** Volume Down; holding both volume buttons cancels the
+request. If you are unsure which state the device is in, try Volume Down first,
+then Action.
+
+Once the device is listed, `fastboot oem kaeru-version` answers on an unlocked
+device and fails on a stock one, and `fastboot getvar boot-reason` reports
+`Volume Keys` when the button was what selected fastboot.
 
 ### Both models
 
@@ -291,6 +318,9 @@ profiles, and other mutable configuration, then reboots to this first-run state.
   soldered D+, D− and GND joints), then repeat the **Enter fastboot** sequence
   under [Connect the device](#2-connect-the-device). Do not short anything to
   force a different boot mode.
+- A device that has already run LibreEcho ignores the **Action** button at
+  power-on. Hold **Volume Down (−)** on its own instead; see
+  [Which button to hold](#which-button-to-hold).
 
 ### The product does not match the release
 
