@@ -34,9 +34,9 @@ jobs:
     environment: ota-signing
     permissions: {contents: write}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {fetch-depth: 1, persist-credentials: false}
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with: {python-version: '3.11'}
       - name: Install reviewed verification closure
         run: |
@@ -51,7 +51,7 @@ jobs:
           LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^radar-puffin-(build|nightly)-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}$ ]] || exit 1
+          [[ "$RELEASE_TAG" =~ ^radar-puffin-build-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}$ ]] || exit 1
           mkdir release-assets
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
           head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
@@ -62,9 +62,7 @@ jobs:
   route-publication:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.event == 'push' ||
-       github.event.workflow_run.event == 'schedule' ||
-       github.event.workflow_run.event == 'workflow_dispatch') &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
       (github.event.workflow_run.head_branch == 'main' ||
        startsWith(github.event.workflow_run.head_branch, 'release/'))
     runs-on: ubuntu-24.04
@@ -74,7 +72,7 @@ jobs:
     outputs:
       channel: ${{ steps.route.outputs.channel }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
@@ -109,7 +107,7 @@ jobs:
       group: publish-hosted-dev-channel
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
@@ -137,7 +135,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.11'
       - name: Install reviewed OTA verification dependencies
@@ -147,34 +145,81 @@ jobs:
           python -m pip install --disable-pip-version-check --no-index \
             --find-links "$wheelhouse" --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
-      - name: Prepare development or nightly release
+      - name: Prepare development release
         id: prepare
         env:
           LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
         run: |
           set -euo pipefail
           python3 build/ci/prepare-dev-release.py \
             --artifact-root verified-build \
             --product-commit "$HEAD_SHA" \
-            --release-kind "$RELEASE_KIND" \
+            --release-kind development \
             --output-dir release-assets | tee prepare-release.out
           grep -E '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle|asset_count)=' \
             prepare-release.out >>"$GITHUB_OUTPUT"
           test "$(grep -Ec '^(release_tag|release_prefix|source_set_id|artifact_set_id|signed|ota_bundle|asset_count)=' prepare-release.out)" -eq 7
           python3 tools/check-public-metadata.py release-assets
 
-          # One pinned Platform --target builder call per prepared target.
-          python3 build/ci/prepare-twrp-installs.py \
-            --assets release-assets --artifact-root verified-build >>"$GITHUB_OUTPUT"
+          # workflow_run always executes this file from the default branch,
+          # while scripts come from the built commit. Multi-target builds
+          # (release/0.14.0+) ship prepare-twrp-installs.py: one pinned
+          # Platform --target builder call per prepared target. Older commits
+          # keep the original single-target path unchanged.
+          if [[ -f build/ci/prepare-twrp-installs.py ]]; then
+            # Artifact downloads normalize files to 0644. Restore the single
+            # reviewed recovery entry point before either target is packaged.
+            mapfile -t entries < <(find verified-build -path '*/twrp-builder/src/META-INF/com/google/android/update-binary' -type f)
+            test "${#entries[@]}" -eq 1
+            chmod 0755 "${entries[0]}"
+            python3 build/ci/prepare-twrp-installs.py \
+              --assets release-assets --artifact-root verified-build | tee prepare-twrp.out
+            # The builder also prints human-readable summaries. Only its one
+            # validated machine output belongs in GitHub's output command file.
+            test "$(grep -Ec '^asset_count=[0-9]+$' prepare-twrp.out)" -eq 1
+            grep -E '^asset_count=[0-9]+$' prepare-twrp.out >>"$GITHUB_OUTPUT"
+          else
+            # Build the recovery (TWRP) install bundle from the assembled asset set.
+            # Both the install manifest and the signed OTA manifest live inside the
+            # tars at this point, which is exactly what the bundle builder unpacks,
+            # and the boot image and feature payloads are already flat here.
+            mapfile -t builders < <(find verified-build -path '*/twrp-builder/build_install_bundle.py' -type f)
+            test "${#builders[@]}" -eq 1
+            builder_dir="$(dirname "${builders[0]}")"
+            # A build artifact does not preserve file modes, so the staged entry
+            # point arrives non-executable. The builder requires it executable -
+            # that is how TWRP consumes it - so restore the bit that git carried.
+            chmod 0755 "$builder_dir/src/META-INF/com/google/android/update-binary"
+            twrp_out="$(mktemp -d)"
+            python3 "$builder_dir/build_install_bundle.py" \
+              --assets release-assets --out "$twrp_out" --src "$builder_dir/src"
+            install -m 0644 "$twrp_out/libreecho-install.zip" \
+                            "$twrp_out/bundle.manifest" release-assets/
+            mapfile -t sums < <(find release-assets -maxdepth 1 -name '*-SHA256SUMS' \
+              ! -name '*-TWRPINSTALL-SHA256SUMS')
+            test "${#sums[@]}" -eq 1
+            prefix="$(basename "${sums[0]}")"
+            prefix="${prefix%-SHA256SUMS}"
+            (cd release-assets && \
+              sha256sum libreecho-install.zip bundle.manifest \
+                > "$prefix-TWRPINSTALL-SHA256SUMS")
+
+            # The recovery set adds three assets (libreecho-install.zip,
+            # bundle.manifest and the checksum file above). Later output values win,
+            # so re-emit asset_count in step with what actually lands.
+            original_asset_count="$(sed -n 's/^asset_count=//p' prepare-release.out)"
+            [[ "$original_asset_count" =~ ^[0-9]+$ ]]
+            printf 'asset_count=%s\n' "$((original_asset_count + 3))" >>"$GITHUB_OUTPUT"
+          fi
+
+          # Verifies the original assets and the two TWRP bundle files added above.
           (cd release-assets && sha256sum -c *-SHA256SUMS)
-      - name: Publish development or nightly prerelease
+      - name: Publish development prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
           RELEASE_SIGNED: ${{ steps.prepare.outputs.signed }}
           EXPECTED_ASSET_COUNT: ${{ steps.prepare.outputs.asset_count }}
         run: |
@@ -200,14 +245,14 @@ jobs:
           test "${#release_ids[@]}" -le 1
           release_id="${release_ids[0]:-}"
           if [[ "$RELEASE_SIGNED" == 1 ]]; then
-            release_body=$'Signed development/nightly OTA from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is a signed dev-channel OTA prerelease and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS and the OTA signature before use.'
+            release_body=$'Signed development OTA from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is a signed dev-channel OTA prerelease and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS and the OTA signature before use.'
           else
-            release_body=$'Unsigned development/nightly build from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.'
+            release_body=$'Unsigned development build from verified Product CI.\n\nStatus: PREPARED_NOT_FLASHED. This is not a signed OTA and has not received hardware runtime acceptance. Feature policy: community-noncommercial. The wakeword payload remains CC-BY-NC-SA-4.0 (noncommercial and ShareAlike); TTS voice assets remain CC-BY-SA-4.0. Verify SHA256SUMS before use.'
           fi
           if [[ -z "$release_id" ]]; then
             release_id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$tag" -f target_commitish="$HEAD_SHA" \
-              -f name="LibreEcho development/nightly build $short" \
+              -f name="LibreEcho development build $short" \
               -f body="$release_body" \
               -F draft=true -F prerelease=true -f make_latest=false --jq .id)"
           else
@@ -238,18 +283,6 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             --jq 'select(.draft == false and .prerelease == true) | .id' | grep -qx "$release_id"
           echo "dev_release=PASS tag=$tag assets=${#assets[@]}"
-          if [[ "$RELEASE_KIND" == nightly ]]; then
-            while IFS=$'\t' read -r created release_id old_tag; do
-              [[ -n "$release_id" ]] || continue
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$release_id" >/dev/null
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$old_tag" >/dev/null
-              echo "nightly_retention=DELETED tag=$old_tag created=$created"
-            done < <(
-              gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
-                --jq '.[] | select(.tag_name | startswith("radar-puffin-nightly-")) | [.created_at, (.id|tostring), .tag_name] | @tsv' |
-                LC_ALL=C sort -r | tail -n +4
-            )
-          fi
 
   publish-stable:
     needs: route-publication
@@ -260,7 +293,7 @@ jobs:
       group: stable-release-${{ github.event.workflow_run.head_branch }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
@@ -288,7 +321,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.11'
       - name: Install reviewed OTA verification dependencies
@@ -305,13 +338,25 @@ jobs:
           mapfile -t requests < <(find verified-build -name release-request.json -type f -print)
           test "${#requests[@]}" -eq 1
           python3 - "${requests[0]}" >>"$GITHUB_OUTPUT" <<'PY'
-          import json, sys
+          import json, os, sys
           data = json.load(open(sys.argv[1], encoding="utf-8"))
-          for key in ("channel", "version", "release_tag", "release_notes", "ssh_enabled"):
+          # release/0.14.0+ pins amonet per target in build/ci/amonet_pins.py and
+          # its request carries no amonet fields; older lines pass them in the
+          # request. Accept exactly one shape for the checked-out source.
+          pinned = os.path.isfile("build/ci/amonet_pins.py")
+          amonet = ("amonet_repository", "amonet_tag", "amonet_commit")
+          keys = ["channel", "version", "release_tag", "release_notes", "ssh_enabled"]
+          if pinned:
+              if any(key in data for key in amonet):
+                  raise SystemExit("request amonet fields conflict with pinned amonet source")
+          else:
+              keys += amonet
+          for key in keys:
               value = data.get(key, "")
               if not value:
                   raise SystemExit(f"missing stable release field: {key}")
               print(f"{key}={value}")
+          print(f"amonet_pinned={'1' if pinned else '0'}")
           if data["channel"] != "stable":
               raise SystemExit("artifact is not a stable release")
           PY
@@ -340,6 +385,10 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_VERSION: ${{ steps.request.outputs.version }}
           RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
+          AMONET_REPOSITORY: ${{ steps.request.outputs.amonet_repository }}
+          AMONET_TAG: ${{ steps.request.outputs.amonet_tag }}
+          AMONET_COMMIT: ${{ steps.request.outputs.amonet_commit }}
+          AMONET_PINNED: ${{ steps.request.outputs.amonet_pinned }}
           PRODUCT_HEAD: ${{ steps.sources.outputs.product_head }}
           PLATFORM_HEAD: ${{ steps.sources.outputs.platform_head }}
           LINUX_HEAD: ${{ steps.sources.outputs.linux_head }}
@@ -355,15 +404,29 @@ jobs:
             --linux-head "$LINUX_HEAD" \
             --ui-head "$UI_HEAD" \
             --output "$RELEASE_NOTES"
+          amonet_args=()
+          if [[ "$AMONET_PINNED" != 1 ]]; then
+            amonet_args=(--amonet-repository "$AMONET_REPOSITORY"
+                         --amonet-tag "$AMONET_TAG"
+                         --amonet-commit "$AMONET_COMMIT")
+          fi
           python3 build/ci/prepare-stable-release.py \
             --artifact-root verified-build \
             --product-root "$GITHUB_WORKSPACE" \
             --product-commit "$HEAD_SHA" \
             --release-version "$RELEASE_VERSION" \
             --release-notes "$RELEASE_NOTES" \
+            "${amonet_args[@]}" \
             --output-dir release-assets
           python3 tools/check-public-metadata.py release-assets
-          python3 build/ci/prepare-twrp-installs.py --assets release-assets --artifact-root verified-build
+          if [[ -f build/ci/prepare-twrp-installs.py ]]; then
+            # Artifact downloads normalize files to 0644. Restore the single
+            # reviewed recovery entry point before either target is packaged.
+            mapfile -t entries < <(find verified-build -path '*/twrp-builder/src/META-INF/com/google/android/update-binary' -type f)
+            test "${#entries[@]}" -eq 1
+            chmod 0755 "${entries[0]}"
+            python3 build/ci/prepare-twrp-installs.py --assets release-assets --artifact-root verified-build
+          fi
           (cd release-assets && sha256sum -c *-SHA256SUMS)
       - name: Publish stable Product release
         env:

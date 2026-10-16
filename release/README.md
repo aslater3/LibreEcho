@@ -9,16 +9,18 @@ Amonet/BROM wrapper image, calibration data, or local filesystem path.
 
 Hosted main-branch builds produce a bounded `dev`-channel prerelease. Pull
 requests remain unsigned validation-only builds, but successful pushes to
-`main`, scheduled nightly runs, and manually dispatched `dev` builds produce the
+`main` and manually dispatched `dev` builds produce the
 same signed development asset set from the exact verified Product workflow
 artifact. This includes a signed development OTA plus the complete fresh-install
-set. Both development and nightly releases contain an initial-install
+set. Development releases contain an initial-install
 bundle, installer, public OTA key, release notes, five feature payloads/manifests,
 and a complete SHA-256 inventory, so controlled fresh-install testing does not
 require creating a stable Product release.
 
-A development initial-install test uses the published build tag; a scheduled
-nightly uses the nightly tag:
+Scheduled builds are unsigned sandbox canaries, retain Actions artifacts for
+3 days, and never publish a release or advance discovery.
+
+A development initial-install test uses the immutable published build tag:
 
 ```bash
 python3 libreecho-<full-release-tag>-installer.py one-shot \\
@@ -29,11 +31,9 @@ python3 libreecho-<full-release-tag>-installer.py one-shot \\
 For example, a development release tag has the form
 `radar-puffin-build-<product-sha>-<source-set-id>-<artifact-set-id>`.
 
-A signed dev/nightly release is usable only by devices deliberately switched to
+A signed development release is usable only by devices deliberately switched to
 the `dev` OTA channel. It remains a GitHub prerelease, is never marked `latest`,
 and makes no stable-product, flashing, deployment, or hardware-acceptance claim.
-Nightly releases are controlled hardware-test prereleases only; they do not
-imply general hardware acceptance.
 
 
 A complete `community-noncommercial` release has two layers:

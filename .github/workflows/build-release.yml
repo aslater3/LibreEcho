@@ -113,7 +113,7 @@ jobs:
           case "$GITHUB_EVENT_NAME" in
             pull_request) PURPOSE=sandbox; SIGNING_MODE=github ;;
             push) PURPOSE=sandbox; SIGNING_MODE=github ;;
-            schedule) PURPOSE=dev ;;
+            schedule) PURPOSE=sandbox; SIGNING_MODE=github ;;
             workflow_dispatch)
               PURPOSE=${BUILD_PURPOSE_INPUT:-sandbox}
               sandbox_signing=${SANDBOX_SIGNING_INPUT:-unsigned}
