@@ -488,6 +488,22 @@ class Tests(unittest.TestCase):
   self.assertIn('"make_latest": {"true": True, "false": False}[os.environ["MAKE_LATEST"]]', W)
   self.assertIn('RELEASE_ARTIFACT_ROOT: verified-build', PUBLISH)
 
+ def test_manual_013_dev_publication_never_touches_the_v3_pointer(self):
+  self.assertIn('build_run_id:', PUBLISH)
+  self.assertIn('advance_pointer:', PUBLISH)
+  self.assertIn(".path == \".github/workflows/build-release.yml\"", PUBLISH)
+  self.assertIn('.conclusion == "success" and .head_branch == $ref', PUBLISH)
+  self.assertIn("grep -qx 'channel=dev' route.out", PUBLISH)
+  self.assertIn("github.event_name == 'workflow_dispatch' && 'dev-release' || 'public-release'", PUBLISH)
+  self.assertIn("(github.event_name == 'workflow_run' || inputs.advance_pointer == true)", PUBLISH)
+  dev = PUBLISH[PUBLISH.index('  publish-hosted-dev:'):PUBLISH.index('  publish-stable:')]
+  self.assertNotIn('github.event.workflow_run', dev)
+  self.assertNotIn('release-pointer-v3', PUBLISH.replace('release-pointer-v3.txt (0.14+)', ''))
+  pointer = (ROOT/'build/ci/publish_dev_pointer.py').read_text()
+  self.assertIn("POINTER_ASSET = 'release-pointer.txt'", pointer)
+  self.assertIn("FOREIGN_ASSETS = frozenset({'release-pointer-v3.txt'})", pointer)
+
+
 class StablePublisherLatestTests(unittest.TestCase):
  """Run publish-stable-release.sh against a fake gh to pin the Latest contract."""
  TAG = 'radar-puffin-v0.13.21'
