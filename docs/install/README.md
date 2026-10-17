@@ -228,29 +228,33 @@ first-run state.
 
 ## Upgrading from 0.13 to 0.14
 
-A device running 0.13 no longer needs to be reinstalled to move to 0.14. It
-updates in two steps, both over the air: first to 0.13.21, then to 0.14. You do
-not need to open the Echo or connect USB.
+A device running 0.13 no longer needs to be reinstalled to move to 0.14. First
+you install the 0.13.21 bridge release by hand, from a file. After that, 0.14
+arrives over the air like any other update. You do not need to open the Echo or
+connect USB.
+
+0.13.21 is a separate bridge release. It is not marked as GitHub's latest
+release, so 0.13 devices do not find it by themselves.
 
 > **Hardware validation:** TODO — validated on hardware: <pending>. These steps
 > describe the 0.13.21 source preparation. Check the
 > [0.13.21 release notes](../../release/radar-puffin-v0.13.21.md) for what has
 > been tested on real devices before you start.
 
-### Step 1: update to 0.13.21
+### Step 1: install the 0.13.21 bridge release
 
-1. Open the control centre and go to **System**. The **System update** panel
-   shows your installed version and channel.
-2. Select **Check for updates**.
-   - On the **dev** channel, 0.13.21 is offered as soon as it is published.
-   - On the **stable** channel, 0.13.21 is offered once it is the current
-     stable release.
-3. Select **Install update**, then **Restart into update** when it is ready.
-   This is a normal update: if 0.13.21 does not start properly, the Echo falls
-   back to the version it was running.
-
-If you already turned on **Install new updates automatically**, 0.13.21
-installs by itself. It still waits for you to restart.
+1. On your computer, download `libreecho-radar-puffin-v0.13.21.ota.tar` from the
+   [0.13.21 release page](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.13.21).
+   Optionally check it against the release's SHA-256 file.
+2. Open the control centre and go to **System**. In the **System update** panel,
+   check **Update channel**. The 0.13.21 file is published for the **stable**
+   channel and is refused on a device set to **dev**. If yours shows **dev**,
+   select **stable** and save.
+3. Select **Select update file**, choose the downloaded file, and wait for it to
+   be verified and installed. The device checks the package signature before
+   anything is written.
+4. Select **Restart into update**. This is a normal update: if 0.13.21 does not
+   start properly, the Echo falls back to the version it was running.
 
 ### Step 2 (optional): repair the bootloader and install TWRP
 
@@ -324,9 +328,9 @@ for background, credits and support.
 
 ### Step 3: update to 0.14
 
-Once 0.13.21 is running, select **Check for updates** again on the **System**
-page. 0.13.21 accepts the new 0.14 update format and offers 0.14. Install it
-and restart as in step 1.
+Once 0.13.21 is running, select **Check for updates** on the **System** page.
+0.13.21 accepts the new 0.14 update format and offers 0.14. Select **Install
+update**, then **Restart into update**.
 
 0.14 carries over 0.13's versioned configuration, so the update is intended to
 keep your settings, Wi-Fi and account. See the release notes for what was

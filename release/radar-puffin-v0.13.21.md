@@ -1,11 +1,12 @@
 # LibreEcho radar-puffin v0.13.21
 
-A bridge release that lets a 0.13 device move to 0.14 over the air, without reinstalling. It also offers an optional repair that moves Echos installed with 0.13's BROM method onto their board's community Kaeru boot chain, which brings TWRP.
+A bridge release that lets a 0.13 device move to 0.14 without reinstalling. It is published as a separate release, not as the latest release: install it by hand, and 0.14 then follows over the air. It also offers an optional repair that moves Echos installed with 0.13's BROM method onto their board's community Kaeru boot chain, which brings TWRP.
 
 ## 0.13 devices can update to 0.14 over the air
 
 - 0.13.21 accepts 0.14's OTA v3 update format. Earlier 0.13 releases rejected it only because their update parser predates v3: the signing key, the package container and the boot image size are the same. The v3 support is backported from the Platform commit pinned by the 0.14.0 release.
-- The path is: update to 0.13.21 through the control centre (**System** > **System update**) as a normal update, then check for updates again and install 0.14. Dev-channel devices are offered 0.13.21 as soon as it is published; stable devices are offered it once it is the current stable release.
+- The path is: download `libreecho-radar-puffin-v0.13.21.ota.tar` from this release and install it with **System** > **System update** > **Select update file**, then restart. Then select **Check for updates**, which offers 0.14, and install it. 0.13 devices do not find 0.13.21 on their own because it is not marked as the latest release.
+- The 0.13.21 package is published for the stable channel, and 0.13 refuses a package for a different channel. Devices on the dev channel switch **Update channel** to **stable** before installing the file.
 - OTA v1 and v2 packages are still accepted exactly as before, and the existing update status values are unchanged, so the 0.13 control centre keeps working. The update panel also recognises a 0.14 target.
 - If 0.14 does not start properly, the device falls back to 0.13.21. It records the rolled-back release and package hash and does not offer that same 0.14 package again, so a failed update cannot loop.
 - 0.14 carries over 0.13's versioned configuration, so the update is intended to keep settings, Wi-Fi and the account. See the validation section below for what has been confirmed on hardware. Downloading a configuration backup from the **System** page first is recommended.
@@ -42,10 +43,6 @@ The OTA v3 acceptance, boot-chain status and repair have been prepared in source
 - `expdb` fastboot-marker fix on a legacy-chain unit: TODO — validated on hardware: <pending>.
 
 Until these are filled in, treat each item as unconfirmed on hardware.
-
-## Known issue: 0.13.21 as GitHub's Latest release
-
-Stable 0.13 devices find updates through GitHub's "Latest" release, so 0.13.21 is marked Latest for a limited window. During that window the 0.14 `run-one-shot.sh` wrapper, which looks up the latest release, would find 0.13.21. Use the web installer, or pass the 0.14 tag explicitly. 0.14 devices are not affected: their update source stays pinned to 0.14. After the window, 0.14.x is made Latest again.
 
 ## Coordinated source set
 
