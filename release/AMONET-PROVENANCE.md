@@ -1,6 +1,7 @@
 # Community amonet/Kaeru packages served by dl.libreecho.org
 
-LibreEcho does not ship these packages inside any release asset. From 0.13.21
+LibreEcho does not ship these packages inside any release asset, so they are
+not part of the release component catalog or SBOM. From 0.13.21
 the boot-chain repair, and the installers before it, download them from the
 LibreEcho mirror at `https://dl.libreecho.org/amonet/<zip>`, served from R2.
 The repair and the installers accept a package only when its size and SHA-256

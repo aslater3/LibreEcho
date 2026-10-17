@@ -341,46 +341,6 @@
       "evidence": [
         "release/README.md"
       ]
-    },
-    {
-      "id": "amonet-radar-community-package",
-      "name": "amonet-radar v1.0.0 community package (mirror)",
-      "version": "v1.0.0",
-      "license": "NOASSERTION",
-      "release_status": "documented-good-faith",
-      "distribution_scope": "separate-payload",
-      "included_in_candidate": false,
-      "download_location": "https://dl.libreecho.org/amonet/amonet-radar-v1.0.0.zip",
-      "source_offer": "NOASSERTION",
-      "evidence": [
-        "release/AMONET-PROVENANCE.md"
-      ],
-      "known_good_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a",
-      "known_good_size": 58531162,
-      "source_origin": "Community amonet/Kaeru release by k4y0z and R0rt1z2 for the Amazon Echo radar board",
-      "provenance_note": "release/AMONET-PROVENANCE.md",
-      "license_finding": "No firmware-specific licence found for the bundled Amazon bootloader images; amonet code is MIT and GPL-2.0",
-      "redistribution_basis": "Documented good-faith decision following established community precedent of the authors' public XDA releases; identical bytes mirrored on dl.libreecho.org"
-    },
-    {
-      "id": "amonet-biscuit-community-package",
-      "name": "amonet-biscuit v2.0.0 community package (mirror)",
-      "version": "v2.0.0",
-      "license": "NOASSERTION",
-      "release_status": "documented-good-faith",
-      "distribution_scope": "separate-payload",
-      "included_in_candidate": false,
-      "download_location": "https://dl.libreecho.org/amonet/amonet-biscuit-v2.0.0.zip",
-      "source_offer": "NOASSERTION",
-      "evidence": [
-        "release/AMONET-PROVENANCE.md"
-      ],
-      "known_good_sha256": "98297293701082bc7272efe077f941c56fc7b6e1f27ef6f2e93b6e4c6fc7b62d",
-      "known_good_size": 55989416,
-      "source_origin": "Community amonet/Kaeru release by k4y0z and R0rt1z2 for the Amazon Echo biscuit board",
-      "provenance_note": "release/AMONET-PROVENANCE.md",
-      "license_finding": "No firmware-specific licence found for the bundled Amazon bootloader images; amonet code is MIT and GPL-2.0",
-      "redistribution_basis": "Documented good-faith decision following established community precedent of the authors' public XDA releases; identical bytes mirrored on dl.libreecho.org"
     }
   ]
 }
