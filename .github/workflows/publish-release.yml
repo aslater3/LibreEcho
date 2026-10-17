@@ -334,4 +334,6 @@ jobs:
           RELEASE_DIR: release-assets
           RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # make_latest is read from the verified build's release-request.json.
+          RELEASE_ARTIFACT_ROOT: verified-build
         run: build/ci/publish-stable-release.sh

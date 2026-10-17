@@ -59,6 +59,12 @@ on:
         description: OTA v2 candidate version (defaults to release branch version)
         required: false
         type: string
+      make_latest:
+        description: Stable only. Mark the published stable release as GitHub Latest; false keeps the current Latest release
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 permissions:
   contents: read
@@ -89,6 +95,7 @@ jobs:
       ota_release: ${{ steps.resolve.outputs.ota_release }}
       ota_base_catalog_url: ${{ steps.resolve.outputs.ota_base_catalog_url }}
       ota_base_catalog_sha256: ${{ steps.resolve.outputs.ota_base_catalog_sha256 }}
+      make_latest: ${{ steps.resolve.outputs.make_latest }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -102,6 +109,7 @@ jobs:
           OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v1' }}
           OTA_RELEASE_INPUT: ${{ inputs.ota_release || (inputs.ota_format == 'v2' && inputs.release_version) || '' }}
           DEVICE_BASELINE_JSON: ${{ inputs.device_baseline_json || '' }}
+          MAKE_LATEST_INPUT: ${{ inputs.make_latest || 'false' }}
           OTA_BASE_CATALOG_URL_INPUT: ''
           OTA_BASE_CATALOG_SHA256_INPUT: ''
           SIGNING_MODE: ${{ github.event_name == 'pull_request' && 'github' || 'local' }}
@@ -124,10 +132,17 @@ jobs:
               *) echo "ERROR: unsupported build ref: $GITHUB_REF" >&2; exit 1 ;;
             esac
           fi
+          case "$MAKE_LATEST_INPUT" in
+            true|false) ;;
+            *) echo "ERROR: make_latest must be true or false" >&2; exit 1 ;;
+          esac
           case "$RELEASE_CHANNEL" in
             dev)
               [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || -z "$RELEASE_VERSION" ]] || {
                 echo "ERROR: release_version is only valid for stable dispatches" >&2; exit 1;
+              }
+              [[ "$MAKE_LATEST_INPUT" == false ]] || {
+                echo "ERROR: make_latest is only valid for stable dispatches" >&2; exit 1;
               }
               ;;
             stable)
@@ -223,6 +238,7 @@ jobs:
           fi
           printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          printf 'make_latest=%s\n' "$MAKE_LATEST_INPUT" >> "$GITHUB_OUTPUT"
           printf 'signing_mode=%s\n' "$SIGNING_MODE" >> "$GITHUB_OUTPUT"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             printf 'release_tag=radar-puffin-v%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
@@ -1073,6 +1089,7 @@ jobs:
           AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           AMONET_COMMIT: ${{ inputs.amonet_commit || '' }}
           SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
+          MAKE_LATEST: ${{ needs.resolve-and-preflight.outputs.make_latest }}
         run: |
           set -euo pipefail
           mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
@@ -1094,6 +1111,8 @@ jobs:
               "amonet_tag": os.environ["AMONET_TAG"],
               "amonet_commit": os.environ["AMONET_COMMIT"],
               "ssh_enabled": os.environ["SSH_ENABLED"],
+              # Explicit maintainer choice; the stable publisher never infers it.
+              "make_latest": {"true": True, "false": False}[os.environ["MAKE_LATEST"]],
           }, sort_keys=True) + "\n", encoding="utf-8")
           PY
 

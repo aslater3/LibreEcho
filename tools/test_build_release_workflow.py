@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import json
+import os
 import re
+import stat
+import subprocess
+import sys
+import tempfile
 import unittest
 ROOT=Path(__file__).parents[1]
 W=(ROOT/'.github/workflows/build-release.yml').read_text()
@@ -394,7 +400,10 @@ class Tests(unittest.TestCase):
   self.assertIn('stable releases require local OTA signing', PUBLIC_WRAPPER)
   self.assertIn('libreecho-${RELEASE_TAG}.ota.tar', STABLE_PUBLISHER)
   self.assertIn('prerelease=false', STABLE_PUBLISHER)
-  self.assertIn('make_latest=true', STABLE_PUBLISHER)
+  # GitHub Latest is an explicit stable choice, never hardcoded.
+  self.assertNotIn('make_latest=true', STABLE_PUBLISHER)
+  self.assertIn('-f make_latest="$make_latest"', STABLE_PUBLISHER)
+  self.assertIn('--latest="$make_latest"', STABLE_PUBLISHER)
   self.assertNotIn('LibreEcho-Build', PUBLISH)
   self.assertIn('generate-release-notes.py', PUBLISH)
   self.assertIn('Cross-repository included changes', (ROOT/'build/ci/generate-release-notes.py').read_text())
@@ -466,4 +475,113 @@ class Tests(unittest.TestCase):
                   'libstdc++-13-dev-armhf-cross', 'libc6-armhf-cross'):
    self.assertIn(package, W)
   for action in re.findall(r'uses:\s*([^\s]+)',W): self.assertRegex(action,r'@[0-9a-f]{40}$')
+
+ def test_make_latest_is_an_explicit_stable_dispatch_choice(self):
+  start = W.index('      make_latest:')
+  block = W[start:W.index('permissions:', start)]
+  self.assertIn("default: 'false'", block)
+  self.assertIn("options: ['false', 'true']", block)
+  self.assertIn("MAKE_LATEST_INPUT: ${{ inputs.make_latest || 'false' }}", W)
+  self.assertIn('make_latest must be true or false', W)
+  self.assertIn('make_latest is only valid for stable dispatches', W)
+  self.assertIn('MAKE_LATEST: ${{ needs.resolve-and-preflight.outputs.make_latest }}', W)
+  self.assertIn('"make_latest": {"true": True, "false": False}[os.environ["MAKE_LATEST"]]', W)
+  self.assertIn('RELEASE_ARTIFACT_ROOT: verified-build', PUBLISH)
+
+class StablePublisherLatestTests(unittest.TestCase):
+ """Run publish-stable-release.sh against a fake gh to pin the Latest contract."""
+ TAG = 'radar-puffin-v0.13.21'
+ SHA = 'a' * 40
+
+ def run_publisher(self, request=None, env_choice=None, latest='radar-puffin-v0.14.0', dry_run=False):
+  tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+  root = Path(tmp.name); shims = root / 'bin'; shims.mkdir()
+  release = root / 'release-assets'; release.mkdir()
+  for name in (f'libreecho-{self.TAG}.ota.tar', f'libreecho-{self.TAG}-SHA256SUMS'):
+   (release / name).write_bytes(b'fixture')
+  notes = root / 'notes.md'; notes.write_text('# notes\n')
+  log = root / 'gh.log'
+  (shims / 'python3').write_text(
+   '#!/bin/bash\n'
+   'case "$1" in */validate-stable-publisher.py) echo stable_release_gate=PASS; exit 0;; esac\n'
+   f'exec {sys.executable} "$@"\n')
+  (shims / 'gh').write_text(f"""#!{sys.executable}
+import json, os, sys
+args = sys.argv[1:]
+open({str(log)!r}, 'a').write(json.dumps(args) + '\\n')
+joined = ' '.join(args)
+if args[:2] == ['release', 'view'] and '--json' in args and 'databaseId' in args:
+    print(123)
+elif args[:2] == ['release', 'view']:
+    print('\\n'.join(sorted(os.listdir({str(release)!r}))))
+elif args[:1] == ['release']:
+    pass
+elif 'git/ref/tags/' in joined:
+    print(json.dumps({{'object': {{'type': 'commit', 'sha': {self.SHA!r}}}}}))
+elif joined.endswith('releases/latest --jq .tag_name'):
+    print(os.environ['FAKE_LATEST'])
+elif '--method' in args or '--paginate' in args:
+    pass
+else:
+    print(json.dumps({{'draft': False, 'prerelease': False}}))
+""")
+  for shim in shims.iterdir(): shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
+  env = {k: v for k, v in os.environ.items() if k not in ('RELEASE_MAKE_LATEST', 'RELEASE_REQUEST', 'RELEASE_ARTIFACT_ROOT')}
+  env.update(PATH=f'{shims}:{env["PATH"]}', RELEASE_TAG=self.TAG, RELEASE_DIR=str(release),
+             RELEASE_NOTES=str(notes), HEAD_SHA=self.SHA, GH_TOKEN='test-only',
+             GITHUB_REPOSITORY='aslater3/LibreEcho', FAKE_LATEST=latest,
+             RELEASE_ARTIFACT_ROOT=str(root / 'verified-build'), PUBLISH_DRY_RUN='1' if dry_run else '0',
+             LC_ALL='C')  # hosted runners sort in codepoint order, like gh --jq
+  if request is not None:
+   path = root / 'verified-build' / 'run' / 'release-request.json'
+   path.parent.mkdir(parents=True); path.write_text(json.dumps(request))
+  if env_choice is not None:
+   env['RELEASE_MAKE_LATEST'] = env_choice
+  result = subprocess.run(['bash', str(ROOT / 'build/ci/publish-stable-release.sh')], env=env,
+                          capture_output=True, text=True, timeout=60)
+  calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+  return result, calls
+
+ def test_missing_or_malformed_choice_fails_before_any_github_call(self):
+  for request, choice in (({}, None), ({'make_latest': 'true'}, None), (None, None), (None, 'yes')):
+   with self.subTest(request=request, choice=choice):
+    result, calls = self.run_publisher(request, choice)
+    self.assertEqual(result.returncode, 1, result.stderr)
+    self.assertRegex(result.stderr, 'make_latest|release-request.json')
+    self.assertEqual(calls, [])
+
+ def test_false_choice_publishes_without_taking_latest(self):
+  result, calls = self.run_publisher({'make_latest': False})
+  self.assertEqual(result.returncode, 0, result.stderr)
+  self.assertIn('make_latest=false latest=radar-puffin-v0.14.0', result.stdout)
+  create = next(c for c in calls if c[:2] == ['release', 'create'])
+  self.assertIn('--latest=false', create)
+  patch = next(c for c in calls if '--method' in c and 'PATCH' in c)
+  self.assertIn('make_latest=false', patch)
+  self.assertNotIn('make_latest=true', patch)
+
+ def test_false_choice_fails_if_github_still_marks_it_latest(self):
+  result, _ = self.run_publisher({'make_latest': False}, latest=self.TAG)
+  self.assertEqual(result.returncode, 1)
+  self.assertIn('became Latest although make_latest=false', result.stderr)
+
+ def test_true_choice_takes_latest_and_verifies_it(self):
+  result, calls = self.run_publisher({'make_latest': True}, latest=self.TAG)
+  self.assertEqual(result.returncode, 0, result.stderr)
+  patch = next(c for c in calls if '--method' in c and 'PATCH' in c)
+  self.assertIn('make_latest=true', patch)
+  result, _ = self.run_publisher({'make_latest': True})
+  self.assertEqual(result.returncode, 1)
+  self.assertIn('was not marked Latest', result.stderr)
+
+ def test_env_override_is_accepted_and_dry_run_needs_no_choice(self):
+  result, calls = self.run_publisher(None, 'false')
+  self.assertEqual(result.returncode, 0, result.stderr)
+  self.assertIn('make_latest=false', result.stdout)
+  result, calls = self.run_publisher(None, None, dry_run=True)
+  self.assertEqual(result.returncode, 0, result.stderr)
+  self.assertIn('PREPARED_NOT_PUBLISHED', result.stdout)
+  self.assertEqual(calls, [])
+
+
 if __name__=='__main__': unittest.main()

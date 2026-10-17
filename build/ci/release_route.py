@@ -15,7 +15,7 @@ def route(request, branch, event):
         raise ValueError('unsupported publication branch')
     channel = request.get('channel')
     if channel == 'dev':
-        if any(request.get(key) for key in ('version', 'release_tag', 'release_notes')):
+        if any(request.get(key) for key in ('version', 'release_tag', 'release_notes', 'make_latest')):
             raise ValueError('dev request contains stable metadata')
         # Release-branch push validation is not publication authorization.
         return 'dev' if branch == 'main' or event == 'workflow_dispatch' else 'none'
@@ -28,6 +28,9 @@ def route(request, branch, event):
         for key in ('release_notes', 'amonet_repository', 'amonet_tag', 'amonet_commit', 'ssh_enabled'):
             if not request.get(key):
                 raise ValueError('missing stable field: ' + key)
+        # GitHub Latest is an explicit maintainer decision, never a default.
+        if not isinstance(request.get('make_latest'), bool):
+            raise ValueError('stable request must state make_latest as true or false')
         return 'stable'
     raise ValueError('invalid release channel')
 

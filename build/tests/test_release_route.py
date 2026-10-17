@@ -21,13 +21,21 @@ class ReleaseRouteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             route(request, 'release/0.13.17', 'workflow_dispatch')
         request.update(version='0.13.17', release_tag='radar-puffin-v0.13.17', release_notes='release/notes.md', amonet_repository='reviewed', amonet_tag='reviewed', amonet_commit='a'*40, ssh_enabled='0')
-        self.assertEqual(route(request, 'release/0.13.17', 'workflow_dispatch'), 'stable')
+        with self.assertRaisesRegex(ValueError, 'make_latest'):
+            route(request, 'release/0.13.17', 'workflow_dispatch')
+        for invalid in ('true', 'false', 1, None):
+            with self.assertRaisesRegex(ValueError, 'make_latest'):
+                route(request | {'make_latest': invalid}, 'release/0.13.17', 'workflow_dispatch')
+        for choice in (True, False):
+            self.assertEqual(route(request | {'make_latest': choice}, 'release/0.13.17', 'workflow_dispatch'), 'stable')
+        request['make_latest'] = False
         for branch, event in [('main','workflow_dispatch'),('release/0.13.17','push'),('release/0.13.13','workflow_dispatch')]:
             with self.assertRaises(ValueError):
                 route(request, branch, event)
 
     def test_invalid_request_rejected(self):
-        for request in (None, {}, self.request('unknown'), self.request() | {'version':'0.13.17'}):
+        for request in (None, {}, self.request('unknown'), self.request() | {'version':'0.13.17'},
+                        self.request() | {'make_latest': True}):
             with self.assertRaises(ValueError):
                 route(request, 'main', 'push')
 
