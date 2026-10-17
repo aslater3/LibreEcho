@@ -332,6 +332,13 @@ Once 0.13.21 is running, select **Check for updates** on the **System** page.
 0.13.21 accepts the new 0.14 update format and offers 0.14. Select **Install
 update**, then **Restart into update**.
 
+If 0.14 does not start properly, the Echo normally falls back to 0.13.21. After
+a bootloader repair (step 2) that first fallback is not automatic, because the
+Kaeru chain always starts the same system slot. 0.13.21 is still kept in the
+other slot: hold **Volume Up** while plugging in power to start TWRP, and ask in
+a [GitHub issue](https://github.com/aslater3/LibreEcho/issues) for the restore
+steps.
+
 0.14 carries over 0.13's versioned configuration, so the update is intended to
 keep your settings, Wi-Fi and account. See the release notes for what was
 validated on real devices before relying on this. To be safe, select
