@@ -4,6 +4,24 @@ on:
   workflow_run:
     workflows: ['Hosted LibreEcho build and release']
     types: [completed]
+  # workflow_run always executes the default-branch (main, 0.14+) copy of this
+  # file, which neither publishes 0.13 dev builds nor advances the 0.13 dev
+  # pointer. Dispatching this workflow on ref release/0.13.x runs THIS copy:
+  # it publishes one verified manual dev build of that branch as an immutable
+  # prerelease and, only when advance_pointer is true, replaces
+  # radar-puffin-dev-channel/release-pointer.txt. release-pointer-v3.txt (0.14+)
+  # is never written. Dispatch with the gh CLI/API so these inputs are used.
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Run ID of a successful manual dev run of 'Hosted LibreEcho build and release' on this release branch
+        type: string
+        required: true
+      advance_pointer:
+        description: Also advance the 0.13 dev pointer (release-pointer.txt only), after operator validation
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   actions: read
@@ -12,66 +30,119 @@ permissions:
 jobs:
   route-publication:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.event == 'push' ||
-       github.event.workflow_run.event == 'schedule' ||
-       github.event.workflow_run.event == 'workflow_dispatch') &&
-      (github.event.workflow_run.head_branch == 'main' ||
-       startsWith(github.event.workflow_run.head_branch, 'release/'))
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'schedule' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
+       (github.event.workflow_run.head_branch == 'main' ||
+        startsWith(github.event.workflow_run.head_branch, 'release/'))) ||
+      (github.event_name == 'workflow_dispatch' &&
+       startsWith(github.ref, 'refs/heads/release/'))
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
     outputs:
       channel: ${{ steps.route.outputs.channel }}
+      run_id: ${{ steps.build-run.outputs.run_id }}
+      head_sha: ${{ steps.build-run.outputs.head_sha }}
+      head_branch: ${{ steps.build-run.outputs.head_branch }}
+      build_event: ${{ steps.build-run.outputs.build_event }}
     steps:
+      - name: Resolve the exact verified build run
+        id: build-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WR_ID: ${{ github.event.workflow_run.id }}
+          WR_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id || '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            run_id="$WR_ID" head_sha="$WR_SHA" head_branch="$WR_BRANCH" build_event="$WR_EVENT"
+          else
+            [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || {
+              echo "ERROR: build_run_id must be a numeric workflow run ID" >&2; exit 1;
+            }
+            run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID")"
+            jq -e --arg ref "$GITHUB_REF_NAME" --arg repo "$GITHUB_REPOSITORY" '
+              .path == ".github/workflows/build-release.yml" and
+              .event == "workflow_dispatch" and .status == "completed" and
+              .conclusion == "success" and .head_branch == $ref and
+              .head_repository.full_name == $repo' <<<"$run_json" >/dev/null || {
+              echo "ERROR: run $BUILD_RUN_ID is not a successful manual build of $GITHUB_REF_NAME" >&2; exit 1;
+            }
+            run_id="$BUILD_RUN_ID"
+            head_sha="$(jq -r .head_sha <<<"$run_json")"
+            head_branch="$GITHUB_REF_NAME"
+            build_event=workflow_dispatch
+          fi
+          [[ "$run_id" =~ ^[0-9]+$ && "$head_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "ERROR: unresolved build run identity" >&2; exit 1;
+          }
+          printf 'run_id=%s\nhead_sha=%s\nhead_branch=%s\nbuild_event=%s\n' \
+            "$run_id" "$head_sha" "$head_branch" "$build_event" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.build-run.outputs.head_sha }}
           persist-credentials: false
       - id: artifact
         env:
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ steps.build-run.outputs.head_branch }}
+          HEAD_SHA: ${{ steps.build-run.outputs.head_sha }}
         run: |
           set -euo pipefail
           printf 'name=libreecho-%s-%s\n' "${HEAD_BRANCH#release/}" "${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
         with:
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.build-run.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: request-artifact
       - id: route
         env:
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          BUILD_EVENT: ${{ github.event.workflow_run.event }}
-        run: >-
-          python3 build/ci/release_route.py --artifact-root request-artifact
-          --branch "$HEAD_BRANCH" --event "$BUILD_EVENT" >> "$GITHUB_OUTPUT"
+          HEAD_BRANCH: ${{ steps.build-run.outputs.head_branch }}
+          BUILD_EVENT: ${{ steps.build-run.outputs.build_event }}
+        run: |
+          set -euo pipefail
+          python3 build/ci/release_route.py --artifact-root request-artifact \
+            --branch "$HEAD_BRANCH" --event "$BUILD_EVENT" | tee route.out
+          # A manual publication dispatch is a dev-only path; stable stays on
+          # the workflow_run publisher and its stable gates.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            grep -qx 'channel=dev' route.out || {
+              echo "ERROR: manual publication dispatch accepts only dev builds" >&2; exit 1;
+            }
+          fi
+          cat route.out >> "$GITHUB_OUTPUT"
 
   publish-hosted-dev:
     needs: route-publication
     if: needs.route-publication.outputs.channel == 'dev'
     runs-on: ubuntu-24.04
-    environment: public-release
+    # public-release is restricted to main; manual 0.13 dispatches run on
+    # release/* and use the reviewer-gated dev-release environment instead.
+    environment: ${{ github.event_name == 'workflow_dispatch' && 'dev-release' || 'public-release' }}
     concurrency:
       group: publish-hosted-dev-channel
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.route-publication.outputs.head_sha }}
           fetch-depth: 1
           persist-credentials: false
       - name: Resolve exact verified Product artifact
         id: artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_ID: ${{ needs.route-publication.outputs.run_id }}
+          HEAD_SHA: ${{ needs.route-publication.outputs.head_sha }}
+          HEAD_BRANCH: ${{ needs.route-publication.outputs.head_branch }}
         run: |
           set -euo pipefail
           expected="libreecho-${HEAD_BRANCH#release/}-${HEAD_SHA:0:7}"
@@ -84,7 +155,7 @@ jobs:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
         with:
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.route-publication.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.artifact.outputs.name }}
           path: verified-build
@@ -102,8 +173,8 @@ jobs:
         id: prepare
         env:
           LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256: ${{ vars.LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256 }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
+          HEAD_SHA: ${{ needs.route-publication.outputs.head_sha }}
+          RELEASE_KIND: ${{ needs.route-publication.outputs.build_event == 'schedule' && 'nightly' || 'development' }}
         run: |
           set -euo pipefail
           python3 build/ci/prepare-dev-release.py \
@@ -119,9 +190,9 @@ jobs:
       - name: Publish development or nightly prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ needs.route-publication.outputs.head_sha }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          RELEASE_KIND: ${{ github.event.workflow_run.event == 'schedule' && 'nightly' || 'development' }}
+          RELEASE_KIND: ${{ needs.route-publication.outputs.build_event == 'schedule' && 'nightly' || 'development' }}
           RELEASE_SIGNED: ${{ steps.prepare.outputs.signed }}
           EXPECTED_ASSET_COUNT: ${{ steps.prepare.outputs.asset_count }}
         run: |
@@ -199,11 +270,15 @@ jobs:
           fi
 
       - name: Advance verified dev discovery pointer
-        if: steps.prepare.outputs.signed == '1'
+        # Writes release-pointer.txt (0.13) only. A manual dispatch advances it
+        # only when advance_pointer is explicitly true.
+        if: >-
+          steps.prepare.outputs.signed == '1' &&
+          (github.event_name == 'workflow_run' || inputs.advance_pointer == true)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ needs.route-publication.outputs.head_sha }}
         run: >-
           python3 build/ci/publish_dev_pointer.py --repository "$GITHUB_REPOSITORY"
           --tag "$RELEASE_TAG" --head "$HEAD_SHA" --assets release-assets
@@ -334,4 +409,6 @@ jobs:
           RELEASE_DIR: release-assets
           RELEASE_NOTES: ${{ steps.request.outputs.release_notes }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # make_latest is read from the verified build's release-request.json.
+          RELEASE_ARTIFACT_ROOT: verified-build
         run: build/ci/publish-stable-release.sh

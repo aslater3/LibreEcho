@@ -34,6 +34,35 @@ if [[ "${PUBLISH_DRY_RUN:-0}" == 1 ]]; then
 fi
 : "${GH_TOKEN:?set GH_TOKEN}"
 
+# GitHub "Latest" is an explicit maintainer choice made at stable dispatch
+# (build-release.yml input make_latest) and carried in the verified build's
+# release-request.json. RELEASE_MAKE_LATEST overrides it for callers that
+# pass the value directly. Nothing defaults to true: an absent or malformed
+# choice fails before the first GitHub call. Dry runs never publish and
+# therefore do not need the choice.
+make_latest="${RELEASE_MAKE_LATEST:-}"
+if [[ -z "$make_latest" ]]; then
+  request="${RELEASE_REQUEST:-}"
+  if [[ -z "$request" ]]; then
+    mapfile -t requests < <(find "${RELEASE_ARTIFACT_ROOT:-verified-build}" \
+      -name release-request.json -type f -print 2>/dev/null)
+    [[ "${#requests[@]}" -eq 1 ]] || {
+      echo "ERROR: expected one release-request.json carrying make_latest" >&2
+      exit 1
+    }
+    request="${requests[0]}"
+  fi
+  [[ -f "$request" && ! -L "$request" ]] || {
+    echo "ERROR: invalid release request path" >&2
+    exit 1
+  }
+  make_latest="$(jq -r 'if (.make_latest | type) == "boolean" then .make_latest | tostring else "invalid" end' "$request")"
+fi
+[[ "$make_latest" == true || "$make_latest" == false ]] || {
+  echo "ERROR: make_latest must be true or false" >&2
+  exit 1
+}
+
 api="repos/${GITHUB_REPOSITORY}"
 verify_tag_ref() {
   gh api "$api/git/ref/tags/$RELEASE_TAG" |
@@ -54,6 +83,7 @@ if [[ -z "$release_id" ]]; then
     --target "$HEAD_SHA" \
     --title "LibreEcho $RELEASE_TAG" \
     --notes-file "$RELEASE_NOTES" \
+    --latest="$make_latest" \
     --draft
   release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)"
 else
@@ -76,7 +106,19 @@ actual="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | map(.name
 expected="$(printf '%s\n' "${assets[@]}" | sort)"
 test "$actual" = "$expected"
 gh api --method PATCH "$api/releases/$release_id" \
-  -F draft=false -F prerelease=false -F make_latest=true >/dev/null
+  -F draft=false -F prerelease=false -f make_latest="$make_latest" >/dev/null
 gh api "$api/releases/$release_id" |
   jq -e '.draft == false and .prerelease == false' >/dev/null
-echo "stable_release_publish=PASS tag=$RELEASE_TAG assets=${#assets[@]}"
+latest_tag="$(gh api "$api/releases/latest" --jq .tag_name 2>/dev/null)" || latest_tag=""
+if [[ "$make_latest" == true ]]; then
+  [[ "$latest_tag" == "$RELEASE_TAG" ]] || {
+    echo "ERROR: $RELEASE_TAG was not marked Latest (Latest is $latest_tag)" >&2
+    exit 1
+  }
+else
+  [[ "$latest_tag" != "$RELEASE_TAG" ]] || {
+    echo "ERROR: $RELEASE_TAG became Latest although make_latest=false" >&2
+    exit 1
+  }
+fi
+echo "stable_release_publish=PASS tag=$RELEASE_TAG assets=${#assets[@]} make_latest=$make_latest latest=$latest_tag"

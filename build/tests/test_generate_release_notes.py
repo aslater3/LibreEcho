@@ -39,6 +39,16 @@ class ReleaseNotesTests(unittest.TestCase):
         rendered = MODULE.render("0.14.0", heads, bases, changes)
         self.assertEqual(rendered.count("Changes: none in the selected comparison range"), 4)
 
+    def test_previous_version_precedes_the_candidate_on_older_lines(self) -> None:
+        tags = [{"name": name} for name in (
+            "radar-puffin-v0.14.0", "radar-puffin-v0.13.20", "radar-puffin-v0.13.21",
+            "radar-puffin-v0.13.9", "radar-puffin-build-abc", "radar-puffin-dev-channel",
+        )]
+        self.assertEqual(MODULE.previous_product_version(tags, "0.13.21"), "0.13.20")
+        self.assertEqual(MODULE.previous_product_version(tags, "0.14.1"), "0.14.0")
+        self.assertEqual(MODULE.previous_product_version(tags, "0.13.10"), "0.13.9")
+        self.assertIsNone(MODULE.previous_product_version(tags, "0.13.9"))
+
     def test_generated_ledger_is_appended_to_authored_notes(self) -> None:
         authored = "# LibreEcho radar-puffin v0.14.0\n\nMaintained release highlights.\n"
         generated = "# LibreEcho radar-puffin v0.14.0\n\nGenerated intro.\n\n## Release identity\n\n- exact heads\n"
