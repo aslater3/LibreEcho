@@ -47,15 +47,28 @@ def gh_api(endpoint: str) -> object:
     return pages
 
 
-def latest_product_tag(current: str) -> str | None:
-    tags = gh_api(f"repos/{REPOSITORIES['Product']}/tags?per_page=100")
+def _version_key(value: str) -> tuple[int, ...]:
+    return tuple(map(int, value.split(".")))
+
+
+def previous_product_version(tags: object, current: str) -> str | None:
+    """Return the newest product tag that precedes ``current``.
+
+    A patch on an older line (for example 0.13.21 after 0.14.0 shipped) must
+    compare against its own predecessor, never against a newer release.
+    """
     versions = []
     for item in tags if isinstance(tags, list) else []:
-        name = item.get("name", "")
+        name = item.get("name", "") if isinstance(item, dict) else ""
         match = TAG.fullmatch(name)
-        if match and match.group(1) != current:
+        if match and _version_key(match.group(1)) < _version_key(current):
             versions.append(match.group(1))
-    return max(versions, key=lambda value: tuple(map(int, value.split("."))), default=None)
+    return max(versions, key=_version_key, default=None)
+
+
+def latest_product_tag(current: str) -> str | None:
+    tags = gh_api(f"repos/{REPOSITORIES['Product']}/tags?per_page=100")
+    return previous_product_version(tags, current)
 
 
 def ref_exists(repo: str, ref: str) -> bool:
