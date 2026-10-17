@@ -271,32 +271,51 @@ This also installs TWRP:
 - Hold **Volume Up** while plugging in power to start TWRP.
 - Hold **Volume Down** while plugging in power to start unlocked fastboot.
 
-The repair keeps the installed LibreEcho system and your data. It backs up
-every region it changes before writing, and reads back every write.
+The repair keeps the installed LibreEcho system and your data: it changes
+the bootloader partitions and the partition table, but not userdata or the
+installed system image. It backs up every region it changes to the Echo's own
+storage (`/data/libreecho/boot-chain/backup`) before writing, and reads back
+every write.
 
 **When it is offered.** The repair is only available when the **Bootloader**
-panel on the **System** page offers it. It is only offered when the Echo can
-confirm which board it is, from the hardware itself, and when the boot chain
-exactly matches a known 0.13 BROM install. Installing the wrong board's chain
-is the one mistake that cannot be undone, so if the board cannot be confirmed
-the repair stays blocked. If you do not see the option, leave it alone.
+panel on the **System** page offers it. It is only offered when:
+
+- the Echo can confirm its board from the hardware itself (its factory
+  identity data and storage size, not the board name the bootloader reports);
+- the boot chain exactly matches a known 0.13 BROM install;
+- the running boot slot is confirmed.
+
+When you start it you also choose which Echo you have. If your choice and the
+Echo's own identity disagree, the repair does not start. Installing the wrong
+board's chain is the one mistake that cannot be undone, so if the board cannot
+be confirmed the repair stays blocked. If you do not see the option, leave it
+alone.
+
+The repair downloads the community package for your board from
+`dl.libreecho.org` and checks it against its pinned SHA-256 before using it.
 
 **Before you start:**
 
-- Keep the Echo plugged in for the whole repair. Do not unplug it or restart it.
-- Know how you would connect USB to it ([section 3](#3-connect-usb)), in case
-  it needs recovering.
+- Keep the Echo plugged in for the whole repair (about a minute). Do not unplug
+  it or restart it.
+- Download a configuration backup from the **System** page.
 
-**If the repair is interrupted** (for example, by a power cut), the Echo cannot
-boot and starts in MediaTek USB download mode instead. The repair arranges this
-on purpose so the unit stays recoverable. Recovering it needs the USB
-connection described in [section 3](#3-connect-usb) and the LibreEcho
-installer. You will not need the BROM short. If you are unsure how to proceed,
-ask for help in a [GitHub issue](https://github.com/aslater3/LibreEcho/issues).
+**If the repair fails while the Echo is still running**, it writes the backups
+back and the Echo carries on as before. The panel reports what happened.
+
+**If the repair is interrupted by a power cut** during its critical writes,
+the Echo cannot boot and starts in MediaTek USB download mode instead. The
+repair arranges this on purpose: download mode needs no BROM short, and from
+there the bootloader partitions can be rewritten over USB. Recovering the unit
+needs the USB service connection from [section 3](#3-connect-usb) and a
+MediaTek bootrom tool. The backups are in userdata, which that tool can read.
+There is no one-step LibreEcho installer command for this yet, so ask for help
+in a [GitHub issue](https://github.com/aslater3/LibreEcho/issues) before you
+try anything.
 
 To start the repair, open **System**, find the **Bootloader** panel, select the
-repair action and confirm. The Echo reboots normally into LibreEcho when it is
-done.
+repair action, choose your Echo and confirm. The Echo reboots normally into
+LibreEcho when it is done.
 
 The Kaeru chains, and the amonet tools they come from, are the work of
 **k4y0z** and **R0rt1z2**. See their
