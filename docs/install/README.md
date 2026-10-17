@@ -4,6 +4,9 @@
 > involves opening the device, soldering, exposed electronics, and entering
 > MediaTek BROM mode.
 
+> **Already running LibreEcho 0.13?** You do not need to reinstall to move to
+> 0.14. See [Upgrading from 0.13 to 0.14](#upgrading-from-013-to-014).
+
 ## Safety first
 
 - Unplug the Echo before opening it. Never solder or probe a powered board.
@@ -222,6 +225,145 @@ credentials on the device. The installer does not invent, print, or upload
 those credentials. A factory reset later removes the account, setup marker,
 Wi-Fi profiles, and other mutable configuration before rebooting back to this
 first-run state.
+
+## Upgrading from 0.13 to 0.14
+
+A device running 0.13 no longer needs to be reinstalled to move to 0.14. It
+updates in two steps, both over the air: first to 0.13.21, then to 0.14. You do
+not need to open the Echo or connect USB.
+
+> **Hardware validation:** TODO — validated on hardware: <pending>. These steps
+> describe the 0.13.21 source preparation. Check the
+> [0.13.21 release notes](../../release/radar-puffin-v0.13.21.md) for what has
+> been tested on real devices before you start.
+
+### Step 1: update to 0.13.21
+
+1. Open the control centre and go to **System**. The **System update** panel
+   shows your installed version and channel.
+2. Select **Check for updates**.
+   - On the **dev** channel, 0.13.21 is offered as soon as it is published.
+   - On the **stable** channel, 0.13.21 is offered once it is the current
+     stable release.
+3. Select **Install update**, then **Restart into update** when it is ready.
+   This is a normal update: if 0.13.21 does not start properly, the Echo falls
+   back to the version it was running.
+
+If you already turned on **Install new updates automatically**, 0.13.21
+installs by itself. It still waits for you to restart.
+
+### Step 2 (optional): repair the bootloader and install TWRP
+
+Skip this step if you only want 0.14. It is not needed for the 0.14 update.
+
+Echos installed with 0.13's BROM method (the procedure in this guide) run an
+older boot chain. In fastboot they report themselves as `BISCUIT`, even when
+they are an Echo 2nd Gen, and they have no TWRP recovery. 0.13.21 can move
+such a unit onto its board's community Kaeru boot chain:
+
+| Device | Boot chain installed |
+| --- | --- |
+| Echo 2nd Gen (`radar_puffin`) | amonet-radar v1.0.0 |
+| Echo Dot 2nd Gen (`biscuit`) | amonet-biscuit v2.0.0 |
+
+This also installs TWRP:
+
+- Hold **Volume Up** while plugging in power to start TWRP.
+- Hold **Volume Down** while plugging in power to start unlocked fastboot.
+
+The repair keeps the installed LibreEcho system and your data. It backs up
+every region it changes before writing, and reads back every write.
+
+**When it is offered.** The repair is only available when the **Bootloader**
+panel on the **System** page offers it. It is only offered when the Echo can
+confirm which board it is, from the hardware itself, and when the boot chain
+exactly matches a known 0.13 BROM install. Installing the wrong board's chain
+is the one mistake that cannot be undone, so if the board cannot be confirmed
+the repair stays blocked. If you do not see the option, leave it alone.
+
+**Before you start:**
+
+- Keep the Echo plugged in for the whole repair. Do not unplug it or restart it.
+- Know how you would connect USB to it ([section 3](#3-connect-usb)), in case
+  it needs recovering.
+
+**If the repair is interrupted** (for example, by a power cut), the Echo cannot
+boot and starts in MediaTek USB download mode instead. The repair arranges this
+on purpose so the unit stays recoverable. Recovering it needs the USB
+connection described in [section 3](#3-connect-usb) and the LibreEcho
+installer. You will not need the BROM short. If you are unsure how to proceed,
+ask for help in a [GitHub issue](https://github.com/aslater3/LibreEcho/issues).
+
+To start the repair, open **System**, find the **Bootloader** panel, select the
+repair action and confirm. The Echo reboots normally into LibreEcho when it is
+done.
+
+The Kaeru chains, and the amonet tools they come from, are the work of
+**k4y0z** and **R0rt1z2**. See their
+[XDA thread](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-2nd-gen-2017-radar.4801290/)
+for background, credits and support.
+
+### Step 3: update to 0.14
+
+Once 0.13.21 is running, select **Check for updates** again on the **System**
+page. 0.13.21 accepts the new 0.14 update format and offers 0.14. Install it
+and restart as in step 1.
+
+0.14 carries over 0.13's versioned configuration, so the update is intended to
+keep your settings, Wi-Fi and account. See the release notes for what was
+validated on real devices before relying on this. To be safe, select
+**Download configuration** on the **System** page first. (The export does not
+include your Wi-Fi password.)
+
+If 0.14 does not start properly, the Echo falls back to 0.13.21 and does not
+offer the same 0.14 package again.
+
+### If the update does not work
+
+Reinstalling remains the fallback. Use the 0.14 installer and the
+[current installation guide](https://github.com/aslater3/LibreEcho/blob/main/docs/install/README.md).
+Reinstalling formats userdata, so you will need to run setup again.
+
+### Stuck in fastboot after an earlier 0.14 install attempt
+
+Some 0.13 BROM-installed units start straight into fastboot after an aborted
+attempt to install 0.14. The cause is a leftover `FASTBOOT_PLEASE` marker in
+the `expdb` partition.
+
+> **Warning:** the fix below is only for the older 0.13 boot chain. On a Kaeru
+> boot chain, `expdb` holds the Kaeru bootloader patch, and erasing it bricks
+> the device. **Never erase `expdb` on a Kaeru chain.** Do both checks first.
+
+**Check 1.** This must fail with an unknown-command error:
+
+```sh
+fastboot oem kaeru-version
+```
+
+If it answers with a version, or `OKAY`, the unit is on a Kaeru chain. Stop
+here and ask for help.
+
+**Check 2.** Both of these must report `0x1000000` (shown as `0x01000000` by
+some fastboot versions):
+
+```sh
+fastboot getvar partition-size:boot_a_x
+fastboot getvar partition-size:boot_b_x
+```
+
+If either partition is missing or has a different size, stop here and ask for
+help.
+
+**Only if both checks pass**, erase the marker and reboot:
+
+```sh
+fastboot erase expdb
+fastboot reboot
+```
+
+The Echo returns to the LibreEcho system it already had installed. Add
+`-s <serial>` from `fastboot devices` to each command if more than one device
+is connected.
 
 ## Optional developer UART
 
