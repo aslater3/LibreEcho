@@ -41,6 +41,15 @@ because of something a user had put in `/data`. A hidden directory
 
 **If you are on 0.14.0 and the 0.14.1 update rolled back**, update to 0.14.2.
 
+## Other fixes
+
+- **Settings › System update › Build identity** shows the real source commit and
+  digest instead of `unknown` (LibreEcho-Platform #257).
+- The same panel shows the real transaction state and last result (for example
+  `none` / `installed`) instead of `unknown` on 0.14 devices
+  (LibreEcho-UI #355). The diagnostic export and `/api/v1/provenance` report
+  the same corrected values. Updates were never affected.
+
 ## Validation
 
 Host tests and ARM virtual-machine checks of the initramfs decision paths only.
