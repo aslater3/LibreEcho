@@ -192,31 +192,35 @@ class OneShotFastbootTests(unittest.TestCase):
             with self.subTest(size=f"{size:#x}"):
                 INSTALLER._validate_userdata_partition_size(size)
 
-    def test_userdata_geometry_accepts_stock_layout_only_for_its_board(self) -> None:
-        # Issue #230: Kaeru leaves each board's stock GPT userdata, which is not
-        # 4 KiB aligned; the filesystem covers the aligned prefix only.
+    def test_userdata_geometry_accepts_any_size_from_the_reviewed_floor(self) -> None:
+        # Issues #230/#257: Kaeru leaves each board's stock GPT userdata, which is
+        # not 4 KiB aligned; the filesystem covers the aligned prefix only. The
+        # size is a floor plus a sane cap, matching the Platform image, which
+        # identifies the partition by PARTNAME and the LIBREECHO_DATA label.
         self.assertEqual(INSTALLER.USERDATA_RADAR_STOCK_BYTES, 0x4EFFBE00)
         self.assertEqual(INSTALLER.USERDATA_BISCUIT_STOCK_BYTES, 0x4F7FBE00)
+        self.assertEqual(INSTALLER.USERDATA_MIN_BYTES, 2137088 * 512)
         cases = {
-            "radar_puffin": (0x4EFFBE00, 0x4EFFB000, "biscuit"),
-            "biscuit": (0x4F7FBE00, 0x4F7FB000, "radar_puffin"),
+            "radar_puffin": (0x4EFFBE00, 0x4EFFB000),
+            "biscuit": (0x4F7FBE00, 0x4F7FB000),
         }
-        for target, (stock, aligned, other) in cases.items():
+        for target, (stock, aligned) in cases.items():
             with self.subTest(target=target):
-                self.assertEqual(INSTALLER._validate_userdata_partition_size(stock, target), aligned)
-                for wrong in (other, None):
-                    with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
-                        INSTALLER._validate_userdata_partition_size(stock, wrong)
-                with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
-                    INSTALLER._validate_userdata_partition_size(stock + 512, target)
+                for board in ("radar_puffin", "biscuit", None):
+                    self.assertEqual(INSTALLER._validate_userdata_partition_size(stock, board), aligned)
+                self.assertEqual(INSTALLER._validate_userdata_partition_size(stock + 4096, target), aligned + 4096)
                 for legacy in INSTALLER.USERDATA_SUPPORTED_BYTES:
                     self.assertEqual(INSTALLER._validate_userdata_partition_size(legacy, target), legacy)
+        for bad in (0, 4096, INSTALLER.USERDATA_MIN_BYTES - 512, INSTALLER.USERDATA_MAX_BYTES + 4096):
+            with self.subTest(bad=hex(bad)), \
+                 self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size unsupported"):
+                INSTALLER._validate_userdata_partition_size(bad, "radar_puffin")
 
     def test_userdata_format_rejects_unexpected_partition_size(self) -> None:
         with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
-             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES + 512), \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=INSTALLER.USERDATA_BYTES - 512), \
              mock.patch.object(INSTALLER, "_run_command") as command:
-            with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"):
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size unsupported"):
                 INSTALLER.format_userdata_in_fastboot("fastboot", "SERIAL", 120)
         command.assert_not_called()
 

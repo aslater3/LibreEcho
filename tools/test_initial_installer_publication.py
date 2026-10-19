@@ -957,7 +957,8 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("Remove only the outer cover", connect)
         self.assertIn("disassembly/echo-gen-2/README.md", connect)
         self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", connect)
-        self.assertIn("Press and hold the **Action** button", connect)
+        self.assertIn("Press and hold the fastboot button for your device", connect)
+        self.assertIn("**Action** on a stock Echo", connect)
         self.assertIn("fastboot devices", connect)
         disassembly = (ROOT / "docs/disassembly/echo-gen-2/README.md").read_text(encoding="utf-8")
         product = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -977,10 +978,11 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("micro-USB", dot)
         self.assertIn("does not need to be opened", dot)
         self.assertIn("**Enter fastboot.**", dot)
-        self.assertIn("Press and hold the **Action** button", dot)
+        self.assertIn("Press and hold the fastboot button for your device", dot)
+        self.assertIn("**Action** on a stock Dot", dot)
         self.assertIn("fastboot getvar product", dot)
         self.assertIn("`BISCUIT`", dot)
-        self.assertLess(dot.index("Press and hold the **Action** button"), dot.index("fastboot devices"))
+        self.assertLess(dot.index("Press and hold the fastboot button for your device"), dot.index("fastboot devices"))
 
     def test_install_docs_have_no_bare_step_references_and_links_resolve(self) -> None:
         def anchors(markdown: str) -> set[str]:
