@@ -24,7 +24,7 @@
 | Device | Target | Amonet archive | Accepted LK build |
 |---|---|---|---|
 | Echo 2nd Gen | `radar_puffin` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
-| Echo Dot 2nd Gen | `biscuit` | `amonet-biscuit-v2.0.0.zip` | `63cb91b-20221007_072309` only |
+| Echo Dot 2nd Gen | `biscuit` | `amonet-biscuit-v2.0.0.zip` | Any; `63cb91b-20221007_072309` uses its reviewed payload, other builds the default `fastbrick.img` |
 
 Biscuit accepts any LK build. An unknown or empty LK build stops before any write.
 
