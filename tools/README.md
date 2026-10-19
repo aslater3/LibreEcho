@@ -168,6 +168,17 @@ acceptance. Preserve the release identity, Amonet log, fastboot/ADB output,
 readback hashes, runtime checks, and UART evidence separately under the project
 evidence directory.
 
+## Radar kaeru-chain migration (old-chain conversions)
+
+Devices installed before the radar-specific LK existed still run the old
+biscuit/k32 boot chain (`fastboot getvar product` reports `BISCUIT` on a
+radar_puffin). [`radar-kaeru-migration/`](./radar-kaeru-migration/README.md)
+holds `migrate.sh`, which converts that chain to the current kaeru-based radar
+amonet chain in place: gated writes only (chain identity, `_x` geometry),
+SHA-pinned payloads, full-partition backups and readback verification, and a
+shareable per-run support log. See its README for the exact run order and what
+to share with support if a run aborts.
+
 ## Echo Gen 2 pogo-pin carrier (v5)
 
 [`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip) contains the printable six-pin carrier used to make a repeatable development/service jig for the Echo 2nd Gen base contacts. It replaces the original rounded-rectangle rubber plug while positioning six spring probes over the 2 × 3 contact array.
