@@ -71,11 +71,7 @@ Hardware acceptance is separate evidence.
 
 ## Known issues
 
-- Units that were flashed with an older Echo Dot (Biscuit) bootloader before a
-  Radar-specific one existed report `BISCUIT` in fastboot and may not boot the
-  Radar image. They need the newer Kaeru-based chain first; a conversion guide
-  is not published yet.
-- The 0.14.0 known issues otherwise still apply.
+The 0.14.0 known issues still apply.
 
 ## Build notes
 
