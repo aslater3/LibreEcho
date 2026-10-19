@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import NoReturn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from amonet_pins import amonet_record
 from target_registry import DEFAULT, asset_prefix, contract_target, descriptor_sha256, hardware_accepted, load_target
 from ota_v2_product import (  # noqa: E402
     load_feature_contract,
@@ -189,11 +190,7 @@ def prepare_complete_initial_install(
              "manifest": records[f"{prefix}-{feature}.manifest.json"]}
             for feature in FEATURES
         ],
-        "amonet": {
-            "repository": "https://github.com/aslater3/amonet-k32",
-            "tag": "dfefe52f0eed7296012707cfff1f753b0ea33257",
-            "commit": "dfefe52f0eed7296012707cfff1f753b0ea33257",
-        },
+        "amonet": amonet_record(target),
     }
     if completeness is not None:
         from release_completeness import install_features

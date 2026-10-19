@@ -17,6 +17,73 @@ B=(ROOT/'build/build.sh').read_text()
 NEURAL=(ROOT/'build/ci/build-public-neural-deps.sh').read_text()
 CACHE_PIN='0400d5f644dc74513175e3cd8d07132dd4860809'
 class Tests(unittest.TestCase):
+ def test_twrp_output_filters_human_logs_and_preserves_failures(self):
+  import os, subprocess, tempfile, textwrap
+  # Execute the workflow branch, not a copy of the output filter. The builder
+  # is stubbed here; separate artifact rehearsals exercise the real builder.
+  fragment=PUBLISH.split('if [[ -f build/ci/prepare-twrp-installs.py ]]; then',1)[1].split('          else',1)[0]
+  for count_lines, status in [('asset_count=80',0), ('',0), ('asset_count=80\nasset_count=81',0), ('asset_count=80',1)]:
+   with self.subTest(count_lines=count_lines,status=status), tempfile.TemporaryDirectory() as tmp:
+    output=Path(tmp)/'output'
+    entry=Path(tmp)/'verified-build/run/twrp-builder/src/META-INF/com/google/android/update-binary'
+    entry.parent.mkdir(parents=True); entry.write_text('#!/sbin/sh\n'); entry.chmod(0o644)
+    env={**os.environ,'GITHUB_OUTPUT':str(output),'TEST_LINES':count_lines,'TEST_STATUS':str(status)}
+    script='set -euo pipefail\npython3() { test -x verified-build/run/twrp-builder/src/META-INF/com/google/android/update-binary || return 97; printf "release human log\\ndevice biscuit\\n%s\\n" "$TEST_LINES"; return "$TEST_STATUS"; }\n'+textwrap.dedent(fragment)
+    result=subprocess.run(['bash','-c',script],cwd=tmp,env=env,capture_output=True,text=True)
+    if count_lines=='asset_count=80' and status==0:
+     self.assertEqual(result.returncode,0,result.stderr)
+     self.assertEqual(output.read_text(),'asset_count=80\n')
+    else:
+     self.assertNotEqual(result.returncode,0)
+ def test_both_twrp_lanes_restore_exactly_one_artifact_entry(self):
+  import os, subprocess, tempfile, textwrap
+  fragments=re.findall(r'if \[\[ -f build/ci/prepare-twrp-installs.py \]\]; then\n(.*?)(?:          else|          fi)',PUBLISH,re.S)
+  self.assertEqual(len(fragments),2)
+  for lane, fragment in enumerate(fragments):
+   for count in (0,1,2):
+    with self.subTest(lane=lane,count=count), tempfile.TemporaryDirectory() as tmp:
+     for index in range(count):
+      entry=Path(tmp)/f'verified-build/run{index}/twrp-builder/src/META-INF/com/google/android/update-binary'
+      entry.parent.mkdir(parents=True); entry.write_text('#!/sbin/sh\n'); entry.chmod(0o644)
+     env={**os.environ,'GITHUB_OUTPUT':str(Path(tmp)/'output')}
+     stub='python3() { test -x verified-build/run0/twrp-builder/src/META-INF/com/google/android/update-binary || return 97; printf "asset_count=80\\n"; }\n'
+     result=subprocess.run(['bash','-c','set -euo pipefail\n'+stub+textwrap.dedent(fragment)],cwd=tmp,env=env,capture_output=True,text=True)
+     self.assertEqual(result.returncode==0,count==1,result.stderr)
+ def test_stable_request_reader_accepts_pinned_and_legacy_amonet_shapes(self):
+  import json, os, subprocess, tempfile, textwrap
+  stable = PUBLISH.split('  publish-stable:', 1)[1]
+  step = stable.split('      - name: Read stable release request', 1)[1].split('\n      - ', 1)[0]
+  script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+  base = dict(channel='stable', version='0.14.0', release_tag='radar-puffin-v0.14.0',
+              release_notes='release/radar-puffin-v0.14.0.md', ssh_enabled='0')
+  legacy = dict(base, amonet_repository='https://github.com/aslater3/amonet-k32',
+                amonet_tag='v1.0.0', amonet_commit='a'*40)
+  # (source has build/ci/amonet_pins.py, request, expected exit, expected pinned flag)
+  cases = [(True, base, 0, '1'), (False, legacy, 0, '0'),
+           (False, base, 1, None), (True, legacy, 1, None),
+           (True, dict(base, channel='dev'), 1, None)]
+  for pinned, request, status, flag in cases:
+   with self.subTest(pinned=pinned, keys=sorted(request), status=status), tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root/'verified-build/run').mkdir(parents=True)
+    (root/'verified-build/run/release-request.json').write_text(json.dumps(request))
+    if pinned:
+     (root/'build/ci').mkdir(parents=True)
+     (root/'build/ci/amonet_pins.py').write_text('')
+    output = root/'output'
+    result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True,
+                            env={**os.environ, 'GITHUB_OUTPUT': str(output)}, timeout=30)
+    self.assertEqual(result.returncode, status, result.stdout+result.stderr)
+    if status == 0:
+     values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+     self.assertEqual(values['amonet_pinned'], flag)
+     self.assertEqual(values['release_tag'], 'radar-puffin-v0.14.0')
+     self.assertEqual('amonet_commit' in values, not pinned)
+  prepare = stable.split('      - name: Prepare signed stable release assets', 1)[1].split('\n      - ', 1)[0]
+  self.assertIn('AMONET_PINNED: ${{ steps.request.outputs.amonet_pinned }}', prepare)
+  self.assertIn('if [[ "$AMONET_PINNED" != 1 ]]; then', prepare)
+  self.assertIn('"${amonet_args[@]}" \\', prepare)
+  self.assertNotIn('--amonet-commit "$AMONET_COMMIT" \\', prepare)
  def test_hosted_only(self):
   self.assertNotIn('self-hosted',W); self.assertNotIn('Vaultwarden',W)
   self.assertIn('ports.ubuntu.com/ubuntu-ports', W)
@@ -323,9 +390,9 @@ class Tests(unittest.TestCase):
   self.assertNotIn('"${GITHUB_SHA:0:7}"',W)
   self.assertIn('LIBREECHO_UPDATE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}',W)
   self.assertIn("workflows: ['Hosted LibreEcho build and release']", PUBLISH)
-  self.assertIn("github.event.workflow_run.event == 'push'", PUBLISH)
+  self.assertNotIn("github.event.workflow_run.event == 'push'", PUBLISH)
   self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", PUBLISH)
-  self.assertIn("github.event.workflow_run.event == 'schedule'", PUBLISH)
+  self.assertNotIn("github.event.workflow_run.event == 'schedule'", PUBLISH)
   self.assertIn("github.event.workflow_run.head_branch == 'main'", PUBLISH)
   self.assertIn('prepare-dev-release.py', PUBLISH)
   self.assertIn('make_latest=false', PUBLISH)
@@ -334,8 +401,9 @@ class Tests(unittest.TestCase):
   self.assertIn('-F draft=true', PUBLISH)
   self.assertIn('-F draft=false', PUBLISH)
   self.assertIn('dev_release=ALREADY_PUBLISHED', PUBLISH)
-  self.assertIn('radar-puffin-nightly-', PUBLISH)
-  self.assertIn('nightly_retention=DELETED', PUBLISH)
+  self.assertNotIn('radar-puffin-nightly-', PUBLISH)
+  self.assertNotIn('nightly', PUBLISH)
+  self.assertIn('--release-kind development', PUBLISH)
   self.assertIn('group: publish-hosted-dev-channel', PUBLISH)
   self.assertIn('cancel-in-progress: false', PUBLISH)
   self.assertIn('-f ref="refs/tags/$tag" -f sha="$HEAD_SHA"', PUBLISH)
@@ -377,7 +445,7 @@ class Tests(unittest.TestCase):
    ('pull_request', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('push', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('push', 'release/0.14.0', '', '', '', 'sandbox', 'github', 'dev', True),
-   ('schedule', 'main', '', '', '', 'dev', 'local', 'dev', True),
+   ('schedule', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('workflow_dispatch', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('workflow_dispatch', 'main', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'sandbox', 'signed', '', 'sandbox', 'local', 'dev', True),
@@ -400,7 +468,7 @@ class Tests(unittest.TestCase):
     env = dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF='refs/heads/'+ref,
                GITHUB_REF_NAME=ref, GITHUB_BASE_REF='main', GITHUB_OUTPUT=str(out),
                PRODUCT_SHA='b'*40, BUILD_PURPOSE_INPUT=purpose, SANDBOX_SIGNING_INPUT=signing,
-               RELEASE_VERSION=version, AMONET_TAG='test-only', SSH_ENABLED_INPUT='disabled',
+               RELEASE_VERSION=version, SSH_ENABLED_INPUT='disabled',
                OTA_FORMAT_INPUT='v3', OTA_RELEASE_INPUT='',
                PR_HEAD_REPOSITORY='', GITHUB_REPOSITORY='aslater3/LibreEcho', GITHUB_HEAD_REF='test',
                GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1')
@@ -423,8 +491,7 @@ class Tests(unittest.TestCase):
     request = Path(tmp)/'release-request.json'
     env = dict(os.environ, BUILD_PURPOSE=purpose,
                RELEASE_CHANNEL='stable' if purpose == 'prd' else 'dev',
-               RELEASE_VERSION='', RELEASE_NOTES='', TARGETS='radar_puffin', AMONET_REPOSITORY='',
-               AMONET_TAG='', AMONET_COMMIT='', SSH_ENABLED='0')
+               RELEASE_VERSION='', RELEASE_NOTES='', TARGETS='radar_puffin', SSH_ENABLED='0')
     result = subprocess.run(['python3', '-c', textwrap.dedent(body), str(request)],
                             env=env, capture_output=True, text=True)
     self.assertEqual(result.returncode, 0, result.stderr)
@@ -563,6 +630,8 @@ class Tests(unittest.TestCase):
   self.assertIn('libreecho-mdns-packages-v1-', W)
   self.assertIn('Acquire exact shared mDNS dependency packages', W)
   self.assertIn('python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json', W)
+  self.assertIn('python3 build/ci/mdns_runtime.py fetch-missing', W)
+  self.assertLess(W.index('mdns_runtime.py fetch-missing'), W.index('python3 build/ci/mdns_runtime.py verify'))
   self.assertIn('-o Dir::Etc::sourceparts=-', W)
   self.assertIn('-o Dir::State::lists="$apt_root/lists"', W)
   self.assertIn('-o Dir::Cache::archives="$archives"', W)

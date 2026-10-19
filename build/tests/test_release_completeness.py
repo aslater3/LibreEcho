@@ -219,7 +219,7 @@ class CompletenessTests(unittest.TestCase):
         self.assertLess(build.index('release_completeness.py check'), build.index('name: Upload verified dev build'))
         self.assertIn('release_completeness.check_assets(selected, bundle_manifest, target=target)', adapter)
         dev, stable = publish.split('  publish-stable:', 1)
-        self.assertLess(dev.index('prepare-twrp-installs.py'), dev.index('name: Publish development or nightly prerelease'))
+        self.assertLess(dev.index('prepare-twrp-installs.py'), dev.index('name: Publish development prerelease'))
         self.assertLess(stable.index('prepare-twrp-installs.py'), stable.index('name: Publish stable Product release'))
 
 

@@ -16,7 +16,7 @@
 </div>
 
 LibreEcho is an open embedded voice-assistant operating system focused on
-privacy, repairability, and local control. The current development line targets
+privacy, repairability, and local control (see [Privacy and telemetry](docs/privacy.md)). The current development line targets
 the MT8163 ARM32 platform with a standalone Linux 6.1 kernel, separate product
 tooling, a native web control centre, and a signed A/B update path.
 
@@ -27,8 +27,8 @@ hardware support for other targets remains under development.
 
 ## Getting Started
 
-- **Echo Gen 2 Disassembly:** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
-- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md)
+- **Echo Gen 2 LibreEcho One Shot Installation:** [follow the installation guide](docs/install/README.md). No shorting is needed: reach the USB pins on the bottom of the Echo and enter fastboot. With pogo pins, only the outer cover on the base comes off.
+- **Echo Gen 2 Disassembly (only if soldering a USB cable):** [follow the disassembly guide](docs/disassembly/echo-gen-2/README.md)
 
 ```sh
 TAG=latest
@@ -41,11 +41,11 @@ chmod +x run-one-shot.sh
 
 - **Website:** [libreecho.org](https://libreecho.org/)
 - **Latest release:** [signed OTA bundles](https://github.com/aslater3/LibreEcho/releases/latest)
-- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, BROM sequence, first-boot steps, and recovery guidance for the latest stable release.
+- **Initial installation:** follow the [Echo 2nd Gen one-shot installation guide](docs/install/README.md). It contains the checksum-gated command, the Amonet step for locked devices, first-boot steps, and recovery guidance for the latest stable release. Supported targets: Echo 2nd Gen (`radar_puffin`) and Echo Dot 2nd Gen (`biscuit`).
 - **Control centre:** [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI)
 - **Hardware and OS:** [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform)
 - **Issues:** [report a reproducible product problem](https://github.com/aslater3/LibreEcho/issues/new/choose)
-- **Security:** [read the security policy](SECURITY.md) or [submit a private advisory](https://github.com/aslater3/LibreEcho/security/advisories/new)
+- **Security:** [read the security policy](SECURITY.md), [view published advisories](SECURITY-ADVISORIES.md) or [submit a private advisory](https://github.com/aslater3/LibreEcho/security/advisories/new)
 - **Join the community:** [LibreEcho on Discord](https://discord.gg/5zBcTWjU4H)
 - **Support:** [buy me a coffee](https://buymeacoffee.com/libreecho)
 
@@ -77,8 +77,9 @@ priority.
 
 - Local web administration for device, audio, wake word, networking, logs, and system settings.
 - Signed A/B OTA updates with opt-in automatic installation and a manual update action.
-- Optional password-authenticated root SSH in manually selected builds; public
-  builds keep it disabled unless the release operator explicitly enables it.
+- Optional SSH in operator-selected builds, authenticated against the web
+  control centre's accounts (no public-key or direct root login); stable
+  builds ship with it disabled.
 - Linux kernel and initramfs bring-up for the MT8163 ARM32 platform.
 - Clear component boundaries so UI work, hardware work, and product support can evolve independently.
 
@@ -108,8 +109,10 @@ device model, OS version, active slot, relevant logs, and the smallest reliable
 reproduction. Do not include Wi-Fi passwords, API tokens, or private keys.
 
 Security vulnerabilities must not be filed publicly. Read
-[SECURITY.md](SECURITY.md) for the supported release scope, private reporting
-route, redaction requirements and release-withdrawal guidance.
+[SECURITY.md](SECURITY.md) for supported versions, the private reporting
+route, response targets, redaction requirements and release-withdrawal
+guidance. Published advisories are archived in
+[SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
 Once Discussions are enabled in the repository settings, use them for design
 questions, setup help, and ideas that are not yet actionable bugs.

@@ -144,14 +144,14 @@ class V3ReleaseIntegrationTests(unittest.TestCase):
         helper_path = CI.parent / 'tests/target_release_fixture.py'
         self.assertTrue(helper_path.is_file(), 'v3 release fixture migration helper missing')
         from build.tests.target_release_fixture import add_target_contract
-        from build.tests.test_release_packaging import fixture as stable_fixture, WORKING_AMONET_COMMIT
+        from build.tests.test_release_packaging import fixture as stable_fixture
         from ota_v2_product import validate_stable_publisher
         artifacts, product = stable_fixture(self.root / 'stable')
         run = artifacts / 'run'
         add_target_contract(run, channel='stable', tag='radar-puffin-v0.14.0')
         out = self.root / 'stable-release'
         anchor = digest(run / 'ota-public-key.hex')[0]
-        result = subprocess.run([sys.executable, '-B', str(CI / 'prepare-stable-release.py'), '--artifact-root', str(artifacts), '--product-root', str(product), '--product-commit', '1'*40, '--release-version', '0.14.0', '--release-notes', 'release/radar-puffin-v0.14.0.md', '--amonet-repository', 'https://github.com/aslater3/amonet-k32', '--amonet-tag', 'v1.0.0', '--amonet-commit', WORKING_AMONET_COMMIT, '--output-dir', str(out)], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': anchor}, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-B', str(CI / 'prepare-stable-release.py'), '--artifact-root', str(artifacts), '--product-root', str(product), '--product-commit', '1'*40, '--release-version', '0.14.0', '--release-notes', 'release/radar-puffin-v0.14.0.md', '--output-dir', str(out)], env={**os.environ, 'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': anchor}, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         with patch.dict(os.environ, {'LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256': anchor}):
             validate_stable_publisher(out, 'radar-puffin-v0.14.0', anchor)

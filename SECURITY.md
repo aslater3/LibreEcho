@@ -4,30 +4,71 @@ LibreEcho is an independent, volunteer-maintained project for recoverable
 Amazon Echo Gen 2 experimentation. Please do not use public GitHub issues for
 security vulnerabilities.
 
-## Supported scope
+## Supported versions
 
-The currently supported public scope includes the `radar-puffin v0.11.0`
-development release, the earlier `radar-puffin v0.1.0` development release, and
-the Linux 6.1 development line for the documented Echo Gen 2 target. For
-v0.11.0, use the signed OTA and initial-install artifacts published in its GitHub
-Release record; verify the matching `libreecho-radar-puffin-v0.11.0-SHA256SUMS`
-file before use. The Developer Preview and Open Beta gates are separate release
-decisions; Open Beta has not launched. A fix may be developed on a later review
-branch before it is backported to a public release.
+Security fixes are made for the newest published stable release line. Only
+signed stable releases published in this repository's
+[GitHub Releases](https://github.com/aslater3/LibreEcho/releases) are in scope
+for a security fix.
+
+| Version | Release ID | Security fixes |
+| --- | --- | --- |
+| 0.14.x | `radar-puffin-v0.14.*` | Yes, from first stable publication |
+| 0.13.19 | `radar-puffin-v0.13.19` | Yes, until 0.14.0 is published as stable |
+| 0.13.18 and earlier | `radar-puffin-v0.13.18` … `radar-puffin-v0.1.0` | No. Upgrade to the latest stable release |
+| Development and sandbox prereleases | `radar-puffin-build-*` | No. Report issues found there if they also affect a stable release or the release branch |
+
+When 0.14.0 is published as stable, 0.13.19 stops receiving security fixes
+and users should upgrade through the signed OTA path. A fix may be developed
+on the active `release/X.Y.Z` branch before it is published.
+
+Verify every release with its `libreecho-radar-puffin-vX.Y.Z-SHA256SUMS` file
+and published OTA public key before use. Do not mix assets from different
+release tags.
+
+## Scope
 
 Security reports are especially important for:
 
-- authentication, session, CSRF or access-control bypasses;
+- authentication, session, CSRF, Origin or access-control bypasses in the web
+  control centre and HTTP API;
 - OTA signature, rollback, update or release-identity verification;
-- remote control-plane or network-service exposure;
+- remote control-plane or network-service exposure, including Home Assistant
+  (Wyoming or ESPHome), AirPlay, mDNS, SSH and recovery access-point services;
 - boot, recovery, privilege or arbitrary-write paths;
 - credentials, tokens, owner-local firmware or private diagnostic disclosure;
-- supply-chain, release workflow or third-party provenance issues.
+- supply-chain, release workflow, signing or third-party provenance issues;
+- the one-shot and browser installers.
 
-Direct public-Internet exposure of the device control plane is unsupported. That
-boundary does not make an access-control or data-disclosure report irrelevant;
-report it privately when it could affect a trusted-LAN deployment or release
-artifact.
+All public LibreEcho repositories are covered by this policy:
+[LibreEcho](https://github.com/aslater3/LibreEcho),
+[LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI),
+[LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform),
+[LibreEcho-Linux-6.1](https://github.com/aslater3/LibreEcho-Linux-6.1),
+[LibreEcho-Installer-Web](https://github.com/aslater3/LibreEcho-Installer-Web) and
+[LibreEcho-Docs](https://github.com/aslater3/LibreEcho-Docs). Report them all
+through the single private route below.
+
+### Documented deployment boundaries
+
+The following are intentional, documented properties rather than
+vulnerabilities. Reports showing that one is broader than documented are in
+scope.
+
+- The device control plane is designed for a trusted LAN. Direct exposure to
+  the public Internet is unsupported. That does not make access-control or
+  data-disclosure reports irrelevant; report them when they could affect a
+  trusted-LAN deployment or a release artifact.
+- From the 0.14 line, development-channel builds also listen for ADB on TCP
+  port 5555 for maintainer testing. That listener gives unauthenticated root
+  access to anyone on the same network. Stable builds expose ADB only over
+  USB. Never run a development build on an untrusted network.
+- Stable builds ship with SSH disabled. Builds that enable SSH authenticate it
+  against the web control centre's accounts; public-key and direct root login
+  are not offered.
+- Physical access to the device, including USB and BROM access, is equivalent
+  to full control. The project does not claim to defend against an attacker
+  with the device in hand.
 
 ## Private reporting
 
@@ -56,23 +97,47 @@ MAC addresses, SSIDs, private IPs, owner-local firmware or unredacted device
 identities. Use placeholders and describe how maintainers can reproduce the
 condition safely.
 
-## Coordination expectations
+## Coordination and response
 
-This is a volunteer project. Maintainers will acknowledge a private report when
-practical, validate the impact, coordinate a fix or mitigation, and agree on a
-public disclosure date with the reporter when a report is confirmed. Please do
-not publish exploit details, credentials or a vulnerable release's private
-artifacts before coordination is complete.
+This is a volunteer project, so these are best-effort targets rather than
+guarantees:
+
+| Stage | Target |
+| --- | --- |
+| Acknowledge a private report | 7 days |
+| Initial assessment and severity | 14 days |
+| Fix or documented mitigation for a confirmed issue | 90 days from the report |
+
+Maintainers validate the impact, develop the fix in a private advisory fork or
+on the active release branch, and agree on a public disclosure date with the
+reporter. Please do not publish exploit details, credentials or a vulnerable
+release's private artifacts before coordination is complete. If the 90-day
+target cannot be met, maintainers will tell the reporter why and agree on a
+new date.
 
 Third-party vulnerabilities should also be reported to the relevant upstream
 project when LibreEcho is not the owner. Tell LibreEcho privately if the issue
 also affects a LibreEcho release or packaging decision.
 
+## Advisories
+
+Confirmed vulnerabilities in a supported release are published as GitHub
+Security Advisories on this repository, with a CVE requested through GitHub
+when the issue meets CVE criteria. Each advisory names the affected and fixed
+releases and credits the reporter unless they ask otherwise.
+
+- Advisory list: <https://github.com/aslater3/LibreEcho/security/advisories>
+- Advisory archive, including releases with no advisories:
+  [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md)
+- Website summary: <https://libreecho.org/#advisories>
+
+The release notes for a fixed release reference the advisory once it is public.
+
 ## Release withdrawal and rollback
 
 A confirmed release-blocking vulnerability may require pausing downloads,
 marking a release superseded, publishing mitigation guidance, or directing users
-to the confirmed A/B rollback slot. The public release record and
+to the confirmed A/B rollback slot. The public release record, the advisory and
 <https://libreecho.org/> are the locations for sanitized withdrawal and rollback
 instructions; private report details remain private.
 

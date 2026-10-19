@@ -245,9 +245,7 @@ class StablePublisherPreMutationTests(unittest.TestCase):
         result = subprocess.run([
             sys.executable, str(ROOT / "build/ci/prepare-stable-release.py"),
             "--artifact-root", str(artifact), "--product-root", str(product), "--product-commit", "1" * 40,
-            "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md",
-            "--amonet-repository", "https://github.com/aslater3/amonet-k32", "--amonet-tag", "v1.0.0",
-            "--amonet-commit", "dfefe52f0eed7296012707cfff1f753b0ea33257", "--output-dir", str(output),
+            "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md", "--output-dir", str(output),
         ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": sha256((artifact / "run" / "ota-public-key.hex").read_bytes())}, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         return output

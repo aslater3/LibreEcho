@@ -42,20 +42,6 @@ on:
         description: Stable SemVer version, for example 0.14.0
         required: false
         type: string
-      amonet_repository:
-        description: Reviewed Amonet repository for the installer manifest
-        required: false
-        default: https://github.com/aslater3/amonet-k32
-        type: string
-      amonet_tag:
-        description: Reviewed Amonet tag for the installer manifest
-        required: false
-        type: string
-      amonet_commit:
-        description: Reviewed Amonet commit for the installer manifest
-        required: false
-        default: dfefe52f0eed7296012707cfff1f753b0ea33257
-        type: string
       ota_format:
         description: Immutable whole target-state OTA contract
         required: false
@@ -105,7 +91,6 @@ jobs:
           BUILD_PURPOSE_INPUT: ${{ inputs.build_purpose || '' }}
           SANDBOX_SIGNING_INPUT: ${{ inputs.sandbox_signing || '' }}
           RELEASE_VERSION: ${{ inputs.release_version || '' }}
-          AMONET_TAG: ${{ inputs.amonet_tag || '' }}
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
           OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v3' }}
           OTA_RELEASE_INPUT: ${{ inputs.ota_release || inputs.release_version || '' }}
@@ -128,7 +113,7 @@ jobs:
           case "$GITHUB_EVENT_NAME" in
             pull_request) PURPOSE=sandbox; SIGNING_MODE=github ;;
             push) PURPOSE=sandbox; SIGNING_MODE=github ;;
-            schedule) PURPOSE=dev ;;
+            schedule) PURPOSE=sandbox; SIGNING_MODE=github ;;
             workflow_dispatch)
               PURPOSE=${BUILD_PURPOSE_INPUT:-sandbox}
               sandbox_signing=${SANDBOX_SIGNING_INPUT:-unsigned}
@@ -178,9 +163,6 @@ jobs:
               IFS= read -r release_notes_title <"$RELEASE_NOTES"
               [[ "$release_notes_title" == "# LibreEcho radar-puffin v${RELEASE_VERSION}" ]] || {
                 echo "ERROR: stable release-notes title must match the requested version" >&2; exit 1;
-              }
-              [[ -n "$AMONET_TAG" ]] || {
-                echo "ERROR: stable releases require an amonet_tag input" >&2; exit 1;
               }
               ;;
             *) echo "ERROR: unsupported build purpose: $PURPOSE" >&2; exit 1 ;;
@@ -300,16 +282,17 @@ jobs:
             --find-links "$wheelhouse" \
             --require-hashes \
             --requirement "$wheelhouse/requirements.txt"
-      - name: Fetch legacy base branch for parity checks
+      - name: Fetch legacy generator commit for parity checks
         run: |
           set -euo pipefail
           # The legacy Radar golden test compares generated metadata/names with
-          # the pre-change generator on release/0.14.0. The default shallow
-          # checkout has no such remote-tracking ref, so fetch it explicitly
-          # rather than weakening the comparison.
-          git fetch --no-tags --depth=1 origin \
-            "+refs/heads/release/0.14.0:refs/remotes/origin/release/0.14.0"
-          git rev-parse --verify origin/release/0.14.0
+          # the generator from before the pinned-archive installer manifest. It
+          # is pinned to an exact commit, not a branch tip: release/0.14.0 now
+          # contains the new generator, so the tip no longer is the baseline.
+          # The default shallow checkout lacks that commit, so fetch it
+          # explicitly rather than weakening the comparison.
+          git fetch --no-tags --depth=1 origin c48fe070f38bd2c974257656961918254848758b
+          git cat-file -e c48fe070f38bd2c974257656961918254848758b^{commit}
       - name: Run maintained Product pipeline suites
         env:
           LIBREECHO_PLATFORM_SRC: ${{ github.workspace }}/platform-source
@@ -340,7 +323,7 @@ jobs:
             build.tests.test_release_candidate_selection \
             tools.test_shared_mdns_packages \
             tools.test_build_release_workflow \
-            tools.test_brom_preflight \
+            tools.test_fastbrick_gate \
             tools.test_initial_installer_publication \
             tools.test_oneshot_host_preflight \
             tools.test_release_tools
@@ -542,7 +525,14 @@ jobs:
           mapfile -t pins < <(python3 build/ci/mdns_runtime.py apt-spec --lock build/inputs/mdns-packages.lock.json)
           ((${#pins[@]} > 0)) || { echo "ERROR: shared mDNS package lock is empty" >&2; exit 1; }
           cd "$archives"
-          apt-get download "${apt_opts[@]}" "${pins[@]}"
+          # The mirror drops superseded -updates versions; a pin it no longer
+          # serves is fetched by exact locked SHA-256 from Launchpad below.
+          for pin in "${pins[@]}"; do
+            apt-get download "${apt_opts[@]}" "$pin" || echo "mirror no longer serves $pin"
+          done
+          cd "$GITHUB_WORKSPACE"
+          python3 build/ci/mdns_runtime.py fetch-missing \
+            --lock build/inputs/mdns-packages.lock.json --archives "$archives"
           cd "$RUNNER_TEMP"
       - name: Save exact shared mDNS package cache
         if: success() && steps.restore-mdns.outputs.cache-hit != 'true'
@@ -1290,9 +1280,6 @@ jobs:
           RELEASE_CHANNEL: ${{ needs.resolve-and-preflight.outputs.channel }}
           RELEASE_VERSION: ${{ needs.resolve-and-preflight.outputs.release_version }}
           RELEASE_NOTES: ${{ needs.resolve-and-preflight.outputs.release_notes }}
-          AMONET_REPOSITORY: ${{ inputs.amonet_repository || '' }}
-          AMONET_TAG: ${{ inputs.amonet_tag || '' }}
-          AMONET_COMMIT: ${{ inputs.amonet_commit || '' }}
           SSH_ENABLED: ${{ needs.resolve-and-preflight.outputs.ssh_enabled }}
         run: |
           set -euo pipefail
@@ -1317,9 +1304,6 @@ jobs:
               "release_tag": (f"radar-puffin-v{os.environ['RELEASE_VERSION']}"
                               if os.environ["RELEASE_VERSION"] else ""),
               "release_notes": os.environ["RELEASE_NOTES"],
-              "amonet_repository": os.environ["AMONET_REPOSITORY"],
-              "amonet_tag": os.environ["AMONET_TAG"],
-              "amonet_commit": os.environ["AMONET_COMMIT"],
               "ssh_enabled": os.environ["SSH_ENABLED"],
           }, sort_keys=True) + "\n", encoding="utf-8")
           PY
