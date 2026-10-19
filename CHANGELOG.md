@@ -3,6 +3,11 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
+## radar-puffin-v0.14.2
+
+See [the 0.14.2 release note](release/radar-puffin-v0.14.2.md). Boot and OTA
+confirmation no longer fail on unrecognised user data or user-modified services.
+
 ## radar-puffin-v0.14.1
 
 See [the 0.14.1 release note](release/radar-puffin-v0.14.1.md). Fixes mounting
