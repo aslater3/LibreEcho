@@ -85,6 +85,31 @@ class HostFastbootPreflightTests(unittest.TestCase):
             ):
                 self.assertTrue(any(name.endswith(expected) for name in names), expected)
 
+    def test_failure_evidence_ignores_capture_header_as_serial(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / "bin"
+            bindir.mkdir()
+            calls = root / "fastboot-calls"
+            command = bindir / "fastboot"
+            command.write_text(
+                f"#!/bin/sh\necho \"$*\" >> {calls}\n"
+                "if [ \"$1\" = devices ]; then printf 'FB123\\tfastboot\\n'; fi\n",
+                encoding="ascii")
+            command.chmod(0o755)
+            log = root / "run.log"
+            log.write_text("original failure\n", encoding="utf-8")
+            args = type("Args", (), {
+                "fastboot_bin": "fastboot", "adb_bin": str(root / "missing-adb"),
+                "fastboot_serial": "auto", "cache_root": root / "cache",
+            })()
+            with mock.patch.object(INSTALLER, "ACTIVE_LOG_PATH", log), \
+                 mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+                INSTALLER.collect_failure_evidence(args, "simulated failure")
+            invoked = calls.read_text(encoding="utf-8").splitlines()
+            self.assertIn("-s FB123 getvar all", invoked)
+            self.assertFalse(any(line.startswith("-s $") for line in invoked), invoked)
+
     def test_stages_complete_userdata_toolset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

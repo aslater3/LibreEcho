@@ -1249,7 +1249,18 @@ def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_s
     )
     digest = re.search(r"\b([0-9a-f]{64})\b", result.stdout, re.IGNORECASE)
     if digest is None or digest.group(1).lower() != expected_sha256.lower():
-        raise InstallerError(f"{expected_name} readback hash mismatch")
+        actual = next(iter(names))
+        if actual == expected_name:
+            # Legacy `_x` GPT behind an LK without the `_x` redirect (a unit converted
+            # to the kaeru chain by an old radar-kaeru-migration kit): `flash boot_X`
+            # landed in the ~110 MiB wrapper and p10/p11 still hold the old image.
+            raise InstallerError(
+                f"{expected_name} readback hash mismatch: the image fastboot wrote is not in "
+                f"mmcblk0p{part}. If this unit was converted to the kaeru chain, its partition "
+                "table still has the legacy _x layout. Run tools/radar-kaeru-migration/migrate.sh "
+                "-s SERIAL --gpt-fix (try --dry-run first), reboot, then rerun one-shot with --reinstall."
+            )
+        raise InstallerError(f"{actual} readback hash mismatch")
 
 
 def collect_adb_diagnostics(adb_bin: str, serial: str, timeout: float = 30, reason: str = "post-ADB") -> None:
@@ -1451,7 +1462,12 @@ def collect_failure_evidence(args: argparse.Namespace, reason: str) -> Path | No
                 _capture_evidence_command([fastboot, "devices"], devices)
                 try:
                     text = devices.read_text(encoding="utf-8")
-                    fastboot_serials = [line.split()[0] for line in text.splitlines() if len(line.split()) >= 2 and line.split()[1] == "fastboot"]
+                    # Skip the "$ fastboot devices" header _capture_evidence_command writes,
+                    # otherwise "$" is taken as a serial ("fastboot -s $ getvar all").
+                    fastboot_serials = [
+                        line.split()[0] for line in text.splitlines()
+                        if len(line.split()) >= 2 and line.split()[1] == "fastboot" and not line.startswith("$")
+                    ]
                 except OSError:
                     pass
                 requested = getattr(args, "fastboot_serial", "auto")
