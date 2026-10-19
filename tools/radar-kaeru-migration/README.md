@@ -79,7 +79,7 @@ secrets — only serials, hashes and gate output) with LibreEcho support.
 - Write/readback/backup discipline copied from the tested
   `radar-full-stock-20261009/flash.sh` (successful full Radar stock restore log
   ends `ALLDONE`).
-- Gates, backups and staging verified live on dev unit `G090P308901401LH`
+- Gates, backups and staging verified live on a maintainer dev unit
   (correctly refused: already kaeru). The dev unit also proves the radar LK runs
   correctly on the `_x` layout.
 - The full write path has not yet been run end-to-end on a device that is
