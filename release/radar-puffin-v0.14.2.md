@@ -21,6 +21,20 @@ because of something a user had put in `/data`. A hidden directory
   management web UI. Disabled or broken optional services, or a missing
   startup-ready marker, no longer roll an update back. The previous strict
   behaviour can be restored with `HEALTH_STRICT_SERVICES=1`.
+- A boot image, feature payload or installed release folder you modified is
+  reported (`boot-image-modified`, `generation-modified`) and booted anyway.
+  Each feature mounts on its own, so one broken feature no longer takes the
+  others down.
+- If features cannot be activated at all, only the voice and AirPlay add-on
+  services stop. Wi-Fi management, audio, LEDs, buttons, Bluetooth and the web
+  UI keep running.
+- A conflicting voice service that will not stop is logged instead of stopping
+  every service.
+- Stock Wi-Fi/Bluetooth firmware from an uncatalogued or updated stock ROM is
+  imported automatically if it has the right structure, marked unverified, and
+  remembered for later boots. The exact `system_a` size check is gone.
+- Still enforced on purpose: downloaded updates must carry valid signatures and
+  hashes before they install, and symlinks in LibreEcho's own paths are refused.
 - Still enforced on purpose: `userdata` must be the expected partition
   (`mmcblk0p16`, name `userdata`, label `LIBREECHO_DATA`). LibreEcho will not
   guess where your data is or move it.
