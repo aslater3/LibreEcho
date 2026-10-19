@@ -333,6 +333,9 @@ class ReleaseTests(unittest.TestCase):
             # copy it (True); the current generator must copy the descriptor.
             self.assertIsInstance(prior.pop('hardware_accepted'), bool)
             self.assertIs(current.pop('hardware_accepted'), True)
+            # The current generator additionally records the bundled scp identity
+            # (empty when SSH is disabled), which the base generator does not know.
+            self.assertEqual(current['ssh'].pop('scp_sha256'), '')
             for record in (prior, current):
                 record['artifacts'] = [a for a in record['artifacts'] if a['name'] != tar_name]
             self.assertEqual(prior, current)

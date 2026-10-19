@@ -219,17 +219,12 @@ class StableReleasePackagingTests(unittest.TestCase):
             }}
             manifest_path.write_text(json.dumps(manifest))
             result = subprocess.run([
-                sys.executable, str(SCRIPT),
-                "--artifact-root", str(artifact_root),
-                "--product-root", str(product),
-                "--product-commit", "1" * 40,
-                "--release-version", "0.14.0",
-                "--release-notes", "release/radar-puffin-v0.14.0.md",
-                "--amonet-repository", "https://github.com/aslater3/amonet-k32",
-                "--amonet-tag", "v1.0.0",
-                "--amonet-commit", WORKING_AMONET_COMMIT,
+                sys.executable, str(SCRIPT), "--artifact-root", str(artifact_root),
+                "--product-root", str(product), "--product-commit", "1" * 40,
+                "--release-version", "0.14.0", "--release-notes", "release/radar-puffin-v0.14.0.md",
                 "--output-dir", str(root / "release"),
-            ], text=True, capture_output=True)
+            ], env={**os.environ, "LIBREECHO_OTA_EXPECTED_PUBLIC_KEY_SHA256": digest(artifact_root / "run" / "ota-public-key.hex")},
+                text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("scp_sha256", result.stderr)
 
