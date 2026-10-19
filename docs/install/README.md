@@ -240,6 +240,29 @@ device, changed hash, or incomplete staging marker stops the operation rather
 than guessing. Keep the failure log; never edit phase or format markers to
 bypass a refusal.
 
+## Reinstalling over an existing installation
+
+`--continue` only resumes the release recorded in the saved state. To install
+again — for example after a failed first install was fixed in a newer release
+(LibreEcho #257), or to start over — use `--reinstall`:
+
+```sh
+./run-one-shot.sh "$TAG" --reinstall --execute-hardware
+```
+
+`--reinstall` **erases userdata** (settings, Wi-Fi, setup, installed features)
+and rewrites both boot slots. It asks you to type `ERASE` first (`--yes` skips
+the prompt for scripted runs). It:
+
+- reads the target from the saved state, and moves a device running LibreEcho
+  into fastboot over ADB itself, so no button sequence is needed;
+- only runs on a device that is already unlocked, and never sends the brick or
+  repeats the unlock;
+- refuses a device other than the one bound to the install ID, and refuses
+  state with an unresolved brick step (`continue-one-shot` resolves those);
+- keeps the old state as `state.json.before-reinstall-<time>` next to the new
+  one instead of deleting it.
+
 ## 5. First boot and setup
 
 1. The installer has rebooted the device and waited for ADB. Do not touch the
