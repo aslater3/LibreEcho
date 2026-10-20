@@ -351,7 +351,8 @@ class FinishInstallTests(unittest.TestCase):
                                                   "radar_puffin", None, 180)
         self.assertEqual(result, "web")
         publish.assert_called_once()
-        self.assertEqual(run.call_args.args[0], ["adb", "-s", "S", "reboot"])
+        # The reboot is followed by confirmation probes (LibreEcho #257).
+        self.assertIn(["adb", "-s", "S", "reboot"], [call.args[0] for call in run.call_args_list])
         ready.assert_called_once()
 
     def test_already_current_generation_is_not_republished_or_rebooted(self) -> None:
