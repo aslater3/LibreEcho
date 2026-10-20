@@ -191,6 +191,12 @@ AIRPLAY_PAYLOAD_OVERRIDE="${LIBREECHO_AIRPLAY_PAYLOAD_OVERRIDE:-}"
 AIRPLAY_MANIFEST_OVERRIDE="${LIBREECHO_AIRPLAY_MANIFEST_OVERRIDE:-}"
 ASSISTANT_PAYLOAD_OVERRIDE="${LIBREECHO_ASSISTANT_PAYLOAD_OVERRIDE:-}"
 ASSISTANT_MANIFEST_OVERRIDE="${LIBREECHO_ASSISTANT_MANIFEST_OVERRIDE:-}"
+TTS_PAYLOAD_OVERRIDE="${LIBREECHO_TTS_PAYLOAD_OVERRIDE:-}"
+TTS_MANIFEST_OVERRIDE="${LIBREECHO_TTS_MANIFEST_OVERRIDE:-}"
+WAKEWORD_PAYLOAD_OVERRIDE="${LIBREECHO_WAKEWORD_PAYLOAD_OVERRIDE:-}"
+WAKEWORD_MANIFEST_OVERRIDE="${LIBREECHO_WAKEWORD_MANIFEST_OVERRIDE:-}"
+STT_PAYLOAD_OVERRIDE="${LIBREECHO_STT_PAYLOAD_OVERRIDE:-}"
+STT_MANIFEST_OVERRIDE="${LIBREECHO_STT_MANIFEST_OVERRIDE:-}"
 PUBLIC_RELEASE_MODE="${LIBREECHO_PUBLIC_RELEASE:-0}"
 PRODUCT_SRC="${LIBREECHO_PRODUCT_SRC:-}"
 product_head=
@@ -1042,6 +1048,13 @@ if grep -qxF 'CONFIG_USB_G_ANDROID=y' "$KERNEL_OUT/.config" &&
 fi
 
 echo "=== building ARM32 zImage and Radar-Puffin DTB (-j$JOBS) ==="
+# Pin the kernel's build identity (user, host, timestamp, build number) so
+# rebuilding the same commit with the same toolchain gives the same zImage.
+# Without this the version banner records the CI runner's hostname and the
+# wall clock, and a stable rebuild never matches the hardware-tested dev build.
+kernel_build_epoch="$(git -C "$KERNEL_SRC" log -1 --format=%ct HEAD)"
+KBUILD_BUILD_USER=libreecho KBUILD_BUILD_HOST=libreecho KBUILD_BUILD_VERSION=1 \
+KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$kernel_build_epoch" '+%a %b %e %H:%M:%S UTC %Y')" \
 make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
   LD="${CROSS}ld.bfd" -j"$JOBS" zImage "$KERNEL_DTB_NAME"
 
@@ -2006,9 +2019,14 @@ TTS_FEATURE_PACKAGER="$TOOLS_DIR/tts/package_feature.sh"
 }
 TTS_PAYLOAD="$RUN/features/tts.squashfs"
 TTS_FEATURE_MANIFEST="$RUN/features/tts.manifest.json"
-"$TTS_FEATURE_PACKAGER" "$TTS_DAEMON" "$TTS_NORTHERN_MALE_MODEL" \
-  "$TTS_FEMALE_MODEL" "$TTS_TOKENS" "$TTS_ESPEAK_DATA" \
-  "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" | tee "$RUN/tts-feature-build.log"
+if [[ -n "$TTS_PAYLOAD_OVERRIDE" || -n "$TTS_MANIFEST_OVERRIDE" ]]; then
+  adopt_feature_payload tts "$TTS_PAYLOAD_OVERRIDE" "$TTS_MANIFEST_OVERRIDE" \
+    "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" | tee "$RUN/tts-feature-build.log"
+else
+  "$TTS_FEATURE_PACKAGER" "$TTS_DAEMON" "$TTS_NORTHERN_MALE_MODEL" \
+    "$TTS_FEMALE_MODEL" "$TTS_TOKENS" "$TTS_ESPEAK_DATA" \
+    "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" | tee "$RUN/tts-feature-build.log"
+fi
 [[ -f "$TTS_PAYLOAD" && -f "$TTS_FEATURE_MANIFEST" ]] || {
   echo "ERROR: TTS feature payload package is incomplete" >&2
   exit 1
@@ -2029,9 +2047,14 @@ WAKE_FEATURE_PACKAGER="$TOOLS_DIR/wakeword/package_feature.sh"
 }
 WAKE_PAYLOAD="$RUN/features/wakeword.squashfs"
 WAKE_FEATURE_MANIFEST="$RUN/features/wakeword.manifest.json"
-"$WAKE_FEATURE_PACKAGER" "$WAKE_DAEMON" "$WAKE_MEL_MODEL" \
-  "$WAKE_EMBEDDING_MODEL" "$WAKE_CLASSIFIER_MODEL" \
-  "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" | tee "$RUN/wakeword-feature-build.log"
+if [[ -n "$WAKEWORD_PAYLOAD_OVERRIDE" || -n "$WAKEWORD_MANIFEST_OVERRIDE" ]]; then
+  adopt_feature_payload wakeword "$WAKEWORD_PAYLOAD_OVERRIDE" "$WAKEWORD_MANIFEST_OVERRIDE" \
+    "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" | tee "$RUN/wakeword-feature-build.log"
+else
+  "$WAKE_FEATURE_PACKAGER" "$WAKE_DAEMON" "$WAKE_MEL_MODEL" \
+    "$WAKE_EMBEDDING_MODEL" "$WAKE_CLASSIFIER_MODEL" \
+    "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" | tee "$RUN/wakeword-feature-build.log"
+fi
 [[ -f "$WAKE_PAYLOAD" && -f "$WAKE_FEATURE_MANIFEST" ]] || {
   echo "ERROR: wakeword feature payload package is incomplete" >&2
   exit 1
@@ -2052,9 +2075,14 @@ STT_FEATURE_PACKAGER="$TOOLS_DIR/stt/package_feature.sh"
 }
 STT_PAYLOAD="$RUN/features/stt.squashfs"
 STT_FEATURE_MANIFEST="$RUN/features/stt.manifest.json"
-"$STT_FEATURE_PACKAGER" "$STT_DAEMON" "$STT_ENCODER" "$STT_DECODER" \
-  "$STT_JOINER" "$STT_TOKENS" "$STT_MODEL_LICENSE" \
-  "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" | tee "$RUN/stt-feature-build.log"
+if [[ -n "$STT_PAYLOAD_OVERRIDE" || -n "$STT_MANIFEST_OVERRIDE" ]]; then
+  adopt_feature_payload stt "$STT_PAYLOAD_OVERRIDE" "$STT_MANIFEST_OVERRIDE" \
+    "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" | tee "$RUN/stt-feature-build.log"
+else
+  "$STT_FEATURE_PACKAGER" "$STT_DAEMON" "$STT_ENCODER" "$STT_DECODER" \
+    "$STT_JOINER" "$STT_TOKENS" "$STT_MODEL_LICENSE" \
+    "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" | tee "$RUN/stt-feature-build.log"
+fi
 [[ -f "$STT_PAYLOAD" && -f "$STT_FEATURE_MANIFEST" ]] || {
   echo "ERROR: STT feature payload package is incomplete" >&2
   exit 1
