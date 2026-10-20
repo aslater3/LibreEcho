@@ -225,12 +225,23 @@ prefixes require maintainer agreement.
   commits between the previous release and the release heads of all
   repositories; release notes are generated from that ledger, not from branch
   names or memory.
+- The release sequence (freeze, dev build, hardware validation, stable build,
+  documentation sync, announcement) is defined in
+  [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## AI agent rules
 
 - Before editing, read this file, the relevant part of `README.md`, and any
   directly applicable `CONTRIBUTING.md`; do not recursively inspect unrelated
   documentation or historical source.
+- For any release task (dispatching `build-release.yml` for `dev` or `prd`,
+  approving `dev-release`/`stable-release`, writing or editing release notes,
+  editing a GitHub Release, or updating the install guide or website for a
+  release), first read [`docs/RELEASING.md`](docs/RELEASING.md) and follow its
+  order. Find or open the release's *Release checklist* issue and record each
+  step's evidence there. A successful `prd` run publishes immediately, so never
+  dispatch or approve it before the same heads have passed hardware validation
+  as a `dev` build.
 - Re-read the live branch, status, and diff before making changes.
 - For an authorized edit, create or use an isolated purpose-named branch
   based on the current base selected by the branch policy above.

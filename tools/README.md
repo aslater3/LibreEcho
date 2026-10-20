@@ -268,6 +268,20 @@ userdata during init, feature staging, updater validation and boot control.
 Publish a fresh immutable installer and rebuilt Platform/boot image together;
 changing only the installer cannot fix an older image's runtime guards.
 
+## Radar kaeru-chain migration (old-chain conversions)
+
+Devices installed before the radar-specific LK existed still run the old
+biscuit/k32 boot chain (`fastboot getvar product` reports `BISCUIT` on a
+radar_puffin). [`radar-kaeru-migration/`](./radar-kaeru-migration/README.md)
+holds `migrate.sh`, which converts that chain to the current kaeru-based radar
+amonet chain in place and converts the `_x` GPT to the plain kaeru layout
+(units migrated with an older copy that fail one-shot with
+`boot_a_x readback hash mismatch`: run `migrate.sh -s SERIAL --gpt-fix`):
+gated writes only (chain identity, `_x` geometry),
+SHA-pinned payloads, full-partition backups and readback verification, and a
+shareable per-run support log. See its README for the exact run order and what
+to share with support if a run aborts.
+
 ## Echo Gen 2 pogo-pin carrier (v5)
 
 [`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)

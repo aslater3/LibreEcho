@@ -183,6 +183,77 @@ class OneShotFastbootTests(unittest.TestCase):
                     with self.assertRaisesRegex(INSTALLER.InstallerError, "identity mismatch"):
                         INSTALLER.verify_adb_payload_readback("adb", "SERIAL", "a", digest)
 
+    def test_readback_mismatch_on_legacy_x_store_points_to_gpt_fix(self) -> None:
+        for partname, hint in (("boot_a_x", True), ("boot_a", False)):
+            def run(argv, timeout, *, check=True, partname=partname):
+                if argv[-1].endswith("/uevent"):
+                    return subprocess.CompletedProcess(argv, 0, f"PARTN=10\nPARTNAME={partname}\n", "")
+                return subprocess.CompletedProcess(argv, 0, f"{'cd' * 32}  /dev/mmcblk0p10\n", "")
+            with self.subTest(partname=partname), mock.patch.object(INSTALLER, "_run_command", side_effect=run):
+                with self.assertRaises(INSTALLER.InstallerError) as raised:
+                    INSTALLER.verify_adb_payload_readback("adb", "SERIAL", "a", "ab" * 32)
+                message = str(raised.exception)
+                self.assertTrue(message.startswith(f"{partname} readback hash mismatch"), message)
+                self.assertEqual("--gpt-fix" in message, hint, message)
+
+    def test_radar_kaeru_gpt_fix_converts_legacy_x_layout(self) -> None:
+        import struct, zlib
+        kit = ROOT / "tools" / "radar-kaeru-migration"
+        ss, nent, esize, disk = 512, 128, 128, 7634944
+        alt, last = disk - 1, disk - 34
+        layout = [  # name, start, sectors (radar_puffin `_x` contract)
+            ("kb", 2048, 2048), ("dkb", 4096, 2048), ("lk_a", 32768, 2048), ("tee1", 49152, 10240),
+            ("lk_b", 65536, 2048), ("tee2", 81920, 10240), ("expdb", 98304, 20480), ("misc", 118784, 1025),
+            ("persist", 131072, 32768), ("boot_a_x", 163840, 32768), ("boot_b_x", 196608, 32768),
+            ("recovery", 229376, 32768), ("system_a", 294912, 1572864), ("system_b", 1867776, 1572864),
+            ("cache", 3440640, 1605632), ("userdata", 5046272, 2137088),
+            ("boot_a", 7183360, 225280), ("boot_b", 7408640, 225280),
+        ]
+
+        def table(rows):
+            raw = b"".join(
+                struct.pack("<16s16sQQQ72s", b"T" * 16, bytes([i + 1]) * 16, start, start + n - 1, 0,
+                            name.encode("utf-16le").ljust(72, b"\0"))
+                for i, (name, start, n) in enumerate(rows))
+            return raw.ljust(nent * esize, b"\0")
+
+        def header(my, other, ent_lba, raw):
+            h = bytearray(b"EFI PART" + struct.pack("<IIIIQQQQ16sQIII", 0x10000, 92, 0, 0, my, other, 34, last,
+                                                    b"G" * 16, ent_lba, nent, esize, zlib.crc32(raw)))
+            h[16:20] = struct.pack("<I", zlib.crc32(bytes(h)))
+            return bytes(h).ljust(ss, b"\0")
+
+        def gpt(rows):
+            raw = table(rows)
+            return (b"\0" * ss + header(1, alt, 2, raw) + raw,
+                    raw + header(alt, 1, alt - 32, raw))
+
+        legacy = gpt(layout)
+        plain_rows = [(n[:-2] if n.endswith("_x") else n, s, c) for n, s, c in layout[:16]]
+        expected = gpt(plain_rows)
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            for name, data in zip(("p", "b", "ep", "eb"), legacy + expected):
+                (tmp / name).write_bytes(data)
+            run = lambda *a: subprocess.run([sys.executable, str(kit / "gpt-fix.py"), *map(str, a)],
+                                            capture_output=True, text=True)
+            done = run(tmp / "p", tmp / "b", tmp / "op", tmp / "ob")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual((tmp / "op").read_bytes(), expected[0])
+            self.assertEqual((tmp / "ob").read_bytes(), expected[1])
+            self.assertEqual(run(tmp / "ep", tmp / "eb", tmp / "x1", tmp / "x2").returncode, 3)  # already plain
+            bad = bytearray(legacy[0]); bad[2 * ss + 40] ^= 1
+            (tmp / "bad").write_bytes(bytes(bad))
+            refused = run(tmp / "bad", tmp / "b", tmp / "x1", tmp / "x2")
+            self.assertEqual(refused.returncode, 2)
+            self.assertFalse((tmp / "x1").exists())
+        pinned = (kit / "MANIFEST.sha256").read_text(encoding="ascii")
+        self.assertIn(hashlib.sha256((kit / "gpt-fix.py").read_bytes()).hexdigest() + "  gpt-fix.py", pinned)
+        script = (kit / "migrate.sh").read_text(encoding="utf-8")
+        for flag in ("--gpt-fix", "--gpt-restore", "--no-gpt-fix"):
+            self.assertIn(flag, script)
+        self.assertNotIn('stage/$img.img', script)
+
     def test_userdata_geometry_accepts_both_reviewed_biscuit_variants(self) -> None:
         self.assertEqual(
             INSTALLER.USERDATA_SUPPORTED_BYTES,
