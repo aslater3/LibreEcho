@@ -3,6 +3,12 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
+## radar-puffin-v0.14.3
+
+See [the 0.14.3 release note](release/radar-puffin-v0.14.3.md). Fixes
+Bluetooth crackle, adds AVRCP absolute volume and 24-bit speaker output, and
+adds an experimental volume-leveling switch (off by default).
+
 ## radar-puffin-v0.14.2
 
 See [the 0.14.2 release note](release/radar-puffin-v0.14.2.md). Boot and OTA
