@@ -1,0 +1,45 @@
+name: Release checklist
+description: Track one LibreEcho release from frozen sources to announcement (maintainers).
+title: "Release X.Y.Z checklist"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow [docs/RELEASING.md](https://github.com/aslater3/LibreEcho/blob/main/docs/RELEASING.md). Tick each step or note why it was waived.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.14.2
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Frozen sources (release/X.Y.Z heads)
+      value: |
+        - Product:
+        - Platform:
+        - UI:
+        - Linux:
+  - type: checkboxes
+    id: steps
+    attributes:
+      label: Steps
+      options:
+        - label: "1. Sources frozen; release note merged into release/X.Y.Z before the stable dispatch"
+        - label: "2. Dev build published from the frozen heads; checksums verified; dev pointer left alone unless intended"
+        - label: "3a. Echo 2nd Gen: dev OTA booted, health probes passed, slot confirmed, second reboot OK"
+        - label: "3b. Echo Dot: dev OTA booted, health probes passed, slot confirmed, second reboot OK"
+        - label: "3c. Every fix in the release note checked on a device"
+        - label: "4. Stable build from the same heads; checksums, releases/latest and dl.libreecho.org verified; one unit updated through its web UI"
+        - label: "5a. GitHub Release body matches the merged note (upgrade paths + hardware validation)"
+        - label: "5b. Install guide on main covers every upgrade/migration path"
+        - label: "5c. Website release number, date, downloads and checksums point at the new tag"
+        - label: "5d. CHANGELOG.md updated"
+        - label: "6. Discord announcement posted; fixed issues closed with evidence; release branch merged to main"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Run IDs, release tags, units and results. No serial numbers, addresses or credentials.
