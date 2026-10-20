@@ -28,6 +28,10 @@ on:
       - 'build/ci/publish_dev_pointer.py'
       - 'build/tests/test_release_route.py'
       - 'build/tests/test_publish_dev_pointer.py'
+      - 'build/ci/generate-news.py'
+      - 'build/tests/test_generate_news.py'
+      - 'tools/check-news.py'
+      - 'news/**'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   push:
@@ -58,6 +62,10 @@ on:
       - 'build/ci/publish_dev_pointer.py'
       - 'build/tests/test_release_route.py'
       - 'build/tests/test_publish_dev_pointer.py'
+      - 'build/ci/generate-news.py'
+      - 'build/tests/test_generate_news.py'
+      - 'tools/check-news.py'
+      - 'news/**'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
   workflow_dispatch:
@@ -111,6 +119,8 @@ jobs:
             --release-scope community-noncommercial
       - name: Verify build purpose and discovery routing
         run: python -B -m unittest build.tests.test_release_route build.tests.test_publish_dev_pointer -v
+      - name: Test the LibreEcho News feed generator and checker
+        run: python -B -m unittest build.tests.test_generate_news -v
       - name: Verify public installer mirror
         run: python -B -m unittest tools.test_initial_installer_publication -v
       - name: Verify fastbrick identity and payload gate suite
