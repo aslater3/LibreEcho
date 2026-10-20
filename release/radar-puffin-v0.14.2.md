@@ -39,10 +39,50 @@ because of something a user had put in `/data`. A hidden directory
   (`mmcblk0p16`, name `userdata`, label `LIBREECHO_DATA`). LibreEcho will not
   guess where your data is or move it.
 
-**If you are on 0.14.0 and the 0.14.1 update rolled back**, update to 0.14.2.
+## Upgrading
+
+- **From 0.14.0 or 0.14.1:** update over the air. In the web UI open
+  **System › System update**, choose **Check for updates**, then
+  **Install update**, then **Reboot**. If your 0.14.1 update rolled back,
+  0.14.2 fixes the cause.
+- **From 0.13.x:** reinstall. The 0.13 updater cannot install OTA v3 packages,
+  so a 0.13 device reports `downloaded_package_invalid` and stays on 0.13. Use
+  the installer in the
+  [installation guide](https://github.com/aslater3/LibreEcho/blob/main/docs/install/README.md).
+  Reinstalling formats userdata: settings, Wi-Fi credentials, accounts and
+  pairings are not kept.
+- **Echo 2nd Gen (`radar_puffin`) on the old boot chain:** if
+  `fastboot getvar product` reports `BISCUIT`, or the installer fails with
+  `boot_a_x readback hash mismatch`, run the
+  [Kaeru migration kit](https://github.com/aslater3/LibreEcho/tree/main/tools/radar-kaeru-migration)
+  before reinstalling (`--dry-run` first; `--gpt-fix` if an older copy of the
+  kit already converted the chain). Echo Dot and units already on the current
+  chain do not need it.
+
+## Other fixes
+
+- **System › Build identity** shows the real source commit and
+  digest instead of `unknown` (LibreEcho-Platform #257).
+- The same panel shows the real transaction state and last result (for example
+  `none` / `installed`) instead of `unknown` on 0.14 devices
+  (LibreEcho-UI #355). The diagnostic export and `/api/v1/provenance` report
+  the same corrected values. Updates were never affected.
 
 ## Validation
 
-Host tests and ARM virtual-machine checks of the initramfs decision paths only.
+Host tests and ARM virtual-machine checks of the initramfs decision paths, plus
+over-the-air updates on two physical devices with these exact sources:
+
+- **Echo Dot (`biscuit`), 0.14.0 → 0.14.2** through its own web UI (Check for
+  updates → Install update → Reboot) on the stable channel. It booted the new
+  slot, passed startup and health checks, confirmed the slot, and reports "Up to
+  date". Build identity shows the source commit, digest and transaction state.
+- **Echo 2nd Gen (`radar_puffin`), 0.14.0 → 0.14.2**, on a unit whose 0.14.1
+  update had rolled back with `ui-services-blocked-by-data-contract`. The
+  candidate build was installed first, then the published stable package through
+  the device updater. Each update booted the new slot with
+  `userdata-cleanup-ok`, startup-ready, 3/3 health probes and slot confirmation;
+  the candidate also survived a further reboot.
+
 Not yet tested on a physical device: the larger-partition install,
-`--reinstall`, and the 0.14.0 to 0.14.2 over-the-air update.
+`--reinstall`, a forced rollback from 0.14.2, and a device on 0.14.1.
