@@ -19,6 +19,10 @@ The dev channel moves only through an explicit dispatch:
 with the selected ref's required inputs. Stable (`prd`) validation is unchanged.
 See [`build/README.md`](build/README.md) for the lane and signing contracts.
 
+Every release follows the cadence in [`docs/RELEASING.md`](docs/RELEASING.md)
+(dev build, hardware validation, stable build, documentation sync,
+announcement) and is tracked in a *Release checklist* issue.
+
 ## Reports
 
 Before opening an issue, check for an existing report. Include exact steps,
