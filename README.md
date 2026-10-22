@@ -38,8 +38,8 @@ the Echo; please report Dot problems with a diagnostic bundle from
 **Settings**.
 
 The current stable release is
-[`radar-puffin-v0.14.3`](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.14.3)
-([release note](release/radar-puffin-v0.14.3.md)). See
+[`radar-puffin-v0.14.4`](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.14.4)
+([release note](release/radar-puffin-v0.14.4.md)). See
 [the 0.14.0 release note](release/radar-puffin-v0.14.0.md) for what is new in
 the 0.14 line and the [changelog](CHANGELOG.md) for every release.
 
@@ -139,7 +139,7 @@ running device into fastboot itself. It **erases userdata** and asks you to
 type `ERASE` first:
 
 ```sh
-TAG=radar-puffin-v0.14.3
+TAG=radar-puffin-v0.14.4
 curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
 chmod +x run-one-shot.sh
 ./run-one-shot.sh "$TAG" --reinstall --execute-hardware
