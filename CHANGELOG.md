@@ -3,6 +3,12 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
+## radar-puffin-v0.14.4
+
+See [the 0.14.4 release note](release/radar-puffin-v0.14.4.md). Replaces the
+broken two-mic delay with a beamformer, stops the web server pegging a CPU core,
+and smooths LED fades with the IS31 current scale; new boot animation.
+
 ## radar-puffin-v0.14.3
 
 See [the 0.14.3 release note](release/radar-puffin-v0.14.3.md). Fixes
