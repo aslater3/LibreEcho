@@ -27,6 +27,9 @@ body:
     attributes:
       label: Steps
       options:
+        - label: "0a. release/X.Y.Z cut in Product, Platform, UI and Linux from the previous release tip (tree equal to main)"
+        - label: "0b. UI version PR merged: VERSION bumped and release/X.Y.Z added to both checks.yml branch lists"
+        - label: "0c. Every fix PR targets release/X.Y.Z and has a forward-port PR to the active release/X.(Y+1).0"
         - label: "1. Sources frozen; release note merged into release/X.Y.Z before the stable dispatch"
         - label: "2. Dev build published from the frozen heads; checksums verified; dev pointer left alone unless intended"
         - label: "3a. Echo 2nd Gen: dev OTA booted, health probes passed, slot confirmed, second reboot OK"
@@ -37,7 +40,8 @@ body:
         - label: "5b. Install guide on main covers every upgrade/migration path"
         - label: "5c. Website release number, date, downloads and checksums point at the new tag"
         - label: "5d. CHANGELOG.md updated"
-        - label: "6. Discord announcement posted; fixed issues closed with evidence; release branch merged to main"
+        - label: "6a. Discord announcement posted; fixed issues closed with evidence"
+        - label: "6b. release/X.Y.Z back-merged into main in Linux, UI, Platform, Product; main forward-merged into release/X.(Y+1).0; containment checked"
   - type: textarea
     id: evidence
     attributes:
