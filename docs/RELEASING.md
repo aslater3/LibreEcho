@@ -24,7 +24,14 @@ build.
 ## 2. Dev build
 
 - Dispatch `build-release.yml` from `release/X.Y.Z` with `build_purpose=dev`
-  and the same targets, OTA format and release version that `prd` will use.
+  and the same targets and OTA format that `prd` will use. Leave
+  `release_version` empty: preflight rejects it outside `prd`, and the OTA
+  version already comes from the release branch, for example:
+
+  ```sh
+  gh workflow run build-release.yml -R aslater3/LibreEcho --ref release/X.Y.Z \
+    -f targets=radar_puffin,biscuit -f build_purpose=dev -f ota_format=v3
+  ```
 - Approve the `dev-release` environment. Do **not** advance the dev OTA pointer
   unless dev-channel devices should be offered the build.
 - Record the dev release tag and confirm its `build.json` matches the frozen
