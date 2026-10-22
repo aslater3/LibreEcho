@@ -1052,7 +1052,7 @@ jobs:
             "https://archive.ubuntu.com/ubuntu/pool/main/l/lzo2/liblzo2-2_2.10-2build4_amd64.deb e0d13be155013138b8db4cfe68212b866080af661c78302c2eab0d2f9d0d454e liblzo2-2" \
             "https://archive.ubuntu.com/ubuntu/pool/main/l/lz4/liblz4-1_1.9.4-1build1.1_amd64.deb 319331270d5cc52d5ebffe51c941d7b01b432bc402c2924b557209a64d4ecbad liblz4-1" \
             "https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1_amd64.deb 4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52 libzstd1" \
-            "https://archive.ubuntu.com/ubuntu/pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1ubuntu0.3_amd64.deb d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52 liblzma5"; do
+            "https://archive.ubuntu.com/ubuntu/pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1ubuntu0.4_amd64.deb 5bcf5da2339331e21d3f42a831e82c61c54c6b2f29804010e8d59abd0ae52167 liblzma5"; do
             read -r url sha name <<<"$lib_url"
             stage_deb "$name" "$url" "$sha" "$RUNNER_TEMP/$name"
           done
