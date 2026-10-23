@@ -51,8 +51,10 @@ the previous stable release:
 - Before approving `stable-release`, confirm the contract job checked out the
   frozen heads.
 - After publication, verify every `*SHA256SUMS` file, confirm
-  `releases/latest` is the new tag, and confirm `dl.libreecho.org` serves the new
-  `libreecho-<target>-stable.ota.tar` for each target.
+  `releases/latest` is the new tag, and confirm
+  `https://dl.libreecho.org/latest/download/libreecho-<target>-stable.ota.tar`
+  (the URL devices fetch; there is no un-prefixed copy) has the same SHA-256 as
+  the release's `libreecho-<target>-vX.Y.Z.ota.tar` for each target.
 - Update at least one unit through its own web UI on the stable channel
   (Check for updates → Install update → Reboot) and return validation units to
   the stable channel.
