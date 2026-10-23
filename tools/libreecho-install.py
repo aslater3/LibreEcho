@@ -178,6 +178,12 @@ AMONET_PINS = {
             "63cb91b-20221007_073612": {"payload": "fastbrick.img", "size": 114294816,
                                         "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"},
         },
+        # Test-only escape hatch (--accept-any-lk-version): an LK build without its own
+        # reviewed pin gets the archive's default image, the same one upstream
+        # fastbrick.sh sends for unmapped builds (profile.sh DEFAULT_IMAGE). This is
+        # deliberately not named default_payload: the reviewed path still refuses.
+        "fallback_payload": {"payload": "fastbrick.img", "size": 114294816,
+                             "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"},
     },
     # Biscuit accepts any LK build. A reviewed build maps to its own payload; any other
     # build gets the archive's default fastbrick.img, as upstream fastbrick.sh does.
@@ -596,16 +602,27 @@ def reboot_to_installed_system(fastboot_bin: str, serial: str, timeout: float) -
     print("FASTBOOT STAGE: device did not return to fastboot; waiting for ADB.", flush=True)
 
 
-def select_amonet_payload(target: str, lk_build: str) -> dict[str, Any]:
+def select_amonet_payload(target: str, lk_build: str, *, accept_any_lk: bool = False) -> dict[str, Any]:
+    """Choose the fastbrick payload for this device's LK build.
+
+    ``accept_any_lk`` backs --accept-any-lk-version: a build without its own
+    reviewed pin falls back to the archive's default image. That is a test path,
+    not a reviewed mapping; a payload built for a different LK can hard-brick the
+    unit, so the default (reviewed) path keeps refusing.
+    """
     pin = AMONET_PINS.get(target)
     if pin is None:
         raise InstallerError(f"no pinned Amonet ZIP for target {target}")
     if not lk_build:
         raise InstallerError("LK build is unknown (lk_build_desc empty); refusing to write")
     entry = pin["lk_builds"].get(lk_build) or pin.get("default_payload")
+    override = False
+    if entry is None and accept_any_lk:
+        entry = pin.get("fallback_payload") or pin.get("default_payload")
+        override = entry is not None
     if entry is None:
         raise InstallerError(f"no pinned fastbrick payload for LK build {lk_build}; refusing to write")
-    return {**entry, "build": lk_build}
+    return {**entry, "build": lk_build, "override": override}
 
 
 def identify_kaeru(fastboot_bin: str, serial: str) -> str | None:
@@ -630,11 +647,15 @@ def identify_kaeru(fastboot_bin: str, serial: str) -> str | None:
 
 
 def plan_fastbrick(fastboot_bin: str, serial: str, target: str, amonet_zip: "str | Path | None",
-                   cache_root: Path) -> tuple[str, Path] | None:
+                   cache_root: Path, *, accept_any_lk: bool = False) -> tuple[str, Path] | None:
     """Return (lk_build, staged_payload) only when a fastbrick is actually needed.
 
     Returns None for an already-unlocked or already-Kaeru unit, which must never be
     bricked again. Every refusal happens before any device write.
+
+    ``accept_any_lk`` threads --accept-any-lk-version into payload selection. It is
+    a test path: an unreviewed LK build gets the archive default and the run says so
+    loudly before anything is staged.
     """
     # Same strict parse as the web installer's assessIdentity: only a recognised
     # true/false is accepted. An empty or unexpected value refuses before any write.
@@ -651,7 +672,11 @@ def plan_fastbrick(fastboot_bin: str, serial: str, target: str, amonet_zip: "str
     if amonet_zip is None:
         raise InstallerError("locked device requires --amonet-zip with the pinned Amonet ZIP")
     lk_build = fastboot_getvar(fastboot_bin, serial, "lk_build_desc")
-    payload = select_amonet_payload(target, lk_build)
+    payload = select_amonet_payload(target, lk_build, accept_any_lk=accept_any_lk)
+    if payload.get("override"):
+        print(f"WARNING: --accept-any-lk-version is active and LK build {lk_build} has no reviewed payload.", flush=True)
+        print(f"WARNING: sending amonet/bin/{payload['payload']}, the archive default upstream fastbrick.sh uses.", flush=True)
+        print("WARNING: a payload built for another LK can hard-brick this unit. Test path only; expect to reconcile by hand.", flush=True)
     staged = extract_amonet_payload(Path(amonet_zip), target, payload, cache_root / "amonet" / target)
     return lk_build, staged
 
@@ -2160,6 +2185,7 @@ def one_shot(
     target: str | None = None,
     wait_for_setup: bool = False,
     reinstall: bool = False,
+    accept_any_lk: bool = False,
 ) -> dict[str, str]:
     """Unlock with the pinned fastbrick payload, install boot payloads, and open first-boot setup.
 
@@ -2167,6 +2193,9 @@ def one_shot(
     (part of) an installation: the saved state is archived, userdata is
     reformatted and both boot slots are rewritten. It never sends the brick
     again and never discards an unresolved brick marker.
+
+    ``accept_any_lk`` is --accept-any-lk-version: an LK build with no reviewed
+    payload is bricked with the archive default instead of refusing. Test path.
     """
     if not execute_hardware:
         raise InstallerError("one-shot requires --execute-hardware")
@@ -2278,7 +2307,8 @@ def one_shot(
         else:
             serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
             verify_fastboot_product(fastboot_bin, serial, target, target_override)
-            plan = plan_fastbrick(fastboot_bin, serial, target, amonet_zip, cache_root)
+            plan = plan_fastbrick(fastboot_bin, serial, target, amonet_zip, cache_root,
+                                  accept_any_lk=accept_any_lk)
             if plan is not None and reinstalling:
                 raise InstallerError(
                     "--reinstall found a locked bootloader without Kaeru; it never sends the brick payload. "
@@ -3470,6 +3500,12 @@ def main() -> None:
         "--yes", action="store_true", help="do not ask for confirmation before --reinstall erases userdata",
     )
     parser.add_argument(
+        "--accept-any-lk-version", action="store_true",
+        help=("one-shot only, TEST PATH: an LK build with no reviewed fastbrick payload gets the "
+              "archive's default fastbrick.img instead of refusing. The default image was built for "
+              "a different LK revision and can hard-brick the unit; the run says so before it stages anything"),
+    )
+    parser.add_argument(
         "--repair-userdata", action="store_true",
         help="explicitly rebuild and flash only userdata when resuming an old failed run",
     )
@@ -3510,6 +3546,8 @@ def main() -> None:
                         if args.action != "one-shot":
                             raise InstallerError("--reinstall is only valid with one-shot")
                         confirm_reinstall(args.yes)
+                    if args.accept_any_lk_version and args.action != "one-shot":
+                        raise InstallerError("--accept-any-lk-version is only valid with one-shot")
                     setup = None
                     if args.action in ("one-shot", "continue-one-shot") and args.execute_hardware and not args.web_setup:
                         interactive = sys.stdin.isatty()
@@ -3544,6 +3582,7 @@ def main() -> None:
                             emulator_initramfs=args.emulator_initramfs,
                             setup=setup,
                             reinstall=args.reinstall,
+                            accept_any_lk=args.accept_any_lk_version,
                         )
                     elif args.action == "continue-one-shot":
                         result = continue_one_shot(

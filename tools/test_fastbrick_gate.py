@@ -120,6 +120,67 @@ class PinLayoutTests(unittest.TestCase):
                 INSTALLER.select_amonet_payload(target, "")
 
 
+class AcceptAnyLkTests(unittest.TestCase):
+    """--accept-any-lk-version: the test path for a build with no reviewed payload."""
+
+    UNMAPPED = "3c6be74-20210822_210647"
+
+    def plan(self, *, accept_any_lk, target="radar_puffin", lk=None):
+        cache = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(cache, ignore_errors=True))
+        fake = FakeFastboot("RADAR" if target == "radar_puffin" else "BISCUIT",
+                            kaeru_mode="stock", lk=lk or self.UNMAPPED)
+        staged = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=fake.run), \
+                mock.patch.object(INSTALLER, "extract_amonet_payload", return_value=staged) as extract:
+            outcome = INSTALLER.plan_fastbrick("fb", "SERIAL", target, "x.zip", cache,
+                                               accept_any_lk=accept_any_lk)
+        self.assertEqual(extract.call_count, 1)
+        return outcome, extract.call_args.args[2]
+
+    def test_default_path_still_refuses_an_unreviewed_radar_build(self):
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "no pinned fastbrick payload"):
+            INSTALLER.select_amonet_payload("radar_puffin", self.UNMAPPED)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "no pinned fastbrick payload"):
+            self.plan(accept_any_lk=False)
+
+    def test_flag_selects_the_archive_default_and_marks_the_override(self):
+        chosen = INSTALLER.select_amonet_payload("radar_puffin", self.UNMAPPED, accept_any_lk=True)
+        self.assertTrue(chosen["override"])
+        self.assertEqual(chosen["payload"], "fastbrick.img")
+        self.assertEqual(chosen["build"], self.UNMAPPED)
+        self.assertEqual(chosen["sha256"],
+                         INSTALLER.AMONET_PINS["radar_puffin"]["fallback_payload"]["sha256"])
+
+    def test_flag_on_the_plan_path_stages_the_default_and_warns(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            plan, chosen = self.plan(accept_any_lk=True)
+        self.assertEqual(plan[0], self.UNMAPPED)
+        self.assertEqual(chosen["payload"], "fastbrick.img")
+        self.assertTrue(chosen["override"])
+        self.assertIn("--accept-any-lk-version", output.getvalue())
+        self.assertIn(self.UNMAPPED, output.getvalue())
+
+    def test_flag_never_marks_a_reviewed_build_as_an_override(self):
+        for lk in TARGETS["radar_puffin"]["lk_ok"]:
+            with self.subTest(lk=lk):
+                chosen = INSTALLER.select_amonet_payload("radar_puffin", lk, accept_any_lk=True)
+                self.assertFalse(chosen["override"])
+                self.assertEqual(chosen["payload"],
+                                 INSTALLER.AMONET_PINS["radar_puffin"]["lk_builds"][lk]["payload"])
+
+    def test_flag_never_bypasses_an_empty_lk_build(self):
+        for target in TARGETS:
+            with self.subTest(target=target), self.assertRaisesRegex(INSTALLER.InstallerError, "LK build is unknown"):
+                INSTALLER.select_amonet_payload(target, "", accept_any_lk=True)
+
+    def test_flag_leaves_the_reviewed_biscuit_default_unchanged(self):
+        chosen = INSTALLER.select_amonet_payload("biscuit", "anything-else-build", accept_any_lk=True)
+        self.assertFalse(chosen["override"])
+        self.assertEqual(chosen["payload"], "fastbrick.img")
+
+
 class RealArchiveTests(unittest.TestCase):
     """Checks the committed pins against the real Amonet ZIPs when they are present."""
 
@@ -144,6 +205,18 @@ class RealArchiveTests(unittest.TestCase):
                 with self.subTest(target=target, lk=lk), tempfile.TemporaryDirectory() as tmp:
                     out = INSTALLER.extract_amonet_payload(path, target, entry, Path(tmp))
                     self.assertEqual(INSTALLER._sha256(out), entry["sha256"])
+
+    def test_radar_fallback_payload_matches_the_real_archive(self):
+        """--accept-any-lk-version stages this exact image, so its pin must be real."""
+        path = ARCHIVE_ZIPS["radar_puffin"]
+        if not path.exists():
+            self.skipTest(f"{path} not present in this checkout")
+        entry = INSTALLER.AMONET_PINS["radar_puffin"]["fallback_payload"]
+        with zipfile.ZipFile(path) as bundle:
+            self.assertEqual(bundle.getinfo(f"amonet/bin/{entry['payload']}").file_size, entry["size"])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = INSTALLER.extract_amonet_payload(path, "radar_puffin", entry, Path(tmp))
+            self.assertEqual(INSTALLER._sha256(out), entry["sha256"])
 
 
 class KaeruGateTests(unittest.TestCase):
