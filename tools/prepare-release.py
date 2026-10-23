@@ -224,7 +224,7 @@ def main() -> None:
         "platform": {"board": "radar_puffin", "architecture": "armv7", "kernel_line": "linux-6.1"},
         "sources": {
             "product": source("https://github.com/aslater3/LibreEcho", args.product_commit),
-            "kernel": source("https://github.com/aslater3/LibreEcho-Linux-6.1", args.kernel_commit),
+            "kernel": source("https://github.com/aslater3/LibreEcho-Linux", args.kernel_commit),
             "tooling": source("https://github.com/aslater3/LibreEcho-Platform", args.tooling_commit),
             "ui": source("https://github.com/aslater3/LibreEcho-UI", args.ui_commit),
         },

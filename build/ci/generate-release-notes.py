@@ -11,7 +11,7 @@ from pathlib import Path
 REPOSITORIES = {
     "Product": "aslater3/LibreEcho",
     "Platform": "aslater3/LibreEcho-Platform",
-    "Linux 6.1": "aslater3/LibreEcho-Linux-6.1",
+    "Linux 6.1": "aslater3/LibreEcho-Linux",
     "UI": "aslater3/LibreEcho-UI",
 }
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
