@@ -29,6 +29,13 @@ its own payload. Any other build uses the archive's default `fastbrick.img`,
 as upstream `fastbrick.sh` does. An empty LK build string still fails closed
 before any write.
 
+`--accept-any-lk-version` (one-shot only) is a test escape hatch: a Radar LK
+build with no reviewed payload is bricked with the archive's default
+`fastbrick.img` (the same image upstream sends) instead of being refused. The
+run prints the LK build and payload before staging anything. The image was built
+for a different LK revision, so it can hard-brick the unit; without the flag the
+reviewed path still refuses.
+
 ## What `one-shot` does
 
 The installer starts from **stock fastboot**. There is no BROM short and no

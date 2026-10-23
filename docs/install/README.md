@@ -427,6 +427,12 @@ The archive's SHA-256 or size does not match the pin, or the device's `lk_build_
 is not in the accepted list for its target. Use the exact archive named in the
 table above. For Biscuit, any LK build is accepted; the default payload covers builds without a reviewed mapping.
 
+`--accept-any-lk-version` (one-shot only) is a test escape hatch on this branch:
+an LK build with no reviewed payload is bricked with the archive's default
+`fastbrick.img` instead of being refused, and the run prints the LK build and
+payload it is about to stage. That image was built for a different LK revision,
+so it can hard-brick the unit; the reviewed path still refuses.
+
 ### The brick step reports `eMMC-RO` or `Device mismatch`
 
 These are hard stops. The installer does not retry them. Preserve the log and the
