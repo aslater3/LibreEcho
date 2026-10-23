@@ -211,7 +211,7 @@ priority.
 | --- | --- |
 | [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, hosted image CI, documentation, support, roadmap, issues, release notes, and OTA distribution |
 | [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, and OTA verification/build inputs; the historical 3.18 tree remains here for compatibility |
-| [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1) | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
+| [`LibreEcho-Linux`](https://github.com/aslater3/LibreEcho-Linux) | MT8163 Linux 6.1 kernel on upstream stable history, with kernel-side platform changes and the in-tree connectivity stack. Replaces the archived [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1), which holds the source for releases up to 0.14.4 |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 
 See [the repository boundary guide](docs/repositories.md) for where a change belongs.

@@ -20,7 +20,7 @@ complete notices and component inventory.
 
 - **Linux 6.1 and MT8163 product drivers** — GPL-2.0-only. Exact corresponding
   source is released from
-  <https://github.com/aslater3/LibreEcho-Linux-6.1>.
+  <https://github.com/aslater3/LibreEcho-Linux>.
 - **LibreEcho Platform/initramfs tooling** — GPL-2.0-only. Exact corresponding
   source is released from <https://github.com/aslater3/LibreEcho-Platform>.
 - **LibreEcho UI/services** — MIT. Exact source is released from
