@@ -467,7 +467,7 @@ def main() -> int:
                 "repository": {
                     "product": "https://github.com/aslater3/LibreEcho",
                     "platform": "https://github.com/aslater3/LibreEcho-Platform",
-                    "linux": "https://github.com/aslater3/LibreEcho-Linux-6.1",
+                    "linux": "https://github.com/aslater3/LibreEcho-Linux",
                     "ui": "https://github.com/aslater3/LibreEcho-UI",
                 }[name],
                 "commit": commit,

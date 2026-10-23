@@ -217,7 +217,7 @@ jobs:
           fi
           for ref_spec in \
             "LibreEcho-Platform:$platform_ref" \
-            "LibreEcho-Linux-6.1:$linux_ref" \
+            "LibreEcho-Linux:$linux_ref" \
             "LibreEcho-UI:$ui_ref"; do
             component="${ref_spec%%:*}"
             ref_name="${ref_spec#*:}"
@@ -227,7 +227,7 @@ jobs:
             }
           done
           p=$(git ls-remote "https://github.com/aslater3/LibreEcho-Platform.git" "refs/heads/$platform_ref" | cut -f1)
-          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux-6.1.git" "refs/heads/$linux_ref" | cut -f1)
+          l=$(git ls-remote "https://github.com/aslater3/LibreEcho-Linux.git" "refs/heads/$linux_ref" | cut -f1)
           u=$(git ls-remote "https://github.com/aslater3/LibreEcho-UI.git" "refs/heads/$ui_ref" | cut -f1)
           python3 build/ci/resolve-source-set.py \
             --product "$PRODUCT_SHA" --platform "$p" --linux "$l" --ui "$u" \
@@ -601,7 +601,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          repository: aslater3/LibreEcho-Linux-6.1
+          repository: aslater3/LibreEcho-Linux
           ref: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
           path: sources/linux
           fetch-depth: 1
