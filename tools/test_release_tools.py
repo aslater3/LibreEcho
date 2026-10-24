@@ -298,7 +298,12 @@ class OneShotFastbootTests(unittest.TestCase):
     def test_userdata_format_avoids_fastboot_internal_formatter(self) -> None:
         source = (ROOT / "tools/libreecho-install.py").read_text(encoding="utf-8")
         self.assertIn('"flash", "userdata", str(sparse)', source)
-        self.assertIn("^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file", source)
+        self.assertEqual(
+            INSTALLER.USERDATA_EXT4_DISABLED_FEATURES,
+            ("^64bit", "^metadata_csum", "^metadata_csum_seed"),
+        )
+        self.assertEqual(INSTALLER.USERDATA_EXT4_OPTIONAL_DISABLES, ("^orphan_file",))
+        self.assertIn('"-O", features,', source)
 
     def test_adb_diagnostics_capture_read_only_command_bundle(self) -> None:
         calls = []

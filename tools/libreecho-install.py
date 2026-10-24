@@ -1184,6 +1184,42 @@ def _write_userdata_sparse(raw: Path, sparse: Path, expected_bytes: int, metadat
         os.fsync(output.fileno())
     return programmed_bytes
 
+# ext4 features the userdata image must not carry. "orphan_file" only exists in
+# e2fsprogs >= 1.47; older mke2fs rejects the whole -O list if it is named, but
+# also cannot create it, so its disable is dropped when the host tool predates it.
+USERDATA_EXT4_DISABLED_FEATURES = ("^64bit", "^metadata_csum", "^metadata_csum_seed")
+USERDATA_EXT4_OPTIONAL_DISABLES = ("^orphan_file",)
+USERDATA_FEATURE_PROBE_BYTES = 16 * 1024 * 1024
+
+
+def _userdata_ext4_features(mke2fs: Path, scratch: Path, timeout: float) -> str:
+    """Return the mke2fs -O list, omitting disables this mke2fs does not know."""
+    features = list(USERDATA_EXT4_DISABLED_FEATURES)
+    probe = scratch / "feature-probe.ext4"
+    for feature in USERDATA_EXT4_OPTIONAL_DISABLES:
+        with probe.open("wb") as stream:
+            stream.truncate(USERDATA_FEATURE_PROBE_BYTES)
+        result = _run_command(
+            [str(mke2fs), "-F", "-q", "-t", "ext4", "-b", "4096",
+             "-O", ",".join(features + [feature]), str(probe)],
+            timeout,
+            check=False,
+        )
+        if result.returncode == 0:
+            features.append(feature)
+        elif "Invalid filesystem option set" in (result.stderr or "") + (result.stdout or ""):
+            print(
+                f"HOST NOTE: this mke2fs predates the {feature.lstrip('^')} ext4 feature and "
+                "cannot create it; formatting without that option.",
+                flush=True,
+            )
+        else:
+            detail = ((result.stderr or result.stdout) or "").strip()[-500:]
+            raise InstallerError(f"mke2fs feature probe failed ({result.returncode}): {detail}")
+    probe.unlink(missing_ok=True)
+    return ",".join(features)
+
+
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
     """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
@@ -1206,11 +1242,12 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         root = Path(temporary)
         raw = root / "userdata.ext4"
         sparse = root / "userdata.sparse.img"
+        features = _userdata_ext4_features(mke2fs, root, 60)
         with raw.open("wb") as stream:
             stream.truncate(size)
         _run_command(
             [str(mke2fs), "-F", "-t", "ext4", "-b", "4096", "-L", "LIBREECHO_DATA",
-             "-m", "0", "-O", "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
+             "-m", "0", "-O", features,
              "-E", "lazy_itable_init=0,lazy_journal_init=0", str(raw)],
             max(timeout, 300),
         )
