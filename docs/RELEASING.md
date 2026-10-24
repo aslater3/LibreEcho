@@ -10,6 +10,59 @@ because the `public-release` environment has no required reviewer. So nothing is
 dispatched to `prd` until the same sources have passed on hardware as a `dev`
 build.
 
+## 0. Open the release line
+
+A patch release `X.Y.(Z+1)` opens as soon as the first fix for the published
+`X.Y.Z` is ready. A fix goes on the patch line when it repairs behaviour that
+`X.Y.Z` ships broken, even if the fix is large; new capability with no defect
+behind it waits for `release/X.(Y+1).0`.
+
+1. **Cut the branch in all four repositories** (Product, Platform, UI, Linux),
+   even those with no change yet, so the build resolves every component from
+   `release/X.Y.(Z+1)`. Cut each one from the previous patch tip
+   `release/X.Y.Z`, after that release's back-merge to `main` (step 6). Check
+   that the tip's tree matches `main`; if it does not, finish the back-merge
+   first. Creating the ref is the only direct write to a release branch;
+   everything after it lands by PR.
+
+   ```sh
+   for r in LibreEcho LibreEcho-Platform LibreEcho-UI LibreEcho-Linux-6.1; do
+     sha=$(gh api repos/aslater3/$r/git/ref/heads/release/X.Y.Z --jq .object.sha)
+     gh api -X POST repos/aslater3/$r/git/refs \
+       -f ref=refs/heads/release/X.Y.(Z+1) -f sha=$sha
+   done
+   ```
+
+2. **Open the version PR in UI**, titled `chore: version X.Y.(Z+1)`, against
+   the new branch. It:
+   - sets `VERSION` (the only repository with a version file; Product takes the
+     release version from the build dispatch and the release-note path);
+   - adds `release/X.Y.(Z+1)` to both branch lists in
+     `.github/workflows/checks.yml`. Without this, pull requests to the new
+     branch get only the integration check, not the full source suite.
+
+   The other repositories have no branch lists to update, but check with
+   `grep -rn "release/X\.Y\.[0-9]" .github/workflows` in each in case one has
+   been added.
+
+3. **Open the release checklist issue** from the template and record the four
+   new branch heads as the starting point.
+
+4. **Target fixes at the patch line.** Each fix PR is based on
+   `release/X.Y.(Z+1)`, titled `fix(<area>): ...`, carries
+   `Release impact: patch` in its description, and explains the user-visible
+   defect it repairs.
+   A fix already open against `main` or `release/X.(Y+1).0` is moved by
+   rebasing its commits onto the patch branch (`git rebase --onto`), then
+   retargeting the PR's base. Re-run the full suite if the two bases' trees
+   differ.
+
+5. **Forward-port every fix** to the active `release/X.(Y+1).0` in the same
+   sitting, as a separate PR that names the original. If the two bases have
+   identical trees the same commit applies unchanged; otherwise cherry-pick
+   onto a branch cut from `release/X.(Y+1).0`. A fix merged only to the patch
+   line is lost the next time `X.(Y+1).0` ships.
+
 ## 1. Freeze the sources
 
 - All fixes are merged into `release/X.Y.Z` in every repository (Product,
@@ -79,4 +132,12 @@ These drift if they are not checked on every release:
 - Discord announcement: what changed, who must update and how, any reinstall or
   migration requirement, and only the validation that actually happened.
 - Close the issues the release fixes, with the hardware evidence.
-- Merge `release/X.Y.Z` into `main` once the release is final.
+- Once the release is final, back-merge `release/X.Y.Z` into `main` by PR in
+  every repository, in Linux, UI, Platform, Product order. Then forward-merge
+  `main` into the active `release/X.(Y+1).0` by PR, so the next line carries
+  everything shipped (for 0.14.3 these were UI #374 and #375). Fixes
+  forward-ported in step 0 make this merge trivial; any conflict means a fix
+  was missed.
+- Check containment rather than trusting the PR state:
+  `git merge-base --is-ancestor origin/release/X.Y.Z origin/main` in each
+  repository.
