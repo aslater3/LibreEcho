@@ -47,7 +47,19 @@ the previous stable release:
 
 ## 4. Stable build
 
-- Re-dispatch `build-release.yml` from `release/X.Y.Z` with `build_purpose=prd`.
+- Re-dispatch `build-release.yml` from `release/X.Y.Z` with `build_purpose=prd`
+  and `validated_dev_build` set to the dev release tag that passed step 3.
+- Stable ships what was tested. The build:
+  - verifies the dev release and requires the same Platform, Linux and UI
+    commits; Product may differ from it only in release notes and docs;
+  - adopts the dev build's five feature payloads byte for byte;
+  - fails before upload unless its boot image has the dev build's kernel and
+    header and a ramdisk that differs only in the update-channel files
+    (`sbin/adbd`, `etc/libreecho/adb-transport`, `update-channel`,
+    `ota-source.conf`).
+- If the parity gate fails, do not work around it. The rebuild is not what was
+  tested (for example the toolchain changed in between): make a new dev build,
+  repeat step 3 on it and dispatch stable again.
 - Before approving `stable-release`, confirm the contract job checked out the
   frozen heads.
 - After publication, verify every `*SHA256SUMS` file, confirm
