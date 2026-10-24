@@ -57,7 +57,16 @@ choices you already made.
 In 0.14 these options record consent only: the release does not send health,
 usage or crash data. They decide whether a future release may.
 
+## LibreEcho News
+
+The dashboard can show LibreEcho release and project news. It is off until you
+turn it on. When it is on, the device downloads one small public file,
+`news-v1.json`, from `dl.libreecho.org` (or the same file from GitHub's release
+downloads if that is unreachable), at most twice a day and only while you have
+the dashboard open. The request carries no cookies, account, device identifier
+or settings. Turning news off deletes the downloaded copy.
+
 ## Everything else
 
-Update checks, remote AI services, Home Assistant and other integrations only
-contact the network when you start them or turn them on.
+Update checks, LibreEcho News, remote AI services, Home Assistant and other
+integrations only contact the network when you start them or turn them on.

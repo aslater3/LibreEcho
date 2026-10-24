@@ -1,0 +1,13 @@
+{
+  "schema": "libreecho-news-entries-v1",
+  "entries": [
+    {
+      "id": "progress-0-15",
+      "type": "progress",
+      "date": "2026-10-18",
+      "title": "LibreEcho 0.15 in progress",
+      "summary": "Room setting, LED idle auto-off, an optional setup colour scheme, recovery mode, local services that survive updates, and this news panel.",
+      "url": "https://github.com/aslater3/LibreEcho/releases"
+    }
+  ]
+}
