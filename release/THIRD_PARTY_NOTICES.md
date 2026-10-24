@@ -93,6 +93,15 @@ closure. The payload embeds:
 Copyleft source is supplied from the pinned upstream archives and exact Debian
 source packages recorded by the payload inventory.
 
+The same payload carries the Sendspin player (`libreecho-sendspind`), a static
+ARM executable built from the LibreEcho UI sources and the pinned Sendspin C++
+SDK (Apache-2.0) with ArduinoJson (MIT), IXWebSocket (BSD-3-Clause), micro-flac
+and micro-ogg-demuxer (Apache-2.0) and noise-c (MIT), statically linked against
+glibc and the GCC runtime. `usr/local/share/licenses/libreecho-sendspin/` holds
+each component's license text, the glibc and GCC runtime notices, and a
+component/commit inventory; the pinned commits are listed in
+`build/inputs/public-inputs.json`.
+
 ### Speech to text
 
 The STT payload contains sherpa-onnx, ONNX Runtime, SpeexDSP, and the pinned

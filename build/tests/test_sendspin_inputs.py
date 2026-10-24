@@ -959,9 +959,12 @@ class SendspinLockContractTests(unittest.TestCase):
         self.assertIn("static", runtime["verified_closure"]["cpp_runtime"].lower())
         # The build must enforce the locked closure, not merely document it.
         self.assertIn("elf-closure", runtime["enforced_by"])
-        # The future daemon closure is explicitly unknown (no version-validated
-        # claim); compile-input provenance is explicitly not pinned.
-        self.assertIn("unknown", runtime["future_daemon"]["status"].lower())
+        # The release player is fully static, and its build enforces that
+        # (no loader, no shared library); compile-input provenance is
+        # explicitly not pinned.
+        self.assertEqual(runtime["future_daemon"]["needed"], [])
+        self.assertIn("static", runtime["future_daemon"]["status"].lower())
+        self.assertIn("build_sendspind.sh", runtime["future_daemon"]["status"])
         self.assertFalse(runtime["compile_sysroot"]["pinned"])
         # The patch inventory is a closed, explicitly mirrored contract: the lock,
         # the Product inventory mirror and the architecture document declare the

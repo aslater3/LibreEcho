@@ -1971,6 +1971,31 @@ echo "dbus_daemon_sha256=$dbus_daemon_sha"
 echo "audio_producer_sha256=$audio_producer_sha"
 echo "audio_engine_sha256=$audio_engine_sha"
 
+echo "=== building the static ARM32 Sendspin player for the AirPlay 2 payload ==="
+# The pinned Sendspin sources arrive with the public inputs (archive hashes
+# verified, declared patches applied). Release builds must ship the player; a
+# private build without those inputs packages AirPlay 2 without it, which the
+# device reports as Sendspin unavailable.
+SENDSPIN_BUILDER="$TOOLS_DIR/sendspin/build_sendspind.sh"
+SENDSPIN_OUTPUT=
+if [[ -d "$INPUTS/sendspin-sdk" ]]; then
+  [[ -x "$SENDSPIN_BUILDER" ]] || {
+    echo "ERROR: Sendspin player builder is missing or not executable: $SENDSPIN_BUILDER" >&2
+    exit 1
+  }
+  SENDSPIN_OUTPUT="$RUN/components/sendspin"
+  rm -rf "$SENDSPIN_OUTPUT"
+  CROSS_PREFIX="$UI_CROSS" "$SENDSPIN_BUILDER" "$UI_SOURCE" "$INPUTS" "$SENDSPIN_OUTPUT" \
+    | tee "$RUN/sendspin-player-build.log"
+  sendspind_sha="$(sha256sum "$SENDSPIN_OUTPUT/libreecho-sendspind" | awk '{print $1}')"
+  echo "sendspind_sha256=$sendspind_sha"
+elif [[ "$PUBLIC_RELEASE_MODE" == 1 ]]; then
+  echo "ERROR: release build lacks the pinned Sendspin sources under $INPUTS" >&2
+  exit 1
+else
+  echo "WARNING: no Sendspin sources under $INPUTS; AirPlay 2 is packaged without the Sendspin player" >&2
+fi
+
 echo "=== packaging AirPlay 2 as an external feature payload ==="
 AIRPLAY_FEATURE_PACKAGER="$TOOLS_DIR/airplay/package_feature.sh"
 [[ -x "$AIRPLAY_FEATURE_PACKAGER" ]] || {
@@ -1984,7 +2009,8 @@ if [[ -n "$AIRPLAY_PAYLOAD_OVERRIDE" || -n "$AIRPLAY_MANIFEST_OVERRIDE" ]]; then
   adopt_feature_payload airplay2 "$AIRPLAY_PAYLOAD_OVERRIDE" "$AIRPLAY_MANIFEST_OVERRIDE" \
     "$AIRPLAY_PAYLOAD" "$AIRPLAY_FEATURE_MANIFEST" | tee "$RUN/airplay-feature-build.log"
 else
-  "$AIRPLAY_FEATURE_PACKAGER" "$AIRPLAY_OUTPUT" "$UI_BUNDLE" \
+  LIBREECHO_AIRPLAY_SENDSPIN="$SENDSPIN_OUTPUT" \
+    "$AIRPLAY_FEATURE_PACKAGER" "$AIRPLAY_OUTPUT" "$UI_BUNDLE" \
     "$AIRPLAY_PAYLOAD" "$AIRPLAY_FEATURE_MANIFEST" | tee "$RUN/airplay-feature-build.log"
 fi
 [[ -f "$AIRPLAY_PAYLOAD" && -f "$AIRPLAY_FEATURE_MANIFEST" ]] || {
