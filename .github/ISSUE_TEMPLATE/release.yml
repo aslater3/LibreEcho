@@ -13,6 +13,16 @@ body:
       placeholder: 0.14.2
     validations:
       required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Release kind
+      options:
+        - Feature release (0.(Y+1).0)
+        - Fix release (0.Y.(Z+1)), fixes only
+        - Breaking release (0.(Y+1).0, migration required)
+    validations:
+      required: true
   - type: textarea
     id: sources
     attributes:
@@ -27,17 +37,21 @@ body:
     attributes:
       label: Steps
       options:
+        - label: "0a. release/X.Y.Z cut in Product, Platform, UI and Linux (feature: from main; fix: from the last stable release branch)"
+        - label: "0b. UI version PR merged: VERSION bumped and release/X.Y.Z added to both checks.yml branch lists"
+        - label: "0c. Contents sorted: fix release has only patch changes; breaking change marked; experimental features off by default"
         - label: "1. Sources frozen; release note merged into release/X.Y.Z before the stable dispatch"
         - label: "2. Dev build published from the frozen heads; checksums verified; dev pointer left alone unless intended"
         - label: "3a. Echo 2nd Gen: dev OTA booted, health probes passed, slot confirmed, second reboot OK"
         - label: "3b. Echo Dot: dev OTA booted, health probes passed, slot confirmed, second reboot OK"
-        - label: "3c. Every fix in the release note checked on a device"
+        - label: "3c. Every fix and on-by-default feature in the release note checked on a device; breaking migration path run on each target"
         - label: "4. Stable build from the same heads; checksums, releases/latest and dl.libreecho.org verified; one unit updated through its web UI"
         - label: "5a. GitHub Release body matches the merged note (upgrade paths + hardware validation)"
         - label: "5b. Install guide on main covers every upgrade/migration path"
         - label: "5c. Website release number, date, downloads and checksums point at the new tag"
         - label: "5d. CHANGELOG.md updated"
-        - label: "6. Discord announcement posted; fixed issues closed with evidence; release branch merged to main"
+        - label: "6a. Discord announcement posted (incl. experimental features); fixed issues closed with evidence"
+        - label: "6b. release/X.Y.Z back-merged into main in Linux, UI, Platform, Product; merged onward into any open release branch; containment checked"
   - type: textarea
     id: evidence
     attributes:
