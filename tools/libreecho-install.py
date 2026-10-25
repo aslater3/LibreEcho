@@ -522,9 +522,9 @@ def wait_for_fastboot_serial(fastboot_bin: str, requested: str, timeout: float,
     raise InstallerError("timed out waiting for fastboot USB")
 
 
-def adb_devices(adb_bin: str) -> list[str]:
+def adb_devices(adb_bin: str, states: tuple[str, ...] = ("device",)) -> list[str]:
     result = _run_command([adb_bin, "devices"], 10)
-    return [line.split()[0] for line in result.stdout.splitlines() if len(line.split()) >= 2 and line.split()[1] == "device"]
+    return [line.split()[0] for line in result.stdout.splitlines() if len(line.split()) >= 2 and line.split()[1] in states]
 
 
 def select_adb_serial(adb_bin: str, requested: str) -> str:
@@ -754,9 +754,11 @@ def brick_fastboot_payload(fastboot_bin: str, serial: str, payload: Path, budget
 
     The return value is never proof of success: a timeout, a nonzero transport reply, or
     any other inconclusive answer is "unknown", and the caller must reconcile from device
-    facts before trusting it. There is no automatic re-send. eMMC read-only, device-mismatch,
-    and bootloader-refusal replies are terminal. Every attempt, including partial output from
-    a timeout, is appended to the log.
+    facts before trusting it. There is no automatic re-send. eMMC read-only and device-mismatch
+    replies are terminal. A bootloader-refusal reply is not: stock LK can answer the brick
+    with "restricted on locked hw" after the payload has already taken effect (issue #293),
+    so it is reconciled like any other inconclusive reply. Every attempt, including partial
+    output from a timeout, is appended to the log.
     """
     _safe_regular(payload)
     argv = [fastboot_bin, "-s", serial, "flash", "brick", str(payload)]
@@ -777,9 +779,9 @@ def brick_fastboot_payload(fastboot_bin: str, serial: str, payload: Path, budget
     if result.returncode == 0:
         raise InstallerError("brick command succeeded but the device did not leave fastboot; not continuing")
     if FASTBOOT_COMMAND_REFUSED.search(output):
-        raise InstallerError(
-            "bootloader refused the brick payload; stopping without retry (see the BRICK log line)"
-        )
+        print("FASTBOOT STAGE: bootloader replied with a refusal; the payload may still have taken "
+              "effect, so the outcome is unknown until reconciled.", flush=True)
+        return "unknown"
     # Transport or other nonzero replies are indeterminate: reconcile, never re-send.
     print("FASTBOOT STAGE: brick reply was not conclusive; outcome unknown until reconciled.", flush=True)
     return "unknown"
@@ -860,7 +862,8 @@ def wait_for_post_brick_fastboot(fastboot_bin: str, adb_bin: str, serial: str, t
                 print(f"FASTBOOT STAGE: transient fastboot read failure; retrying ({error}).", flush=True)
         # Checked on every pass, not only when fastboot is absent: a stale listing that
         # still shows the serial must not hide a verified recovery ADB device.
-        if not bootloader_requested and serial in adb_devices_safe(adb_bin):
+        # TWRP lists itself as `recovery`, not `device`, in `adb devices`.
+        if not bootloader_requested and serial in adb_devices_safe(adb_bin, ("device", "recovery")):
             if _adb_recovery_is_verified(adb_bin, serial, target):
                 print("RECOVERY STAGE: verified TWRP/ADB board, marker and expdb Kaeru chain; requesting bootloader once.", flush=True)
                 _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20, check=False)
@@ -877,9 +880,9 @@ def fastboot_devices_safe(fastboot_bin: str) -> list[str]:
         return []
 
 
-def adb_devices_safe(adb_bin: str) -> list[str]:
+def adb_devices_safe(adb_bin: str, states: tuple[str, ...] = ("device",)) -> list[str]:
     try:
-        return adb_devices(adb_bin)
+        return adb_devices(adb_bin, states)
     except InstallerError:
         return []
 
