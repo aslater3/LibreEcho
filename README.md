@@ -181,8 +181,10 @@ old-chain device, so treat early conversions as a test and keep the logs.
 
 LibreEcho sends one anonymous weekly ping to count active devices by hardware
 model and version. It carries no device ID, serial number, MAC address or
-account, and setup and the **Privacy** page show the exact body sent. Health,
-usage and crash reports are opt-in. Details:
+account, setup and the **Privacy** page show the exact body sent, and from
+0.14.5 it can be switched off on the **Privacy** page. Health, usage and crash
+report choices start ticked on new setups and can be turned off; this release
+only records the choice and sends no health, usage or crash data. Details:
 [Privacy and telemetry](docs/privacy.md).
 
 ## Hardware roadmap
