@@ -4,12 +4,17 @@ LibreEcho processes your voice, your home and your settings on the device.
 The only things it sends without being asked are listed here. Every item can
 be inspected on the device under **Privacy**.
 
-## Weekly active-device count (always on)
+## Weekly active-device count (on by default, can be turned off)
 
 Once a week LibreEcho sends one anonymous ping to `stats.libreecho.org`,
-purely to count how many devices are running and on which version. This ping
-cannot be turned off. It is how the project knows whether a release is
-actually in use.
+purely to count how many devices are running and on which version. It is how
+the project knows whether a release is actually in use.
+
+From 0.14.5 you can switch it off under **Privacy › Active-device count**.
+While it is off nothing is sent; the device checks the setting before every
+attempt and starts counting again within a day of switching it back on. The
+choice is kept across reboots, updates and configuration backups. Earlier
+releases always send it.
 
 The ping is a single HTTPS `POST` to `https://stats.libreecho.org/v1/ping`
 with `User-Agent: libreecho-ping/1` and this JSON body:
