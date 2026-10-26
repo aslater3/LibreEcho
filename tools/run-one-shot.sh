@@ -17,9 +17,11 @@ adb_bin=adb
 serial=auto
 state_root="$HOME/.local/state/libreecho-installer"
 install_id=default
+reinstall=0
 options=("$@")
 for ((i=0; i<${#options[@]}; i++)); do
   case "${options[i]}" in
+    --reinstall) reinstall=1 ;;
     --target) target="${options[i+1]:?missing target}" ;;
     --fastboot-bin) fastboot_bin="${options[i+1]:?missing fastboot binary}" ;;
     --adb-bin) adb_bin="${options[i+1]:?missing adb binary}" ;;
@@ -30,7 +32,12 @@ for ((i=0; i<${#options[@]}; i++)); do
 done
 # A continuation already knows its board: the device may be in TWRP/recovery or
 # booted LibreEcho, where no fastboot product is available to auto-detect.
-if [[ -z "$target" && "$action" == continue-one-shot ]]; then
+# --reinstall usually starts from a running LibreEcho device (no fastboot product),
+# so it reads the board the same way.
+if [[ "$reinstall" == 1 && "$action" != one-shot ]]; then
+  echo "ERROR: --reinstall is a one-shot option; do not combine it with --continue" >&2; exit 2
+fi
+if [[ -z "$target" && ( "$action" == continue-one-shot || "$reinstall" == 1 ) ]]; then
   state_file="$state_root/$install_id/state.json"
   if [[ -f "$state_file" && ! -L "$state_file" ]]; then
     target="$(python3 -c '
@@ -38,12 +45,12 @@ import json, sys
 board = json.load(open(sys.argv[1])).get("board", "radar_puffin")
 print(board if board in ("radar_puffin", "biscuit") else "")
 ' "$state_file")"
-    if [[ -n "$target" ]]; then echo "Continuation target from saved state: $target"; fi
+    if [[ -n "$target" ]]; then echo "Target from saved installer state: $target"; fi
   fi
 fi
 # Recovery identity is usable only for continuation of the requested serial.
 # Never infer a fresh fastboot target from an unrelated ADB device.
-if [[ -z "$target" && "$action" == continue-one-shot && "$serial" != auto ]] && command -v "$adb_bin" >/dev/null 2>&1; then
+if [[ -z "$target" && ( "$action" == continue-one-shot || "$reinstall" == 1 ) && "$serial" != auto ]] && command -v "$adb_bin" >/dev/null 2>&1; then
   mapfile -t adb_devices < <("$adb_bin" devices | awk 'NR > 1 && ($2 == "device" || $2 == "recovery") { print $1 }')
   for adb_serial in "${adb_devices[@]}"; do
     [[ "$adb_serial" == "$serial" ]] || continue

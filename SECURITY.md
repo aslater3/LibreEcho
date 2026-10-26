@@ -44,7 +44,7 @@ All public LibreEcho repositories are covered by this policy:
 [LibreEcho](https://github.com/aslater3/LibreEcho),
 [LibreEcho-UI](https://github.com/aslater3/LibreEcho-UI),
 [LibreEcho-Platform](https://github.com/aslater3/LibreEcho-Platform),
-[LibreEcho-Linux-6.1](https://github.com/aslater3/LibreEcho-Linux-6.1),
+[LibreEcho-Linux](https://github.com/aslater3/LibreEcho-Linux),
 [LibreEcho-Installer-Web](https://github.com/aslater3/LibreEcho-Installer-Web) and
 [LibreEcho-Docs](https://github.com/aslater3/LibreEcho-Docs). Report them all
 through the single private route below.

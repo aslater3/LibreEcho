@@ -3,6 +3,29 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
+## radar-puffin-v0.14.4
+
+See [the 0.14.4 release note](release/radar-puffin-v0.14.4.md). Replaces the
+broken two-mic delay with a beamformer, stops the web server pegging a CPU core,
+and smooths LED fades with the IS31 current scale; new boot animation.
+
+## radar-puffin-v0.14.3
+
+See [the 0.14.3 release note](release/radar-puffin-v0.14.3.md). Fixes
+Bluetooth crackle, adds AVRCP absolute volume and 24-bit speaker output, and
+adds an experimental volume-leveling switch (off by default).
+
+## radar-puffin-v0.14.2
+
+See [the 0.14.2 release note](release/radar-puffin-v0.14.2.md). Boot and OTA
+confirmation no longer fail on unrecognised user data or user-modified services.
+
+## radar-puffin-v0.14.1
+
+See [the 0.14.1 release note](release/radar-puffin-v0.14.1.md). Fixes mounting
+`/data` on units with a larger `userdata` partition, adds `--reinstall` to the
+one-shot installer, reworks the Nursery page, and ties SSH to the saved switch.
+
 ## radar-puffin-v0.14.0
 
 See [the 0.14.0 release note](release/radar-puffin-v0.14.0.md). Devices on 0.13.x

@@ -141,6 +141,12 @@ USERDATA_TARGET_BYTES = {
     "radar_puffin": frozenset((USERDATA_RADAR_STOCK_BYTES,)),
     "biscuit": frozenset((USERDATA_BISCUIT_STOCK_BYTES,)),
 }
+# Any other userdata size is accepted when it is at least the smallest reviewed
+# layout and within a sane upper bound. The installed image identifies the
+# partition by PARTNAME=userdata plus the LIBREECHO_DATA ext4 label written
+# below, with the same floor (LibreEcho-Platform #249, LibreEcho #257).
+USERDATA_MIN_BYTES = USERDATA_BYTES
+USERDATA_MAX_BYTES = 16 * 1024 * 1024 * 1024
 # Sparse userdata expands to roughly 1.09 GiB in LK. Do not apply the short
 # control-command timeout to this bounded eMMC operation.
 USERDATA_FLASH_TIMEOUT = 900
@@ -491,8 +497,9 @@ def fastboot_devices(fastboot_bin: str) -> list[str]:
     return [line.split()[0] for line in result.stdout.splitlines() if len(line.split()) >= 2 and line.split()[1] == "fastboot"]
 
 
-def wait_for_fastboot_serial(fastboot_bin: str, requested: str, timeout: float) -> str:
-    print("Brick payload complete; waiting for fastboot USB re-enumeration.", flush=True)
+def wait_for_fastboot_serial(fastboot_bin: str, requested: str, timeout: float,
+                             notice: str = "Brick payload complete; waiting for fastboot USB re-enumeration.") -> str:
+    print(notice, flush=True)
     deadline = time.monotonic() + timeout
     next_notice = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -512,7 +519,7 @@ def wait_for_fastboot_serial(fastboot_bin: str, requested: str, timeout: float) 
             print(f"Fastboot status: waiting for device USB ({remaining}s timeout remaining).", flush=True)
             next_notice = now + 10
         time.sleep(1)
-    raise InstallerError("timed out waiting for fastboot USB after the brick payload")
+    raise InstallerError("timed out waiting for fastboot USB")
 
 
 def adb_devices(adb_bin: str) -> list[str]:
@@ -1040,11 +1047,11 @@ def _validate_android_sparse_image(path: Path, expected_bytes: int) -> int:
 def _validate_userdata_partition_size(size: int, target: str | None = None) -> int:
     """Return the ext4 filesystem size for a reviewed userdata partition size."""
     supported = USERDATA_SUPPORTED_BYTES | USERDATA_TARGET_BYTES.get(target or "", frozenset())
-    if size in supported:
+    if size in supported or USERDATA_MIN_BYTES <= size <= USERDATA_MAX_BYTES:
         return size - size % 4096
-    expected = ", ".join(f"{value:#x}" for value in sorted(supported))
     raise InstallerError(
-        f"userdata partition size mismatch: expected one of {expected}, got {size:#x}"
+        f"userdata partition size unsupported: need {USERDATA_MIN_BYTES:#x}..{USERDATA_MAX_BYTES:#x} "
+        f"bytes, got {size:#x}"
     )
 
 
@@ -1177,6 +1184,42 @@ def _write_userdata_sparse(raw: Path, sparse: Path, expected_bytes: int, metadat
         os.fsync(output.fileno())
     return programmed_bytes
 
+# ext4 features the userdata image must not carry. "orphan_file" only exists in
+# e2fsprogs >= 1.47; older mke2fs rejects the whole -O list if it is named, but
+# also cannot create it, so its disable is dropped when the host tool predates it.
+USERDATA_EXT4_DISABLED_FEATURES = ("^64bit", "^metadata_csum", "^metadata_csum_seed")
+USERDATA_EXT4_OPTIONAL_DISABLES = ("^orphan_file",)
+USERDATA_FEATURE_PROBE_BYTES = 16 * 1024 * 1024
+
+
+def _userdata_ext4_features(mke2fs: Path, scratch: Path, timeout: float) -> str:
+    """Return the mke2fs -O list, omitting disables this mke2fs does not know."""
+    features = list(USERDATA_EXT4_DISABLED_FEATURES)
+    probe = scratch / "feature-probe.ext4"
+    for feature in USERDATA_EXT4_OPTIONAL_DISABLES:
+        with probe.open("wb") as stream:
+            stream.truncate(USERDATA_FEATURE_PROBE_BYTES)
+        result = _run_command(
+            [str(mke2fs), "-F", "-q", "-t", "ext4", "-b", "4096",
+             "-O", ",".join(features + [feature]), str(probe)],
+            timeout,
+            check=False,
+        )
+        if result.returncode == 0:
+            features.append(feature)
+        elif "Invalid filesystem option set" in (result.stderr or "") + (result.stdout or ""):
+            print(
+                f"HOST NOTE: this mke2fs predates the {feature.lstrip('^')} ext4 feature and "
+                "cannot create it; formatting without that option.",
+                flush=True,
+            )
+        else:
+            detail = ((result.stderr or result.stdout) or "").strip()[-500:]
+            raise InstallerError(f"mke2fs feature probe failed ({result.returncode}): {detail}")
+    probe.unlink(missing_ok=True)
+    return ",".join(features)
+
+
 def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) -> None:
     """Build and flash a compatible sparse ext4 filesystem to userdata."""
     print("FASTBOOT STAGE: validating target product and partition geometry.", flush=True)
@@ -1199,11 +1242,12 @@ def format_userdata_in_fastboot(fastboot_bin: str, serial: str, timeout: float) 
         root = Path(temporary)
         raw = root / "userdata.ext4"
         sparse = root / "userdata.sparse.img"
+        features = _userdata_ext4_features(mke2fs, root, 60)
         with raw.open("wb") as stream:
             stream.truncate(size)
         _run_command(
             [str(mke2fs), "-F", "-t", "ext4", "-b", "4096", "-L", "LIBREECHO_DATA",
-             "-m", "0", "-O", "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file",
+             "-m", "0", "-O", features,
              "-E", "lazy_itable_init=0,lazy_journal_init=0", str(raw)],
             max(timeout, 300),
         )
@@ -1249,7 +1293,18 @@ def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_s
     )
     digest = re.search(r"\b([0-9a-f]{64})\b", result.stdout, re.IGNORECASE)
     if digest is None or digest.group(1).lower() != expected_sha256.lower():
-        raise InstallerError(f"{expected_name} readback hash mismatch")
+        actual = next(iter(names))
+        if actual == expected_name:
+            # Legacy `_x` GPT behind an LK without the `_x` redirect (a unit converted
+            # to the kaeru chain by an old radar-kaeru-migration kit): `flash boot_X`
+            # landed in the ~110 MiB wrapper and p10/p11 still hold the old image.
+            raise InstallerError(
+                f"{expected_name} readback hash mismatch: the image fastboot wrote is not in "
+                f"mmcblk0p{part}. If this unit was converted to the kaeru chain, its partition "
+                "table still has the legacy _x layout. Run tools/radar-kaeru-migration/migrate.sh "
+                "-s SERIAL --gpt-fix (try --dry-run first), reboot, then rerun one-shot with --reinstall."
+            )
+        raise InstallerError(f"{actual} readback hash mismatch")
 
 
 def collect_adb_diagnostics(adb_bin: str, serial: str, timeout: float = 30, reason: str = "post-ADB") -> None:
@@ -1451,7 +1506,12 @@ def collect_failure_evidence(args: argparse.Namespace, reason: str) -> Path | No
                 _capture_evidence_command([fastboot, "devices"], devices)
                 try:
                     text = devices.read_text(encoding="utf-8")
-                    fastboot_serials = [line.split()[0] for line in text.splitlines() if len(line.split()) >= 2 and line.split()[1] == "fastboot"]
+                    # Skip the "$ fastboot devices" header _capture_evidence_command writes,
+                    # otherwise "$" is taken as a serial ("fastboot -s $ getvar all").
+                    fastboot_serials = [
+                        line.split()[0] for line in text.splitlines()
+                        if len(line.split()) >= 2 and line.split()[1] == "fastboot" and not line.startswith("$")
+                    ]
                 except OSError:
                     pass
                 requested = getattr(args, "fastboot_serial", "auto")
@@ -2136,8 +2196,15 @@ def one_shot(
     setup: dict[str, Any] | None = None,
     target: str | None = None,
     wait_for_setup: bool = False,
+    reinstall: bool = False,
 ) -> dict[str, str]:
-    """Unlock with the pinned fastbrick payload, install boot payloads, and open first-boot setup."""
+    """Unlock with the pinned fastbrick payload, install boot payloads, and open first-boot setup.
+
+    ``reinstall`` is the explicit, destructive path for a unit that already has
+    (part of) an installation: the saved state is archived, userdata is
+    reformatted and both boot slots are rewritten. It never sends the brick
+    again and never discards an unresolved brick marker.
+    """
     if not execute_hardware:
         raise InstallerError("one-shot requires --execute-hardware")
     if slots not in {"a", "b", "both"}:
@@ -2171,6 +2238,8 @@ def one_shot(
         if not release_tag:
             raise InstallerError("one-shot requires --release-tag")
         target_override = target
+        if target is None and reinstall and emulator_root is None and not fastboot_devices_safe(fastboot_bin):
+            raise InstallerError("--reinstall from a running device needs --target (run-one-shot.sh reads it from saved state)")
         if target is None:
             devices = fastboot_devices(fastboot_bin)
             if len(devices) != 1:
@@ -2190,6 +2259,8 @@ def one_shot(
         # Durable state is never discarded by a fresh run. An unresolved brick marker (any release
         # or bundle) and any completed or partly completed installation require explicit
         # continuation. A new --install-id is the only explicit intent for a separate installation.
+        previous_serial: str | None = None
+        reinstalling = False
         if state_path.exists():
             previous = _read_state(state_path)
             if previous["phase"] in UNRECONCILED_BRICK_PHASES:
@@ -2198,11 +2269,30 @@ def one_shot(
                     f"release {previous['release']}; run continue-one-shot to reconcile it. A fresh one-shot "
                     "will not discard it and will not re-send the brick."
                 )
-            if previous["phase"] != "RELEASE_READY":
+            if previous["phase"] != "RELEASE_READY" and not reinstall:
                 raise InstallerError(
                     f"install {install_id} already has a {previous['phase']} installation for "
-                    f"{previous['release']}; run continue-one-shot, or use a new --install-id for a separate installation"
+                    f"{previous['release']}; run continue-one-shot for the same release, or one-shot with "
+                    "--reinstall to erase userdata and install this release again"
                 )
+            if reinstall and previous["phase"] != "RELEASE_READY":
+                previous_serial = previous.get("device_serial")
+                if (previous_serial and fastboot_serial != "auto" and fastboot_serial != previous_serial):
+                    raise InstallerError(
+                        f"install {install_id} belongs to another device; use a new --install-id for this one")
+                reinstalling = True
+                archived = archive_install_state(state_path)
+                print(f"REINSTALL: previous {previous['phase']} state for {previous['release']} archived as "
+                      f"{archived.name}; userdata will be erased and both boot slots rewritten.", flush=True)
+        elif reinstall:
+            print("REINSTALL: no saved state for this install id; continuing as a normal one-shot.", flush=True)
+        if reinstall and emulator_root is None:
+            enter_fastboot_for_reinstall(adb_bin, fastboot_bin,
+                                         previous_serial if fastboot_serial == "auto" and previous_serial
+                                         else fastboot_serial,
+                                         fastboot_timeout)
+            if fastboot_serial == "auto" and previous_serial:
+                fastboot_serial = previous_serial
         _write_state(state_path, {"phase": "RELEASE_READY", "board": target, "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": False})
         serial: str | None = None
         if emulator_root is not None:
@@ -2226,6 +2316,10 @@ def one_shot(
             serial = select_fastboot_serial(fastboot_bin, fastboot_serial)
             verify_fastboot_product(fastboot_bin, serial, target, target_override)
             plan = plan_fastbrick(fastboot_bin, serial, target, amonet_zip, cache_root)
+            if plan is not None and reinstalling:
+                raise InstallerError(
+                    "--reinstall found a locked bootloader without Kaeru; it never sends the brick payload. "
+                    "Run continue-one-shot, or report this device state")
             if plan is not None:
                 lk_build, staged = plan
                 payload_sha = _sha256(staged)
@@ -2343,6 +2437,43 @@ def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> str:
     raise InstallerError(f"boot payload partitions match no reviewed layout: {sizes}")
 
 
+def archive_install_state(state_path: Path) -> Path:
+    """Keep a superseded state file next to the new one; never delete installer evidence."""
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    archived = state_path.with_name(f"{state_path.name}.before-reinstall-{stamp}")
+    index = 1
+    while archived.exists():
+        archived = state_path.with_name(f"{state_path.name}.before-reinstall-{stamp}-{index}")
+        index += 1
+    os.replace(state_path, archived)
+    return archived
+
+
+def enter_fastboot_for_reinstall(adb_bin: str, fastboot_bin: str, requested: str, timeout: float) -> None:
+    """Bring an installed, running unit to fastboot for --reinstall; no-op if already there.
+
+    Uses the same reviewed ``adb reboot bootloader`` request as userdata repair
+    (bootctl writes Kaeru's one-shot command to misc only). A device that is not
+    unique and bound is never selected.
+    """
+    present = fastboot_devices_safe(fastboot_bin)
+    if (requested == "auto" and len(present) == 1) or (requested != "auto" and requested in present):
+        return
+    if requested == "auto" and present:
+        raise InstallerError("several fastboot devices are present; pass --fastboot-serial")
+    serial = select_adb_serial(adb_bin, requested)
+    print(f"REINSTALL: running LibreEcho device {serial} found; requesting a reboot to fastboot.", flush=True)
+    _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20, check=False)
+    try:
+        wait_for_fastboot_serial(fastboot_bin, serial, timeout,
+                                 notice="REINSTALL: waiting for the device to enter fastboot.")
+    except InstallerError as error:
+        raise InstallerError(
+            f"{error}; the device did not enter fastboot by itself. Enter fastboot manually "
+            "(see the install guide) and run the same --reinstall command again"
+        ) from error
+
+
 def resume_completed_transport(fastboot_bin: str, adb_bin: str, serial: str, target: str, timeout: float) -> None:
     """Return a bound, completed installation from fastboot to system without writes."""
     if serial in adb_devices_safe(adb_bin):
@@ -2395,7 +2526,8 @@ def continue_one_shot(
             raise InstallerError("invalid continuation release tag")
         if state["release"] != release_tag:
             raise InstallerError(
-                f"continuation release tag does not match saved state: {release_tag} != {state['release']}"
+                f"continuation release tag does not match saved state: {release_tag} != {state['release']}; "
+                "to install the newer release over this unit run one-shot with --reinstall (erases userdata)"
             )
         if state["phase"] not in {"AMONET_HANDOFF", "FASTBOOT_READY", "BOOT_WRITTEN", "ADB_READY",
                                   "READBACK_VERIFIED", "FEATURES_STAGED", "WEBUI_FORWARDED",
@@ -2721,6 +2853,8 @@ def stage_device_features(
         _run_command([adb_bin, "-s", serial, "push", str(config), "/tmp/libreecho-feature-stage.conf"], timeout)
         result = _run_command([adb_bin, "-s", serial, "shell", "sh", remote_script], timeout, check=False)
         if result.returncode != 0 or f"FEATURE_STAGE_OK:{name}" not in result.stdout:
+            if "FEATURE_STAGE_DATA_NOT_MOUNTED" in result.stdout:
+                require_device_data_mounted(adb_bin, serial, timeout)
             detail = (result.stderr or result.stdout).strip()[-500:]
             raise InstallerError(f"feature staging failed for {name}: {detail}")
         verify_device_features(adb_bin, serial, {"features": [feature]}, timeout)
@@ -2736,11 +2870,70 @@ def verify_device_features(
         for kind, filename in (("payload", "payload.squashfs"), ("manifest", "manifest.json")):
             path = f"/data/libreecho/features/{feature['name']}/{filename}"
             output = _run_command(
-                [adb_bin, "-s", serial, "shell", "sha256sum", path], timeout,
+                [adb_bin, "-s", serial, "shell", "sha256sum", path], timeout, check=False,
             ).stdout.strip()
             digest = re.fullmatch(r"([0-9a-fA-F]{64})[ \t]+\*?" + re.escape(path), output)
             if digest is None or digest.group(1).lower() != feature[kind]["sha256"].lower():
+                # An unmounted /data reads the root filesystem's empty directory;
+                # report that cause instead of a misleading hash mismatch (#257).
+                require_device_data_mounted(adb_bin, serial, timeout)
                 raise InstallerError(f"feature {feature['name']} installed {kind} hash mismatch")
+
+
+def require_device_data_mounted(adb_bin: str, serial: str, timeout: float = 30) -> None:
+    """Fail with the real cause when the booted image did not mount userdata at /data.
+
+    Without this, reading features from the root filesystem's empty /data
+    directory is reported as a payload hash mismatch (LibreEcho #257).
+    """
+    try:
+        probe = _run_command(
+            [adb_bin, "-s", serial, "shell",
+             "if grep -q ' /data ' /proc/mounts; then echo DATA_MOUNTED; else echo DATA_UNMOUNTED; fi; "
+             "dmesg 2>/dev/null | grep -o 'libreecho-init: userdata-[a-z-]*' | tail -n 3"],
+            min(timeout, 30), check=False,
+        )
+    except InstallerError:
+        return  # diagnosis is best effort; the caller still reports its own failure
+    if probe.returncode != 0 or "DATA_UNMOUNTED" not in (probe.stdout or "").split():
+        return
+    reasons = sorted(set(re.findall(r"userdata-[a-z-]+", probe.stdout)))
+    detail = f" (device init reported: {', '.join(reasons)})" if reasons else ""
+    raise InstallerError(
+        "the installed LibreEcho image did not mount userdata at /data" + detail + "; installed "
+        "features cannot be read. Use a LibreEcho release that supports this device's userdata "
+        "partition, then run one-shot with --reinstall."
+    )
+
+
+def adb_reboot_confirmed(adb_bin: str, serial: str, timeout: float = 90) -> None:
+    """Request a normal reboot over ADB and prove the device actually left this boot.
+
+    LibreEcho adbd can print ``reboot failed: File exists`` with exit status 0
+    even when the request was filed: AOSP's reboot service forks for ``vdc``,
+    which LibreEcho lacks, so both processes file the same request and the
+    second one sees the first one's file. The output alone is therefore not
+    trusted either way; the boot id or the ADB transport must change.
+    """
+    before = _adb_shell_text(adb_bin, serial, "cat /proc/sys/kernel/random/boot_id")
+    result = _run_command([adb_bin, "-s", serial, "reboot"], 30, check=False)
+    output = f"{result.stdout}\n{result.stderr}".strip()
+    if "reboot failed" in output:
+        print(f"FINAL STAGE: adbd reported {output.splitlines()[-1]!r}; checking whether the device rebooted.",
+              flush=True)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        state = _run_command([adb_bin, "-s", serial, "get-state"], 10, check=False)
+        if state.returncode != 0 or state.stdout.strip() != "device":
+            return
+        now = _adb_shell_text(adb_bin, serial, "cat /proc/sys/kernel/random/boot_id")
+        if before and now and now != before:
+            return
+    raise InstallerError(
+        f"device did not reboot within {timeout:g}s after `adb reboot` ({output or 'no output'}); "
+        "power-cycle it, then run continue-one-shot"
+    )
 
 
 V3_FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
@@ -3043,6 +3236,20 @@ def build_provision_document(form: dict[str, Any], release: str, target: str, *,
     return raw
 
 
+def confirm_reinstall(assume_yes: bool, ask=input, interactive: bool | None = None) -> None:
+    """--reinstall erases userdata: require a typed confirmation or an explicit --yes."""
+    print("REINSTALL: this ERASES all LibreEcho data on the device (settings, Wi-Fi, setup, features) "
+          "and installs the selected release again. The unlock/brick step is not repeated.", flush=True)
+    if assume_yes:
+        return
+    if interactive is None:
+        interactive = sys.stdin.isatty()
+    if not interactive:
+        raise InstallerError("--reinstall needs an interactive confirmation or --yes")
+    if ask("Type ERASE to continue: ").strip() != "ERASE":
+        raise InstallerError("reinstall cancelled; nothing was changed")
+
+
 def _ask_yes(prompt: str, default: bool, ask=input) -> bool:
     while True:
         answer = ask(f"{prompt} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
@@ -3160,8 +3367,7 @@ def finish_install(
             reboot = True
     if reboot:
         print("FINAL STAGE: rebooting into the completed installation.", flush=True)
-        _run_command([adb_bin, "-s", serial, "reboot"], 30, check=False)
-        time.sleep(5)
+        adb_reboot_confirmed(adb_bin, serial)
     if v3 is None:
         # Pre-v3 images have no generation gate; keep their historical hand-off.
         if reboot:
@@ -3203,14 +3409,10 @@ case "$MANIFEST_SHA256" in ''|*[!0-9a-f]*) echo FEATURE_STAGE_MANIFEST_HASH_INVA
 [ "${#MANIFEST_SHA256}" -eq 64 ] || { echo FEATURE_STAGE_MANIFEST_HASH_INVALID; exit 1; }
 case "$MANIFEST_SIZE" in ''|*[!0-9]*) echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1 ;; esac
 [ "$MANIFEST_SIZE" -gt 0 ] || { echo FEATURE_STAGE_MANIFEST_SIZE_INVALID; exit 1; }
-if ! $BB grep -q ' /data ' /proc/mounts 2>/dev/null; then
-    [ -b /dev/mmcblk0p16 ] || { echo FEATURE_STAGE_USERDATA_MISSING; exit 1; }
-    $BB mkdir -p /data
-    $BB mount -t ext4 -o rw,nosuid,nodev,noatime /dev/mmcblk0p16 /data || {
-        echo FEATURE_STAGE_USERDATA_MOUNT_FAILED; exit 1; }
-else
-    $BB mount -o remount,rw /data 2>/dev/null || true
-fi
+# The installed image must have mounted userdata itself. Mounting it here would
+# hide a boot-time /data failure until the final reboot (LibreEcho #257).
+$BB grep -q ' /data ' /proc/mounts 2>/dev/null || { echo FEATURE_STAGE_DATA_NOT_MOUNTED; exit 1; }
+$BB mount -o remount,rw /data 2>/dev/null || true
 actual=$($BB sha256sum "$PAYLOAD_FILE" | $BB awk '{print $1}')
 [ "$actual" = "$PAYLOAD_SHA256" ] || { echo FEATURE_STAGE_PAYLOAD_HASH_MISMATCH; exit 1; }
 actual_size=$($BB stat -c %s "$PAYLOAD_FILE" 2>/dev/null)
@@ -3297,6 +3499,14 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--reinstall", action="store_true",
+        help=("one-shot only: install again over a unit that already has a (failed or completed) "
+              "installation. ERASES userdata and rewrites both boot slots; never re-sends the brick"),
+    )
+    parser.add_argument(
+        "--yes", action="store_true", help="do not ask for confirmation before --reinstall erases userdata",
+    )
+    parser.add_argument(
         "--repair-userdata", action="store_true",
         help="explicitly rebuild and flash only userdata when resuming an old failed run",
     )
@@ -3333,6 +3543,10 @@ def main() -> None:
                 print_banner()
                 print(f"Installer log: {ACTIVE_LOG_PATH}", flush=True)
                 try:
+                    if args.reinstall:
+                        if args.action != "one-shot":
+                            raise InstallerError("--reinstall is only valid with one-shot")
+                        confirm_reinstall(args.yes)
                     setup = None
                     if args.action in ("one-shot", "continue-one-shot") and args.execute_hardware and not args.web_setup:
                         interactive = sys.stdin.isatty()
@@ -3366,6 +3580,7 @@ def main() -> None:
                             emulator_kernel=args.emulator_kernel,
                             emulator_initramfs=args.emulator_initramfs,
                             setup=setup,
+                            reinstall=args.reinstall,
                         )
                     elif args.action == "continue-one-shot":
                         result = continue_one_shot(

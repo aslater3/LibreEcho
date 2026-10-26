@@ -59,6 +59,24 @@ sudo apt-get install adb fastboot e2fsprogs
 **not** install `adb` or `fastboot`. Confirm they are available with
 `command -v adb fastboot mke2fs dumpe2fs`.
 
+## Already running LibreEcho?
+
+- **0.14.x:** you do not need this guide. Update over the air from the web UI:
+  **System › System update › Check for updates**, then **Install update**, then
+  **Reboot**.
+- **0.13.x:** reinstall with this guide. The 0.13 updater cannot install the
+  signed OTA v3 packages that 0.14 uses, so update checks report
+  `downloaded_package_invalid` and the device stays on 0.13. The installer
+  formats userdata: settings, Wi-Fi credentials, accounts and pairings are not
+  kept, and you run setup again after the first boot. From 0.14 on, updates
+  install from the web UI.
+- **Echo 2nd Gen on the old boot chain:** if `fastboot getvar product` reports
+  `BISCUIT` on an Echo 2nd Gen, or the installer fails with
+  `boot_a_x readback hash mismatch`, run the
+  [Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration) first.
+- **A previous install that did not finish:** see
+  [Reinstalling over an existing installation](#reinstalling-over-an-existing-installation).
+
 ## 1. Download and verify the release
 
 Copy and paste these commands. `latest` resolves to the current published stable
@@ -181,6 +199,44 @@ The installer reads the device's fastboot product to confirm the target.
 unmodified. The installer checks its size and SHA-256, and extracts only the
 payload for the device's LK build.
 
+### Echo 2nd Gen on the old boot chain (Kaeru migration)
+
+Some Echo 2nd Gen units installed with early LibreEcho tools still run the old
+biscuit/k32 boot chain, or run the current Kaeru chain on the old `_x`
+partition layout. The installer cannot convert them by itself. Signs:
+
+- `fastboot getvar product` reports `BISCUIT` on an Echo 2nd Gen, and the
+  installer warns `boot-chain identity differs from board`;
+- the installer fails with `boot_a_x readback hash mismatch`;
+- `adb shell grep PARTNAME /sys/class/block/mmcblk0p10/uevent` shows
+  `boot_a_x`.
+
+Use the migration kit in
+[`tools/radar-kaeru-migration`](../../tools/radar-kaeru-migration/README.md),
+with LibreEcho running and ADB connected. Always run `--dry-run` first: it
+checks the device and saves backups without writing anything.
+
+```sh
+./migrate.sh -s SERIAL --dry-run   # checks + backups, no writes
+./migrate.sh -s SERIAL             # converts the boot chain and partition table
+./migrate.sh -s SERIAL --verify    # reboots to fastboot, expects product=RADAR
+```
+
+If an older copy of the kit already moved the unit to Kaeru but left the `_x`
+partition table, convert only the table, then reinstall:
+
+```sh
+./migrate.sh -s SERIAL --gpt-fix --dry-run
+./migrate.sh -s SERIAL --gpt-fix
+adb -s SERIAL reboot
+./run-one-shot.sh "$TAG" --reinstall --execute-hardware
+```
+
+The kit refuses anything outside the documented Echo 2nd Gen layout. Every run
+writes a log under `logs/` and a `migration.jsonl`; share both if something goes
+wrong. Echo Dot 2nd Gen units and Echo 2nd Gen units already on the plain
+Kaeru layout do not need the kit.
+
 ## 3. Run the installer
 
 ```sh
@@ -244,6 +300,29 @@ those states. Open the URL printed by the successful continuation. A missing
 device, changed hash, or incomplete staging marker stops the operation rather
 than guessing. Keep the failure log; never edit phase or format markers to
 bypass a refusal.
+
+## Reinstalling over an existing installation
+
+`--continue` only resumes the release recorded in the saved state. To install
+again — for example after a failed first install was fixed in a newer release
+(LibreEcho #257), or to start over — use `--reinstall`:
+
+```sh
+./run-one-shot.sh "$TAG" --reinstall --execute-hardware
+```
+
+`--reinstall` **erases userdata** (settings, Wi-Fi, setup, installed features)
+and rewrites both boot slots. It asks you to type `ERASE` first (`--yes` skips
+the prompt for scripted runs). It:
+
+- reads the target from the saved state, and moves a device running LibreEcho
+  into fastboot over ADB itself, so no button sequence is needed;
+- only runs on a device that is already unlocked, and never sends the brick or
+  repeats the unlock;
+- refuses a device other than the one bound to the install ID, and refuses
+  state with an unresolved brick step (`continue-one-shot` resolves those);
+- keeps the old state as `state.json.before-reinstall-<time>` next to the new
+  one instead of deleting it.
 
 ## 5. First boot and setup
 
@@ -332,6 +411,15 @@ profiles, and other mutable configuration, then reboots to this first-run state.
 The installer refuses to write when the device's fastboot product does not match
 the release target. Do not force it with `--target`. Confirm that you are using
 the bundle for this device.
+
+An Echo 2nd Gen that reports `BISCUIT` is on the old boot chain; see
+[Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration).
+
+### `boot_a_x readback hash mismatch`
+
+The unit runs the Kaeru boot chain on the old `_x` partition table. Run the
+migration kit with `--gpt-fix`, then reinstall; see
+[Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration).
 
 ### The device is locked and no Amonet ZIP was provided
 

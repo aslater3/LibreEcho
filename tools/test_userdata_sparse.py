@@ -157,7 +157,7 @@ class UserdataSparseTests(unittest.TestCase):
 
     def test_unknown_layout_rejected_before_generation(self):
         with mock.patch.object(INSTALLER, "verify_fastboot_product"), \
-             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=0x41B80000 + 512), \
+             mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=0x41380000 - 512), \
              mock.patch.object(INSTALLER, "_run_command") as run, \
              mock.patch.object(INSTALLER, "_run_command_with_heartbeat") as flash:
             with self.assertRaises(INSTALLER.InstallerError), contextlib.redirect_stdout(io.StringIO()):
@@ -241,8 +241,9 @@ class UserdataSparseTests(unittest.TestCase):
                      contextlib.redirect_stdout(io.StringIO()):
                     INSTALLER.format_userdata_in_fastboot(str(root / "fastboot"), "TEST", 120)
                 write.assert_called_once()
-                self.assertIn("4096", commands[0])
-                self.assertEqual(commands[1][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
+                self.assertTrue(commands[0][-1].endswith("feature-probe.ext4"))
+                self.assertIn("4096", commands[1])
+                self.assertEqual(commands[2][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
 
     def test_stock_layouts_format_aligned_prefix_and_flash(self):
         # Issue #230: each board's stock userdata left by Kaeru is not 4 KiB aligned.
@@ -266,14 +267,14 @@ class UserdataSparseTests(unittest.TestCase):
                     INSTALLER.format_userdata_in_fastboot(str(root / "fastboot"), "TEST", 120)
                 write.assert_called_once()
 
-    def test_stock_layout_rejected_for_other_board(self):
-        for target, partition in (("biscuit", 0x4EFFBE00), ("radar_puffin", 0x4F7FBE00)):
+    def test_layout_outside_floor_and_cap_rejected_before_any_command(self):
+        for target, partition in (("biscuit", 0x41380000 - 4096), ("radar_puffin", 17 * 1024 ** 3)):
             with self.subTest(target=target), \
                  mock.patch.object(INSTALLER, "verify_fastboot_product", return_value=target), \
                  mock.patch.object(INSTALLER, "_fastboot_partition_size", return_value=partition), \
                  mock.patch.object(INSTALLER, "_run_command") as run, \
                  mock.patch.object(INSTALLER, "_run_command_with_heartbeat") as flash:
-                with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size mismatch"), \
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "userdata partition size unsupported"), \
                      contextlib.redirect_stdout(io.StringIO()):
                     INSTALLER.format_userdata_in_fastboot("fastboot", "TEST", 120)
                 run.assert_not_called()

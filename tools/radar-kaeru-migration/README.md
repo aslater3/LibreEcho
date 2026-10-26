@@ -2,8 +2,16 @@
 
 `migrate.sh` converts a `radar_puffin` that is still running the **old biscuit/k32
 boot chain** (the LK used by the pre-radar LibreEcho installs) to the current
-**kaeru-based radar amonet chain**. It swaps the boot chain only; the installed
-LibreEcho OS and the legacy `_x` partition layout stay exactly as they are.
+**kaeru-based radar amonet chain**, then converts the partition table from the
+legacy `_x` layout to the plain layout the kaeru LK expects. The installed
+LibreEcho OS image stays exactly where it is.
+
+> **Why the GPT step exists.** The kaeru LK resolves the partition *name*
+> `boot_a` and has **no `_x` redirect**. On a unit left on the `_x` layout,
+> `fastboot flash boot_a` writes the 110 MiB wrapper (p17), the LK boots p17,
+> but bootctl/OTA and the installer use p10/p11 — so the one-shot installer
+> fails with `boot_a_x readback hash mismatch` and OTA slot switching would not
+> change what boots. Earlier copies of this kit skipped the GPT step.
 
 Typical symptom this fixes: `fastboot getvar product` reports `BISCUIT` on a
 radar_puffin, and the one-shot installer warns
@@ -18,6 +26,25 @@ because the old chain is already unlocked, so the installer never converts it.
 ./migrate.sh -s SERIAL --verify      # reboot to fastboot, assert product=RADAR
 ```
 
+### Already migrated with an older copy of this kit (`boot_a_x readback hash mismatch`)
+
+The chain is already kaeru but the partition table is still `_x`
+(`adb shell grep PARTNAME /sys/class/block/mmcblk0p10/uevent` shows `boot_a_x`).
+Convert only the GPT, with LibreEcho running and ADB up:
+
+```sh
+./migrate.sh -s SERIAL --gpt-fix --dry-run   # validates, saves the current GPT, writes nothing
+./migrate.sh -s SERIAL --gpt-fix             # writes backup GPT, then primary, with readbacks
+adb -s SERIAL reboot
+# then rerun the one-shot installer with --reinstall (erases userdata)
+```
+
+`--gpt-fix` refuses on an old-chain unit (the biscuit LK needs `_x`; run the full
+migration instead). It is idempotent: on a plain table it does nothing.
+Roll back with `./migrate.sh -s SERIAL --gpt-restore` (writes the saved
+`backup/gpt-*-orig.bin`, checked against `backup/GPT-MANIFEST.sha256`).
+`--no-gpt-fix` runs the old chain-only migration.
+
 If the device is stuck in fastboot with rainbow LEDs (old chain left a
 `FASTBOOT_PLEASE` marker in expdb), unstick it first with
 `fastboot -s SERIAL erase expdb` + `fastboot -s SERIAL reboot`, get it back into
@@ -27,7 +54,8 @@ and must never be erased.
 
 ## What it checks before writing anything
 
-1. **Chain identity (expdb head).** `88 16 88 58 40` magic → already kaeru, refuses.
+1. **Chain identity (expdb head).** `88 16 88 58 40` magic → already kaeru, refuses
+   (except with `--gpt-fix`, which requires it).
    `FASTBOOT_PLEASE` or all-zero → old chain, proceeds. Anything else → refuses.
 2. **LK identity strings.** Warns if `lk_a` does not contain `biscuit` — confirm
    the device really is on the old chain before continuing.
@@ -48,8 +76,15 @@ SHA-256-pinned by `MANIFEST.sha256` and re-verified on-device after push:
 | `radar-kaeru.bin` | `02e981b2e055e08e09c71c34f9d88a22d9b1ad316adafb0986e203246566013b` | `expdb` (p7), offset 0 |
 | `preloader.img` | `4c7aac4efa7a1bce6922a355c3636e1da575f99bee960d6afd07e1ba107668f` | `mmcblk0boot0` (mknod + force_ro, written LAST) |
 
-Never touched: GPT, `boot_a_x`/`boot_b_x` (the OS image stays), misc, recovery,
-userdata. Every write is followed by a full readback SHA check; the preloader
+Then the GPT step (`gpt-fix.py`, pinned in `MANIFEST.sha256`, stdlib Python 3 on
+the host): `boot_a_x`/`boot_b_x` (p10/p11) are renamed `boot_a`/`boot_b` on the
+same sectors and the p17/p18 wrapper entries are removed. `userdata` keeps its
+start/end (unlike upstream amonet `restore_gpt`, which extends it; the installer
+pins its size). The result is byte-identical to the GPT of the hardware-validated
+pinned-kaeru dev unit. The tool refuses on any CRC error, primary/backup
+disagreement, or geometry that is not the radar `_x` contract.
+
+Never touched: OS image contents, misc, recovery, userdata contents. Every write is followed by a full readback SHA check; the preloader
 write order (chain first, preloader last) is copied from the tested
 `radar-full-stock-20261009` restore.
 
@@ -80,8 +115,16 @@ secrets — only serials, hashes and gate output) with LibreEcho support.
   `radar-full-stock-20261009/flash.sh` (successful full Radar stock restore log
   ends `ALLDONE`).
 - Gates, backups and staging verified live on a maintainer dev unit
-  (correctly refused: already kaeru). The dev unit also proves the radar LK runs
-  correctly on the `_x` layout.
-- The full write path has not yet been run end-to-end on a device that is
-  actually on the old chain — first community conversion is the test; the gates
-  and rollback are the safety net.
+  (correctly refused: already kaeru). Correction: that dev unit is on the
+  **plain** layout (p10/p11 named `boot_a`/`boot_b`, no p17/p18), so it never
+  proved the kaeru LK works on `_x`. A field unit (kaeru chain,
+  `_x` GPT) showed it does not: one-shot `flash boot_a` booted fine but p10 kept
+  the previous image.
+- `gpt-fix.py` output on the `_x` form of the dev unit's table is byte-identical
+  to the dev unit's real primary and backup GPT.
+- Whole kit exercised end to end against a mock adb + disk image (old-chain full
+  migration incl. GPT step, `--gpt-fix`, idempotent rerun, `--gpt-restore`,
+  refusals). Earlier copies had a staging-path bug (`stage/$img.img`) that made
+  every chain write abort before writing; fixed.
+- Not yet run on real hardware with the GPT step — first field run is the test;
+  dry-run, saved GPT and `--gpt-restore` are the safety net.

@@ -85,6 +85,31 @@ class HostFastbootPreflightTests(unittest.TestCase):
             ):
                 self.assertTrue(any(name.endswith(expected) for name in names), expected)
 
+    def test_failure_evidence_ignores_capture_header_as_serial(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / "bin"
+            bindir.mkdir()
+            calls = root / "fastboot-calls"
+            command = bindir / "fastboot"
+            command.write_text(
+                f"#!/bin/sh\necho \"$*\" >> {calls}\n"
+                "if [ \"$1\" = devices ]; then printf 'FB123\\tfastboot\\n'; fi\n",
+                encoding="ascii")
+            command.chmod(0o755)
+            log = root / "run.log"
+            log.write_text("original failure\n", encoding="utf-8")
+            args = type("Args", (), {
+                "fastboot_bin": "fastboot", "adb_bin": str(root / "missing-adb"),
+                "fastboot_serial": "auto", "cache_root": root / "cache",
+            })()
+            with mock.patch.object(INSTALLER, "ACTIVE_LOG_PATH", log), \
+                 mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+                INSTALLER.collect_failure_evidence(args, "simulated failure")
+            invoked = calls.read_text(encoding="utf-8").splitlines()
+            self.assertIn("-s FB123 getvar all", invoked)
+            self.assertFalse(any(line.startswith("-s $") for line in invoked), invoked)
+
     def test_stages_complete_userdata_toolset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -141,17 +166,46 @@ class HostFastbootPreflightTests(unittest.TestCase):
                  mock.patch.object(INSTALLER, "_run_command_with_heartbeat", side_effect=fake_run):
                 INSTALLER.format_userdata_in_fastboot(str(fastboot), "SERIAL", 120)
 
-            mke2fs = commands[0]
+            probe, mke2fs = commands[0], commands[1]
+            self.assertEqual(Path(probe[0]).name, "mke2fs")
+            self.assertTrue(probe[-1].endswith("feature-probe.ext4"))
             self.assertEqual(Path(mke2fs[0]).name, "mke2fs")
             self.assertIn("^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file", mke2fs)
             self.assertEqual(mke2fs[mke2fs.index("-b") + 1], "4096")
-            self.assertEqual(commands[1][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
-            self.assertEqual(len(commands), 3)
+            self.assertEqual(commands[2][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
+            self.assertEqual(len(commands), 4)
             self.assertFalse(any("format:ext4" in command for command in commands))
             flash = commands[-1]
             self.assertEqual(flash[:5], [str(fastboot), "-s", "SERIAL", "flash", "userdata"])
             self.assertTrue(flash[5].endswith("userdata.sparse.img"))
             self.assertEqual(timeouts[-1], INSTALLER.USERDATA_FLASH_TIMEOUT)
+
+    def _features_with_probe_result(self, result):
+        with tempfile.TemporaryDirectory() as temporary, \
+             mock.patch.object(INSTALLER, "_run_command", return_value=result) as run, \
+             mock.patch("builtins.print"):
+            features = INSTALLER._userdata_ext4_features(Path("mke2fs"), Path(temporary), 60)
+            self.assertFalse((Path(temporary) / "feature-probe.ext4").exists())
+        run.assert_called_once()
+        self.assertFalse(run.call_args.kwargs["check"])
+        return features
+
+    def test_userdata_features_disable_orphan_file_when_mke2fs_knows_it(self) -> None:
+        features = self._features_with_probe_result(subprocess.CompletedProcess([], 0, "", ""))
+        self.assertEqual(features, "^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file")
+
+    def test_userdata_features_drop_orphan_file_for_pre_1_47_mke2fs(self) -> None:
+        rejected = subprocess.CompletedProcess(
+            [], 1, "",
+            "Invalid filesystem option set: ^64bit,^metadata_csum,^metadata_csum_seed,^orphan_file\n",
+        )
+        features = self._features_with_probe_result(rejected)
+        self.assertEqual(features, "^64bit,^metadata_csum,^metadata_csum_seed")
+
+    def test_userdata_features_probe_other_failure_stops_install(self) -> None:
+        broken = subprocess.CompletedProcess([], 1, "", "mke2fs: Permission denied\n")
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "feature probe failed"):
+            self._features_with_probe_result(broken)
 
     def test_long_command_prints_elapsed_heartbeat(self) -> None:
         with mock.patch("builtins.print") as output:

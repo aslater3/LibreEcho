@@ -110,43 +110,50 @@ governs branch, PR, and release flow only.
 
 ```text
 feature/<purpose>   fix/<issue-or-purpose>
-       |                   |
-       | PR                | PR
-       v                   v
-release/X.Y.0        release/X.Y.Z
- (major release)      (minor release)
-       \______  _________/
-               v
-              main         (release branch merges back when release-ready)
+        \                 /
+         \ PR         PR /      (fix for an open release branch: PR to that branch)
+          v              v
+               main               integration branch
+                 |
+                 | cut when the next release is ready to freeze
+                 v
+         release/X.Y.Z           one active release line; fixes only by PR
+                 |
+                 | back-merge by PR when the release is final
+                 v
+               main
 ```
 
 - `main` is the integration branch. Nothing is committed directly to `main` or
   to any `release/*` branch; every change lands through a pull request.
-- **Features** start from the current `main` (or from the active release branch
-  when the feature is scoped to that release) on a branch named
-  `feature/<short-purpose>` and merge into the next **major release branch**,
-  `release/X.(Y+1).0` (for example `release/0.14.0`).
-- **Fixes** follow the same flow and merge into the corresponding **minor
-  release branch**, `release/X.Y.(Z+1)` (for example `release/0.13.8`).
-- Because the current line is pre-1.0 (`0.Y.Z`), a `Y` bump is a *major*
-  product release and a `Z` bump is a *minor* (fix) release; this is the
-  terminology used for release branches throughout. In SemVer terms a `Y`
-  bump is a MINOR bump and a `Z` bump is a PATCH bump. The `Release impact:`
-  label always uses SemVer terms: a pre-1.0 product major release (`Y` bump)
-  is `Release impact: minor`, and a pre-1.0 product minor release (`Z` bump)
-  is `Release impact: patch`.
-- A release branch is cut from `main`, receives its features and fixes by PR,
-  and merges back into `main` when it is validated and release-ready.
-- If the release branch for a fix already exists, base the fix PR on that
-  release branch rather than on `main`. If a fix was merged into `main`
-  before the release branch was cut, carry it over by cherry-picking the
-  merged commit onto a new `fix/<purpose>` branch cut from the release
-  branch and opening a PR against the release branch that references the
-  original PR; never push directly to a release branch and never hand-edit a
-  divergent copy.
-- After a release merges to `main`, subsequent work starts from `main` again.
-  A new release branch is cut for the next release; release branches are not
-  reused or revived.
+- **Features** start from `main` on a branch named `feature/<short-purpose>`
+  and merge into `main`. They ship in the next **feature release**
+  (`release/0.(Y+1).0`), which is cut from `main` on a regular train.
+  Features never go into a fix release.
+- **Fixes** start from `main` on `fix/<purpose>` and merge into `main`,
+  unless a release branch is open for the release they fix; then they are
+  based on and merged into that release branch, and reach `main` through the
+  back-merge.
+- **Breaking changes** (see the bump rules below) stay on their `feature/`
+  branch until ready and merge into `main` only when the next release is
+  designated a breaking release. Unrelated features do not wait for them.
+- Pre-1.0 terminology: a `Y` bump is a **feature release** (or a **breaking
+  release** when it contains a breaking change) and a `Z` bump is a **fix
+  release**. The `Release impact:` label always uses SemVer terms: a feature
+  release change is `Release impact: minor`, a fix is `Release impact: patch`,
+  and a breaking change is `Release impact: major` even while pre-1.0.
+- Release branches are cut only when their contents are ready to freeze, not
+  ahead of time, and at most one feature release branch is open at once. A
+  fix release branch is cut from the last stable release branch only when a
+  fix cannot wait for the next feature release. If a fix was merged into
+  `main` and must also ship on an open release branch, cherry-pick the merged
+  commit onto a new `fix/<purpose>` branch cut from the release branch and
+  open a PR against the release branch that references the original PR;
+  never push directly to a release branch and never hand-edit a divergent
+  copy.
+- After a release back-merges to `main`, the release branch is not reused or
+  revived. The full model, including what qualifies for a fix release and how
+  experimental features ship, is in [`docs/RELEASING.md`](docs/RELEASING.md).
 
 Branch name prefixes: `feature/` (new capability), `fix/` (bug fix),
 `release/` (release branches only), `docs/` (documentation-only). Other
@@ -211,9 +218,12 @@ prefixes require maintainer agreement.
   included in the image; the release gate fails closed on mismatch.
 - Bump rules:
   - `major` (X): intentional incompatible contract or migration (OTA protocol,
-    data/config migration, partition/boot contract, unsupported rollback).
+    data/config migration, partition/boot contract, reinstall requirement,
+    unsupported rollback). While pre-1.0 this ships as a breaking release,
+    which bumps Y and is marked breaking in its release note.
   - `minor` (Y): new backward-compatible capability, service, payload, or
-    additive API/UI contract; reset Z to 0.
+    additive API/UI contract; reset Z to 0. Capability not yet validated on
+    both targets ships off by default and is marked experimental.
   - `patch` (Z): backward-compatible bug, reliability, packaging, or security
     fix that changes the shipped artifact.
   - `none`: tests, CI-only, internal refactor, or unshipped documentation.
@@ -225,12 +235,23 @@ prefixes require maintainer agreement.
   commits between the previous release and the release heads of all
   repositories; release notes are generated from that ledger, not from branch
   names or memory.
+- The release sequence (freeze, dev build, hardware validation, stable build,
+  documentation sync, announcement) is defined in
+  [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## AI agent rules
 
 - Before editing, read this file, the relevant part of `README.md`, and any
   directly applicable `CONTRIBUTING.md`; do not recursively inspect unrelated
   documentation or historical source.
+- For any release task (dispatching `build-release.yml` for `dev` or `prd`,
+  approving `dev-release`/`stable-release`, writing or editing release notes,
+  editing a GitHub Release, or updating the install guide or website for a
+  release), first read [`docs/RELEASING.md`](docs/RELEASING.md) and follow its
+  order. Find or open the release's *Release checklist* issue and record each
+  step's evidence there. A successful `prd` run publishes immediately, so never
+  dispatch or approve it before the same heads have passed hardware validation
+  as a `dev` build.
 - Re-read the live branch, status, and diff before making changes.
 - For an authorized edit, create or use an isolated purpose-named branch
   based on the current base selected by the branch policy above.

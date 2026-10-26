@@ -31,8 +31,8 @@
       "license": "GPL-2.0-only",
       "release_status": "cleared",
       "distribution_scope": "core-image",
-      "download_location": "https://github.com/aslater3/LibreEcho-Linux-6.1",
-      "source_offer": "https://github.com/aslater3/LibreEcho-Linux-6.1",
+      "download_location": "https://github.com/aslater3/LibreEcho-Linux",
+      "source_offer": "https://github.com/aslater3/LibreEcho-Linux",
       "evidence": [
         "release/THIRD_PARTY_NOTICES.md"
       ]

@@ -38,9 +38,10 @@ the Echo; please report Dot problems with a diagnostic bundle from
 **Settings**.
 
 The current stable release is
-[`radar-puffin-v0.14.1`](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.14.1).
-See [the 0.14.0 release note](release/radar-puffin-v0.14.0.md) for what is new
-in the 0.14 line and the [changelog](CHANGELOG.md) for earlier releases.
+[`radar-puffin-v0.14.4`](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.14.4)
+([release note](release/radar-puffin-v0.14.4.md)). See
+[the 0.14.0 release note](release/radar-puffin-v0.14.0.md) for what is new in
+the 0.14 line and the [changelog](CHANGELOG.md) for every release.
 
 ## Install
 
@@ -132,13 +133,13 @@ A device on 0.13.x cannot update itself to 0.14. Reinstall it with the steps
 above. Installing formats userdata, so run the setup wizard again afterwards.
 
 To reinstall a device that already has a 0.14 installation, for example a
-0.14.0 install that stopped at *waiting for startup-ready*, use the 0.14.1
-wrapper's `--reinstall` option. It does not repeat the unlock and moves a
+0.14.0 install that stopped at *waiting for startup-ready*, use the
+`--reinstall` option of the 0.14.1 or later wrapper. It does not repeat the unlock and moves a
 running device into fastboot itself. It **erases userdata** and asks you to
 type `ERASE` first:
 
 ```sh
-TAG=radar-puffin-v0.14.1
+TAG=radar-puffin-v0.14.4
 curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
 chmod +x run-one-shot.sh
 ./run-one-shot.sh "$TAG" --reinstall --execute-hardware
@@ -210,7 +211,7 @@ priority.
 | --- | --- |
 | [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, hosted image CI, documentation, support, roadmap, issues, release notes, and OTA distribution |
 | [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, and OTA verification/build inputs; the historical 3.18 tree remains here for compatibility |
-| [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1) | Current standalone MT8163 Linux 6.1 kernel line and kernel-side platform changes |
+| [`LibreEcho-Linux`](https://github.com/aslater3/LibreEcho-Linux) | MT8163 Linux 6.1 kernel on upstream stable history, with kernel-side platform changes and the in-tree connectivity stack. Replaces the archived [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1), which holds the source for releases up to 0.14.4 |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 
 See [the repository boundary guide](docs/repositories.md) for where a change belongs.
