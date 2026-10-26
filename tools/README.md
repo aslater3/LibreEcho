@@ -18,7 +18,7 @@ tools/libreecho-install.py.sha256
 | Target | Product string | Amonet archive | Accepted LK builds |
 |---|---|---|---|
 | `radar_puffin` (Echo 2nd Gen) | `RADAR` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
-| `biscuit` (Echo Dot 2nd Gen) | `BISCUIT` | `amonet-biscuit-v2.0.0.zip` | `63cb91b-20221007_072309` only |
+| `biscuit` (Echo Dot 2nd Gen) | `BISCUIT` | `amonet-biscuit-v2.0.0.zip` | Any; `63cb91b-20221007_072309` uses its reviewed payload, other builds the default `fastbrick.img` |
 
 The pinned archive and per-build payload digests are recorded in
 `release/amonet-pins.json` and embedded in the installer as `AMONET_PINS`. A
@@ -38,7 +38,8 @@ k32 launcher.
 verify/download the Product release
 → check the device's fastboot product against the release target
 → if the bootloader is locked:
-     select the payload for the exact lk_build_desc
+     select the payload for the device's lk_build_desc
+       (biscuit: default payload if the build has no reviewed mapping)
      extract and verify it from the pinned Amonet ZIP
      fastboot flash brick <payload>
 → wait for the unlocked fastboot device
@@ -127,8 +128,11 @@ installer leaves it intact.
   check. It never stands in for an unreadable product.
 
 - The archive's SHA-256 and size must match the pin for the selected target.
-  The payload's size and SHA-256 must match the entry for the device's exact
-  `lk_build_desc`. Any mismatch stops before the brick write.
+  The payload's size and SHA-256 must match the pinned entry selected for the
+  device's `lk_build_desc`: the exact build's entry, or on `biscuit` the
+  default payload for a build without one. An empty `lk_build_desc`, or an
+  unlisted build on `radar_puffin`, stops before the brick write, as does any
+  size or digest mismatch.
 - `eMMC-RO` and `Device mismatch` in the brick output are hard stops. The
   installer does not retry them.
 

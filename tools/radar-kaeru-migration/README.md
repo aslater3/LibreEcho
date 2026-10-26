@@ -114,7 +114,7 @@ secrets — only serials, hashes and gate output) with LibreEcho support.
 - Write/readback/backup discipline copied from the tested
   `radar-full-stock-20261009/flash.sh` (successful full Radar stock restore log
   ends `ALLDONE`).
-- Gates, backups and staging verified live on dev unit `G090P308901401LH`
+- Gates, backups and staging verified live on a maintainer dev unit
   (correctly refused: already kaeru). Correction: that dev unit is on the
   **plain** layout (p10/p11 named `boot_a`/`boot_b`, no p17/p18), so it never
   proved the kaeru LK works on `_x`. A field unit (kaeru chain,

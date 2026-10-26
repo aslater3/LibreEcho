@@ -24,9 +24,13 @@
 | Device | Target | Amonet archive | Accepted LK build |
 |---|---|---|---|
 | Echo 2nd Gen | `radar_puffin` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
-| Echo Dot 2nd Gen | `biscuit` | `amonet-biscuit-v2.0.0.zip` | `63cb91b-20221007_072309` only |
+| Echo Dot 2nd Gen | `biscuit` | `amonet-biscuit-v2.0.0.zip` | Any; `63cb91b-20221007_072309` uses its reviewed payload, other builds the default `fastbrick.img` |
 
-Biscuit accepts any LK build. An unknown or empty LK build stops before any write.
+Biscuit accepts any LK build the device reports. The reviewed build
+`63cb91b-20221007_072309` uses its own payload; any other build uses the
+archive's default `fastbrick.img`. If the device reports no LK build (an empty
+`lk_build_desc`), the installer stops before any write. The Echo 2nd Gen
+accepts only the builds listed in its row.
 
 ## Equipment
 
@@ -251,8 +255,9 @@ The installer:
 1. Verifies the release and the installer checksum.
 2. Reads the fastboot product and checks it against the release target.
 3. If the bootloader is unlocked, skips the unlock step. If it is locked,
-   selects the payload for the exact `lk_build_desc`, verifies it, and sends it
-   with `fastboot flash brick`.
+   selects the payload for the device's `lk_build_desc` (on the Echo Dot, the
+   default payload when the build has no reviewed mapping), verifies it, and
+   sends it with `fastboot flash brick`.
 4. Formats userdata, flashes both verified boot slots, reboots, and waits for
    ADB.
 5. Verifies boot readback, stages the feature payloads, and creates the
@@ -423,9 +428,11 @@ Pass the pinned archive with `--amonet-zip`. The installer requires it only when
 
 ### The Amonet ZIP is refused
 
-The archive's SHA-256 or size does not match the pin, or the device's `lk_build_desc`
-is not in the accepted list for its target. Use the exact archive named in the
-table above. For Biscuit, any LK build is accepted; the default payload covers builds without a reviewed mapping.
+The archive's SHA-256 or size does not match the pin, the device reported an
+empty `lk_build_desc`, or, on the Echo 2nd Gen, its LK build is not one of the
+builds listed for `radar_puffin`. Use the exact archive named in the table
+above. The Echo Dot accepts any non-empty LK build; the default payload covers
+builds without a reviewed mapping.
 
 ### The brick step reports `eMMC-RO` or `Device mismatch`
 
