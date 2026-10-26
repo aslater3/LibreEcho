@@ -69,13 +69,20 @@ The speaker only plays for a server it is paired with.
 - Audio format: uncompressed PCM, 48 kHz, 16-bit stereo. FLAC and Opus are
   not supported in 0.15; Music Assistant sends PCM to this player.
 - One server at a time.
-- There is no **Unpair** control yet. Turning the integration off stops the
-  player and removes it from the network, but keeps the pairing.
+
+## Forget paired servers
+
+On the Sendspin card press **Forget paired servers** and confirm. The
+speaker forgets every server it was paired with and gets a new pairing
+token; each server has to pair again with the new token. Use it when you
+replace your Music Assistant server or if the token may have leaked. It
+also works while the integration is off.
 
 ## Turn it off
 
 Untick **Sendspin (Music Assistant)** on the Integrations page and press
 **Save**. The player stops and is no longer advertised on the network.
+Its pairing is kept; use **Forget paired servers** to remove it.
 
 ## Troubleshooting
 
@@ -89,6 +96,7 @@ Untick **Sendspin (Music Assistant)** on the Integrations page and press
   muted in Music Assistant, and that no alarm is sounding.
 
 For developers: the REST endpoints are `GET /api/v1/sendspin`,
-`POST /api/v1/sendspin/pairing` and `PUT /api/v1/integrations/sendspin`
+`POST /api/v1/sendspin/pairing`, `POST /api/v1/sendspin/unpair` and
+`PUT /api/v1/integrations/sendspin`
 (see the UI repository's `docs/API.md`); the design is in
 [`docs/architecture/sendspin.md`](../architecture/sendspin.md).
