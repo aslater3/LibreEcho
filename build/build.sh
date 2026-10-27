@@ -659,8 +659,8 @@ if [[ "$FEATURES_ENABLED" == 1 ]]; then
   fi
   pinned_inputs+=(
     curl-8.21.0.tar.xz ca-certificates-20260601.crt
-    ca-certificates-20260601.copyright nqptp-1.2.8.tar.gz
-    shairport-sync-5.1.tar.gz ffmpeg-6.1.1.tar.xz
+    ca-certificates-20260601.copyright nqptp-1.2.9.tar.gz
+    shairport-sync-5.6.2.tar.gz ffmpeg-6.1.6.tar.xz
     host-tools/bin/plistutil host-tools/lib/libplist-2.0.so.4
     host-tools/manifest.json host-tools/share/libplist/copyright
     host-tools/share/libplist/COPYING.LESSER
@@ -1891,9 +1891,9 @@ airplay_cache_key_args=(
   --value "payload_layout=v2" \
   --tree "platform-airplay=$TOOLS_DIR/airplay" \
   --value "airplay-sysroot=$AIRPLAY_SYSROOT_KEY" --tree "alsa-data=$AIRPLAY_ALSA_DATA" \
-  --file "nqptp-source=$INPUTS/nqptp-1.2.8.tar.gz" \
-  --file "shairport-source=$INPUTS/shairport-sync-5.1.tar.gz" \
-  --file "ffmpeg-source=$INPUTS/ffmpeg-6.1.1.tar.xz" \
+  --file "nqptp-source=$INPUTS/nqptp-1.2.9.tar.gz" \
+  --file "shairport-source=$INPUTS/shairport-sync-5.6.2.tar.gz" \
+  --file "ffmpeg-source=$INPUTS/ffmpeg-6.1.6.tar.xz" \
   --file "tinyalsa-source=$AIRPLAY_TINYALSA_ARCHIVE" \
   --file "airplay-cxx=$AIRPLAY_CXX" --file "host-plistutil=$AIRPLAY_PLISTUTIL" \
   --tree "host-lib=$AIRPLAY_HOST_LIB" \
@@ -1930,9 +1930,9 @@ if ! component_cache_restore airplay "$airplay_cache_key" "$AIRPLAY_STAGE"; then
   env "${airplay_build_env[@]}" \
     "LIBREECHO_AIRPLAY_RELINK_OUTPUT=$AIRPLAY_STAGE/airplay-relink" \
     "$AIRPLAY_BUILDER" \
-    "$INPUTS/nqptp-1.2.8.tar.gz" \
-    "$INPUTS/shairport-sync-5.1.tar.gz" \
-    "$INPUTS/ffmpeg-6.1.1.tar.xz" \
+    "$INPUTS/nqptp-1.2.9.tar.gz" \
+    "$INPUTS/shairport-sync-5.6.2.tar.gz" \
+    "$INPUTS/ffmpeg-6.1.6.tar.xz" \
     "$AIRPLAY_TINYALSA_ARCHIVE" \
     "$AIRPLAY_SYSROOT" "$AIRPLAY_STAGE/airplay" | tee "$RUN/airplay-build.log"
   require_relink_tree "$AIRPLAY_STAGE/airplay-relink" "AirPlay"
