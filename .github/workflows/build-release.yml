@@ -1226,7 +1226,7 @@ jobs:
           # interpreter are build inputs exactly like the other source-locked
           # components.
           LIBREECHO_OPUS_ARCHIVES_DIR: ${{ runner.temp }}/public-deps
-          LIBREECHO_MBEDTLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/mbedtls-3.6.4.tar.bz2
+          LIBREECHO_MBEDTLS_SOURCE_ARCHIVE: ${{ runner.temp }}/public-deps/mbedtls-3.6.7.tar.bz2
           LIBREECHO_MBEDTLS_BUILD_PYTHON: ${{ runner.temp }}/mbedtls-build-venv/bin/python
           LIBREECHO_ADBD_KERNEL_HEADERS: ${{ runner.temp }}/kernel-uapi/include
           LIBREECHO_UI_CROSS: ${{ runner.temp }}/armhf-root/usr/bin/arm-linux-gnueabihf-
