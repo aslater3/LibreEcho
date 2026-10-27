@@ -1,9 +1,9 @@
 # Sendspin: multiroom audio with Music Assistant
 
-> **Draft for 0.15.** The LibreEcho side below is implemented and tested on
-> hardware with the pinned Sendspin reference server. The Music Assistant
-> steps have not yet been checked against a Music Assistant release; they
-> will be confirmed (with screenshots) before 0.15 ships.
+> **Draft for 0.15.** Tested on an Echo (2nd generation) and an Echo Dot
+> with Music Assistant 2.10.8: discovery, token pairing, grouping, play,
+> pause, seek, leave/rejoin, volume and mute. Screenshots will be added
+> before 0.15 ships.
 
 LibreEcho can join [Music Assistant](https://music-assistant.io/) as a
 Sendspin speaker. Music Assistant then plays to it on its own or in a group
@@ -43,8 +43,9 @@ The speaker only plays for a server it is paired with.
    token starts with `SP:`. Anyone who has it can pair a server with this
    speaker, so keep it private; press **Hide** when you are done. The token
    is never shown in status, logs or a configuration export.
-2. In Music Assistant, add the discovered Sendspin player and paste the
-   token when it asks for one.
+2. In Music Assistant the speaker appears under its host name, marked as
+   needing setup. Open it, start the setup, and paste the token when Music
+   Assistant asks for the pairing token.
 3. The card changes to *Connected to …*. Pairing is stored on the speaker
    and survives restarts.
 
@@ -79,6 +80,10 @@ replace your Music Assistant server or if the token may have leaked. It
 also works while the integration is off.
 
 ## Turn it off
+
+After **Forget paired servers**, Music Assistant still lists the speaker but
+can no longer connect; set it up again with the new token, or remove it in
+Music Assistant.
 
 Untick **Sendspin (Music Assistant)** on the Integrations page and press
 **Save**. The player stops and is no longer advertised on the network.
