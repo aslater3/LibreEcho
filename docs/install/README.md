@@ -401,6 +401,39 @@ profiles, and other mutable configuration, then reboots to this first-run state.
   power-on. Hold **Volume Down (−)** on its own instead; see
   [Which button to hold](#which-button-to-hold).
 
+### Windows with WSL: ADB is lost after the first boot
+
+A native Linux host is the tested setup. Under WSL2 with `usbipd-win`, the
+installer can stop after the boot slots are written:
+
+```text
+ERROR: timed out waiting for ADB after the first boot.
+The boot image is already written (phase BOOT_WRITTEN)...
+```
+
+The Echo changes USB identity several times during an install (fastboot,
+preloader, recovery, then LibreEcho). Each change is a new USB device to
+Windows, so a usbipd attachment can drop before LibreEcho's ADB comes up. The
+installed image is fine. **Do not reflash or reinstall.**
+
+1. Let the device finish booting with Windows keeping the USB device (do not
+   attach it to WSL). Confirm Windows `adb devices` lists it.
+2. Make that connection reachable from the WSL installer. For example, point
+   WSL's `adb` at the Windows ADB server rather than attaching the device to
+   WSL.
+3. Resume with the same tag, serial, cache and state roots, and slot selection,
+   as in [Recovering from a forwarding failure](#recovering-from-a-forwarding-failure):
+
+   ```sh
+   ./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
+     --slots both --execute-hardware
+   ```
+
+`--continue` verifies the written boot slots before staging anything, and does
+not reflash. This route has been confirmed on one Echo 2nd Gen
+([#293](https://github.com/aslater3/LibreEcho/issues/293)). If you have a native
+Linux machine, use it instead.
+
 ### The product does not match the release
 
 The installer refuses to write when the device's fastboot product does not match
