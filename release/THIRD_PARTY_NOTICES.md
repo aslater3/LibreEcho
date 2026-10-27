@@ -37,7 +37,7 @@ complete notices and component inventory.
 - **libnl 3.11.0** — LGPL-2.1-only; the pinned source archive and public
   Platform build instructions allow rebuilding and relinking the statically
   incorporated `libnl-3` and `libnl-genl-3` code.
-- **Mbed TLS 3.6.4** — Apache-2.0; rebuilt from the pinned upstream release
+- **Mbed TLS 3.6.7** — Apache-2.0; rebuilt from the pinned upstream release
   archive as static ARM32 `libmbedcrypto`, `libmbedx509`, and `libmbedtls`
   archives and linked into the Web UI (`libreecho-web`) and the radio client
   (`libreecho-radiod`). The upstream `LICENSE` ships beside the archives and the
@@ -81,8 +81,8 @@ allowed only in the explicitly labelled `community-noncommercial` scope.
 
 ### AirPlay 2
 
-The AirPlay payload contains Shairport Sync 5.1, NQPTP 1.2.8, a minimal FFmpeg
-7.1.1 build, TinyALSA, Avahi, D-Bus, OpenSSL and their dynamic dependency
+The AirPlay payload contains Shairport Sync 5.6.2, NQPTP 1.2.9, a minimal FFmpeg
+6.1.6 build, TinyALSA, Avahi, D-Bus, OpenSSL and their dynamic dependency
 closure. The payload embeds:
 
 - source license files for Shairport Sync, NQPTP, FFmpeg, and TinyALSA;
