@@ -35,6 +35,8 @@ with other Sendspin speakers, kept in time with each other.
    | Playing from *server* | Audio is playing. |
    | Not configured | The integration is off. |
 
+   ![The Sendspin card on the Integrations page, connected to Music Assistant](../images/sendspin/sendspin-card.png)
+
 ## Pair it with Music Assistant
 
 The speaker only plays for a server it is paired with.
@@ -43,6 +45,8 @@ The speaker only plays for a server it is paired with.
    token starts with `SP:`. Anyone who has it can pair a server with this
    speaker, so keep it private; press **Hide** when you are done. The token
    is never shown in status, logs or a configuration export.
+
+   ![The pairing token shown on the Sendspin card, with Copy and Hide](../images/sendspin/sendspin-pairing-token.png)
 2. In Music Assistant the speaker appears under its host name, marked as
    needing setup. Open it, start the setup, and paste the token when Music
    Assistant asks for the pairing token.
