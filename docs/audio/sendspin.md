@@ -67,8 +67,9 @@ The speaker only plays for a server it is paired with.
 
 ## Limits
 
-- Audio format: uncompressed PCM, 48 kHz, 16-bit stereo. FLAC and Opus are
-  not supported in 0.15; Music Assistant sends PCM to this player.
+- Audio format: FLAC (preferred, lossless at about half the Wi-Fi bit rate)
+  or uncompressed PCM, both 48 kHz 16-bit stereo; Music Assistant resamples
+  other sources. Opus is not supported.
 - One server at a time.
 
 ## Forget paired servers
