@@ -21,6 +21,13 @@
         "target": "identity::sdk",
         "pristine_archive_sha256": "2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45",
         "note": "Applied after 0001 (list order), so it diffs the 0001-patched tree. Adds PlayerRoleListener::on_stream_boundary(clear_generation): a synchronous seek boundary fired on the sync task thread inside apply_stream_clear() and its return value is removed from the accepted-minus-played ledger without a notify_audio_played() call. Additive default returns 0 and preserves prior behavior. Pinned archive and its sha256 are unchanged."
+      },
+      {
+        "file": "0003-runtime-required-lead.patch",
+        "sha256": "524c658f0c30ef38f50786c245066ef9dca2da5de12061f9569715d1fd81e842",
+        "target": "identity::sdk",
+        "pristine_archive_sha256": "2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45",
+        "note": "Applied after 0002 (list order). Adds PlayerRole::set_required_lead_time_ms(): a runtime override of PlayerRoleConfig::required_lead_time_ms (0 restores the configured value, the pipeline floor still applies) that republishes client/state, so a player whose output is already running can ask for a short lead on the next stream start or seek."
       }
     ]
   },
