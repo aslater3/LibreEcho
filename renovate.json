@@ -1,0 +1,223 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/London",
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Dependency Dashboard",
+  "prConcurrentLimit": 4,
+  "prHourlyLimit": 2,
+  "automerge": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Public image inputs fetched from GitHub tag archives (Shairport Sync, NQPTP, SpeexDSP, opusfile, flite)",
+      "managerFilePatterns": [
+        "/^build\\/inputs\\/public-inputs\\.json$/"
+      ],
+      "matchStrings": [
+        "\"url\": \"https://github\\.com/(?<depName>[^/\"]+/[^/\"]+)/archive/refs/tags/(?<currentValue>[^\"]+?)\\.tar\\.gz\""
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "Public image inputs fetched from GitHub release assets (Mbed TLS, libnl)",
+      "managerFilePatterns": [
+        "/^build\\/inputs\\/public-inputs\\.json$/"
+      ],
+      "matchStrings": [
+        "\"url\": \"https://github\\.com/(?<depName>[^/\"]+/[^/\"]+)/releases/download/(?<currentValue>[^/\"]+)/"
+      ],
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "Public image inputs pinned to a GitHub commit archive (TinyALSA)",
+      "managerFilePatterns": [
+        "/^build\\/inputs\\/public-inputs\\.json$/"
+      ],
+      "matchStrings": [
+        "\"url\": \"https://github\\.com/(?<depName>[^/\"]+/[^/\"]+)/archive/(?<currentDigest>[0-9a-f]{40})\\.tar\\.gz\""
+      ],
+      "packageNameTemplate": "https://github.com/{{{depName}}}.git",
+      "datasourceTemplate": "git-refs"
+    },
+    {
+      "customType": "regex",
+      "description": "Public source-git inputs pinned to a commit (Sendspin SDK and its dependencies, onnxruntime, sherpa-onnx, espeak-ng)",
+      "managerFilePatterns": [
+        "/^build\\/inputs\\/public-inputs\\.json$/"
+      ],
+      "matchStrings": [
+        "\"name\": \"(?<depName>[^\"]+)\", \"url\": \"(?<packageName>https://[^\"]+?\\.git)\", \"sha256\": \"[^\"]*\", \"commit\": \"(?<currentDigest>[0-9a-f]{40})\"",
+        "\"name\": \"(?<depName>[^\"]+)\", \"url\": \"(?<packageName>https://[^\"]+?\\.git)\", \"commit\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs"
+    },
+    {
+      "customType": "regex",
+      "description": "Public image inputs fetched from upstream download sites; packageRules below map each to its release feed",
+      "managerFilePatterns": [
+        "/^build\\/inputs\\/public-inputs\\.json$/"
+      ],
+      "matchStrings": [
+        "\"name\": \"(?<depName>libogg|opus|ffmpeg|curl|dropbear|busybox|musl|wpa-supplicant|wireless-regdb|libsodium)\", \"url\": \"[^\"]*?[-_](?<currentValue>\\d+(?:\\.\\d+)+)(?:\\.orig)?\\.tar\\.(?:gz|xz|bz2)\""
+      ],
+      "datasourceTemplate": "repology",
+      "versioningTemplate": "loose"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Every public image input is an audit signal: a version bump also needs the archive SHA-256, fetch names, build paths, SBOM and notices refreshed and an ARM32 build, so nothing is raised until approved on the dashboard",
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "dependencyDashboardApproval": true,
+      "recreateWhen": "never",
+      "allowedVersions": "!/(^|[-.])(dev|rc|alpha|beta|pre)/i"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "Mbed-TLS/mbedtls"
+      ],
+      "allowedVersions": "/^mbedtls-3\\./",
+      "description": "Stay on the Mbed TLS 3.6 LTS line; 4.x is a separate migration",
+      "versioning": "regex:^mbedtls-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "thom311/libnl"
+      ],
+      "versioning": "regex:^libnl(?<major>\\d+)_(?<minor>\\d+)_(?<patch>\\d+)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "xiph/speexdsp"
+      ],
+      "versioning": "regex:^SpeexDSP-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "libogg"
+      ],
+      "overrideDatasource": "github-tags",
+      "overridePackageName": "xiph/ogg",
+      "extractVersion": "^v(?<version>.+)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "opus"
+      ],
+      "overrideDatasource": "github-tags",
+      "overridePackageName": "xiph/opus",
+      "extractVersion": "^v(?<version>.+)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "ffmpeg"
+      ],
+      "overrideDatasource": "github-tags",
+      "overridePackageName": "FFmpeg/FFmpeg",
+      "extractVersion": "^n(?<version>\\d+\\.\\d+(?:\\.\\d+)?)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "curl"
+      ],
+      "overridePackageName": "nix_unstable/curl"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "dropbear"
+      ],
+      "overrideDatasource": "github-tags",
+      "overridePackageName": "mkj/dropbear",
+      "extractVersion": "^DROPBEAR_(?<version>\\d+\\.\\d+)$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "libsodium"
+      ],
+      "overrideDatasource": "github-tags",
+      "overridePackageName": "jedisct1/libsodium",
+      "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+)-RELEASE$"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "busybox"
+      ],
+      "overridePackageName": "nix_unstable/busybox",
+      "description": "No upstream release feed on a supported datasource; follow nixpkgs unstable via Repology, whose versions are the bare upstream release numbers"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "musl"
+      ],
+      "overridePackageName": "nix_unstable/musl"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "wpa-supplicant"
+      ],
+      "overridePackageName": "nix_unstable/wpa-supplicant"
+    },
+    {
+      "matchFileNames": [
+        "build/inputs/public-inputs.json"
+      ],
+      "matchDepNames": [
+        "wireless-regdb"
+      ],
+      "overridePackageName": "nix_unstable/wireless-regdb"
+    },
+    {
+      "description": "Group GitHub Actions maintenance",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions"
+    }
+  ]
+}
