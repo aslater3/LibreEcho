@@ -137,19 +137,21 @@ independence is claimed.
 ### Patch inventory
 
 The Sendspin closure carries **two ordered** reviewed patches, owned by
-LibreEcho-Platform and applied in list order (0001 then 0002) to the pinned SDK
+LibreEcho-Platform and applied in list order (0001, 0002, 0003) to the pinned SDK
 archive before the SDK tree is staged. They are declared identically in the
 Platform source lock (`tools/mt8163-arm32/sendspin/SOURCE.lock`,
 `patch_inventory.applied`), in this contract, and in the Product inventory
 (`build/inputs/public-inputs.json`, the mirrored top-level `patch_inventory`
 block). The three must never diverge: they carry the same files, SHA-256
-digests, targets, pristine-archive anchors, and order. `0002` is listed after
-`0001`, so it diffs the already-`0001`-patched tree.
+digests, targets, pristine-archive anchors, and order. Each patch diffs the tree
+its predecessors already patched (`0002` the `0001` tree, `0003` the
+`0001`+`0002` tree).
 
 | Order | Patch | SHA-256 | Target | Pristine archive anchor |
 | --- | --- | --- | --- | --- |
 | 1 | `0001-stream-end-reason.patch` | `d9273acc1e014ddc1550b5791a41d8ad360b9639b9f8059c3c6cb4f38ebe7090` | `identity::sdk` (`sendspin-sdk`) | `2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45` |
 | 2 | `0002-stream-clear-boundary.patch` | `b01f3088e52e779070de4f1ef5191aad1c1e9501e320fb25746b1e244c59007b` | `identity::sdk` (`sendspin-sdk`) | `2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45` |
+| 3 | `0003-runtime-required-lead.patch` | `524c658f0c30ef38f50786c245066ef9dca2da5de12061f9569715d1fd81e842` | `identity::sdk` (`sendspin-sdk`) | `2749ee07e4974f3879297af12d651349df33f46125a100cc935bf6966ed8af45` |
 
 The patch bytes are owned by the **Platform** repository
 (`tools/mt8163-arm32/sendspin/patches/`), not the Product repository. **Every**
@@ -188,7 +190,7 @@ its SHA-256 are unchanged.
 
 Staged identity is the mode-aware tree digest the Platform verifier computes.
 The patched SDK tree digest is
-`b2aa25866dd445f6e2756e7e490986382a9639871936b7eafde6a9dc1a4acb80` (184 files),
+`0ce8a802a8a8558052d20b3bf13e2783e239e011faf6ec3267733a87aefa6b52` (184 files),
 and the pinned archive `2749ee07…` is unchanged. Both the Product materializer
 and the Platform verifier extract with `tarfile` `filter="data"`, which keeps
 the stored member permissions (it clears only setuid/setgid/sticky and

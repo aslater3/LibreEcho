@@ -67,18 +67,21 @@ ORACLE_SHA256 = "805dc716dc6bb80115040c476610342f27b68b44462bbcc0dd2713c2e98fba1
 # the stored member permissions (it clears only setuid/setgid/sticky and
 # group/other write bits) and applies them with an explicit chmod, so the value
 # is umask-independent -- unlike a `tar` CLI extraction, whose member modes are
-# masked by the process umask. The two patches are applied in declared
-# order (0001 then 0002), so the second diffs the 0001-patched tree.
+# masked by the process umask. The three patches are applied in declared
+# order (0001, 0002, 0003), each diffing the tree its predecessors patched.
 SDK_PATCH_FILE = "0001-stream-end-reason.patch"
 SDK_PATCH_SHA256 = "d9273acc1e014ddc1550b5791a41d8ad360b9639b9f8059c3c6cb4f38ebe7090"
 SDK_PATCH_FILE_2 = "0002-stream-clear-boundary.patch"
 SDK_PATCH_SHA256_2 = "b01f3088e52e779070de4f1ef5191aad1c1e9501e320fb25746b1e244c59007b"
+SDK_PATCH_FILE_3 = "0003-runtime-required-lead.patch"
+SDK_PATCH_SHA256_3 = "524c658f0c30ef38f50786c245066ef9dca2da5de12061f9569715d1fd81e842"
 SDK_PATCHES = (
     (SDK_PATCH_FILE, SDK_PATCH_SHA256),
     (SDK_PATCH_FILE_2, SDK_PATCH_SHA256_2),
+    (SDK_PATCH_FILE_3, SDK_PATCH_SHA256_3),
 )
 CANONICAL_SDK_PATCHED_TREE_SHA256 = (
-    "b2aa25866dd445f6e2756e7e490986382a9639871936b7eafde6a9dc1a4acb80"
+    "0ce8a802a8a8558052d20b3bf13e2783e239e011faf6ec3267733a87aefa6b52"
 )
 
 # name -> {commit, archive_sha256, submodules: {path: (commit, sha256)}}
@@ -979,6 +982,7 @@ class SendspinLockContractTests(unittest.TestCase):
             [
                 (SDK_PATCH_FILE, SDK_PATCH_SHA256, "identity::sdk", SDK_SHA256),
                 (SDK_PATCH_FILE_2, SDK_PATCH_SHA256_2, "identity::sdk", SDK_SHA256),
+                (SDK_PATCH_FILE_3, SDK_PATCH_SHA256_3, "identity::sdk", SDK_SHA256),
             ],
         )
         # The Product mirror carries the same declaration AND the ownership.
