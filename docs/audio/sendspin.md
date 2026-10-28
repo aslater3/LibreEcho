@@ -60,7 +60,9 @@ The speaker only plays for a server it is paired with.
   processing), so grouped speakers play together: an Echo (2nd generation)
   and an Echo Dot side by side measured within 0.05 ms of each other.
 - **Starting.** Playback starts about 1.5 seconds after you press play,
-  mostly while the speaker's amplifier powers up.
+  mostly while the speaker's amplifier powers up. A seek, or a resume within
+  a few seconds of pausing, is quicker (about half a second) because the
+  speaker keeps its output running briefly after the music stops.
 - **Volume.** Sendspin volume *is* the speaker volume. A change in Music
   Assistant moves the speaker volume like the volume buttons, and the
   buttons, web page or AirPlay volume are reported back to Music Assistant.
