@@ -1,9 +1,9 @@
 # Sendspin: multiroom audio with Music Assistant
 
-> **Draft for 0.15.** Tested on an Echo (2nd generation) and an Echo Dot
+> **Draft for 0.14.5.** Tested on an Echo (2nd generation) and an Echo Dot
 > with Music Assistant 2.10.8: discovery, token pairing, grouping, play,
 > pause, seek, leave/rejoin, volume and mute. Screenshots will be added
-> before 0.15 ships.
+> before 0.14.5 ships.
 
 LibreEcho can join [Music Assistant](https://music-assistant.io/) as a
 Sendspin speaker. Music Assistant then plays to it on its own or in a group
@@ -11,7 +11,7 @@ with other Sendspin speakers, kept in time with each other.
 
 ## What you need
 
-- LibreEcho 0.15 or later on an Echo (2nd generation) or Echo Dot. The
+- LibreEcho 0.14.5 or later on an Echo (2nd generation) or Echo Dot. The
   player ships in the audio feature; the integration card says *Not
   installed in this image* when it is missing.
 - Music Assistant on the same local network as the speaker. Discovery uses
