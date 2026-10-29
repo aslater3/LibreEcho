@@ -64,7 +64,9 @@ if [[ -z "$target" && ( "$action" == continue-one-shot || "$reinstall" == 1 ) &&
 fi
 if [[ -z "$target" ]]; then
   if [[ "$serial" == auto ]]; then
-    mapfile -t devices < <("$fastboot_bin" devices | cut -f1)
+    # Count only devices in the fastboot state, as fastboot_devices() in the
+    # installer does: newer fastboot prints a trailing empty line (#320).
+    mapfile -t devices < <("$fastboot_bin" devices | awk '$2 == "fastboot" {print $1}')
     [[ "${#devices[@]}" == 1 ]] || { echo 'ERROR: specify --target when zero or several fastboot devices are present' >&2; exit 2; }
     serial="${devices[0]}"
   fi
