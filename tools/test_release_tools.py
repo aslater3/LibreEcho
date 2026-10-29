@@ -247,12 +247,66 @@ class OneShotFastbootTests(unittest.TestCase):
             refused = run(tmp / "bad", tmp / "b", tmp / "x1", tmp / "x2")
             self.assertEqual(refused.returncode, 2)
             self.assertFalse((tmp / "x1").exists())
+            # Old-chain radar units on the legacy biscuit GPT carry 2153472 userdata
+            # sectors (#303); the wrappers move up by the 16384-sector difference.
+            shift = 2153472 - 2137088
+            biscuit = [(n, s + (shift if n in ("boot_a", "boot_b") else 0),
+                        2153472 if n == "userdata" else c) for n, s, c in layout]
+            biscuit_plain = [(n[:-2] if n.endswith("_x") else n, s, c) for n, s, c in biscuit[:16]]
+            for name, data in zip(("bp", "bb", "bep", "beb"), gpt(biscuit) + gpt(biscuit_plain)):
+                (tmp / name).write_bytes(data)
+            done = run(tmp / "bp", tmp / "bb", tmp / "bop", tmp / "bob")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual((tmp / "bop").read_bytes(), (tmp / "bep").read_bytes())
+            self.assertEqual((tmp / "bob").read_bytes(), (tmp / "beb").read_bytes())
+            odd = [(n, s + (8192 if n in ("boot_a", "boot_b") else 0),
+                    2145280 if n == "userdata" else c) for n, s, c in layout]
+            for name, data in zip(("op2", "ob2"), gpt(odd)):
+                (tmp / name).write_bytes(data)
+            refused = run(tmp / "op2", tmp / "ob2", tmp / "x3", tmp / "x4")
+            self.assertEqual(refused.returncode, 2)
+            self.assertIn("not a legacy contract", refused.stdout)
+            self.assertFalse((tmp / "x3").exists())
         pinned = (kit / "MANIFEST.sha256").read_text(encoding="ascii")
         self.assertIn(hashlib.sha256((kit / "gpt-fix.py").read_bytes()).hexdigest() + "  gpt-fix.py", pinned)
         script = (kit / "migrate.sh").read_text(encoding="utf-8")
         for flag in ("--gpt-fix", "--gpt-restore", "--no-gpt-fix"):
             self.assertIn(flag, script)
         self.assertNotIn('stage/$img.img', script)
+
+    def test_radar_kaeru_migrate_geometry_gate_accepts_both_legacy_userdata_sizes(self) -> None:
+        kit = ROOT / "tools" / "radar-kaeru-migration"
+        head = ("1024 mmcblk0p3\n5120 mmcblk0p4\n1024 mmcblk0p5\n5120 mmcblk0p6\n"
+                "10240 mmcblk0p7\n16384 mmcblk0p10\n16384 mmcblk0p11\n")
+        fake_adb = """#!/bin/sh
+[ "$1" = -s ] && shift 2
+case "$1" in
+  get-state) echo device ;;
+  shell) case "$2" in
+      *mmcblk0p7*bs=64*) printf '%0128d' 0 ;;
+      *strings*) echo biscuit ;;
+      *proc/partitions*) cat "$FAKE_GEO" ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+"""
+        for p16, accepted in ((1068544, True), (1076736, True), (1072640, False)):
+            with self.subTest(p16=p16), tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                shutil.copytree(kit, tmp / "kit")
+                (tmp / "bin").mkdir()
+                (tmp / "bin" / "adb").write_text(fake_adb, encoding="ascii")
+                (tmp / "bin" / "adb").chmod(0o755)
+                (tmp / "geo").write_text(f"{head}{p16} mmcblk0p16\n", encoding="ascii")
+                env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}", FAKE_GEO=str(tmp / "geo"))
+                result = subprocess.run(["bash", str(tmp / "kit" / "migrate.sh"), "-s", "TEST", "--dry-run"],
+                                        capture_output=True, text=True, env=env, timeout=60)
+                self.assertNotEqual(result.returncode, 0)  # the fake adb cannot pull backups
+                self.assertIn("old chain", result.stdout)
+                self.assertEqual("layout is not the legacy _x radar contract" in result.stdout,
+                                 not accepted, result.stdout)
+                if accepted:
+                    self.assertIn("ABORT: pull backup", result.stdout)
 
     def test_userdata_geometry_accepts_both_reviewed_biscuit_variants(self) -> None:
         self.assertEqual(

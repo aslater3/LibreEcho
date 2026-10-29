@@ -61,7 +61,8 @@ and must never be erased.
    the device really is on the old chain before continuing.
 3. **`_x` geometry** against the LibreEcho radar contract
    (`/proc/partitions`, KiB): p3/p5=1024, p4/p6=5120, p7=10240, p10/p11=16384,
-   p16=1068544. Mismatch → refuses.
+   p16=1068544 (legacy radar GPT) or 1076736 (legacy biscuit GPT, seen on units
+   that report `BISCUIT`). Mismatch → refuses.
 
 ## What it writes (and nothing else)
 

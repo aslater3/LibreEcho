@@ -8,7 +8,8 @@
 # bootctl/OTA/installer read p10 -> one-shot dies with "boot_a_x readback hash
 # mismatch". The GPT step (gpt-fix.py) renames boot_a_x/boot_b_x -> boot_a/boot_b
 # (same sectors, so the OS image stays) and drops the p17/p18 wrappers. userdata is
-# NOT extended (unlike upstream restore_gpt): the installer pins 2137088 sectors.
+# NOT extended (unlike upstream restore_gpt): it stays at its legacy size
+# (2137088 or 2153472 sectors), both of which the installer accepts.
 # Not written: misc, recovery, userdata contents.
 #
 # Proven write/readback pattern copied from ../radar-full-stock-20261009/flash.sh.
@@ -130,6 +131,10 @@ want="1024 mmcblk0p3
 16384 mmcblk0p10
 16384 mmcblk0p11
 1068544 mmcblk0p16"
+# Old-chain units carry the legacy amonet userdata of either GPT: 1068544 KiB
+# (radar) or 1076736 KiB (biscuit, the chain that reports product=BISCUIT).
+case "$geo" in *"
+1076736 mmcblk0p16") want="${want%1068544 mmcblk0p16}1076736 mmcblk0p16" ;; esac
 [ "$geo" = "$want" ] || { echo "geometry mismatch (sectors):"; echo "have:"; echo "$geo"; echo "want:"; echo "$want"; die "layout is not the legacy _x radar contract" ; }
 
 if [ -n "$GPTFIX" ]; then gpt_step; echo ALLDONE; echo "SUPPORT SUMMARY: serial $S gpt-fix ${DRY:+dry-run }complete. log: $LOGF"; exit 0; fi
