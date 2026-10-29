@@ -52,6 +52,10 @@ on:
         description: Target-state version (defaults to release branch version)
         required: false
         type: string
+      validated_dev_build:
+        description: Stable only. Tag of the dev build that passed hardware validation; the stable build ships its payloads and must match its boot image
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -81,6 +85,7 @@ jobs:
       signing_mode: ${{ steps.resolve.outputs.signing_mode }}
       ota_format: ${{ steps.resolve.outputs.ota_format }}
       ota_release: ${{ steps.resolve.outputs.ota_release }}
+      validated_dev_build: ${{ steps.resolve.outputs.validated_dev_build }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with: {fetch-depth: 1, persist-credentials: false}
@@ -94,6 +99,7 @@ jobs:
           SSH_ENABLED_INPUT: ${{ inputs.ssh_enabled || 'disabled' }}
           OTA_FORMAT_INPUT: ${{ inputs.ota_format || 'v3' }}
           OTA_RELEASE_INPUT: ${{ inputs.ota_release || inputs.release_version || '' }}
+          VALIDATED_DEV_BUILD: ${{ inputs.validated_dev_build || '' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -163,6 +169,10 @@ jobs:
               IFS= read -r release_notes_title <"$RELEASE_NOTES"
               [[ "$release_notes_title" == "# LibreEcho radar-puffin v${RELEASE_VERSION}" ]] || {
                 echo "ERROR: stable release-notes title must match the requested version" >&2; exit 1;
+              }
+              # Stable ships what was hardware tested: name the validated dev build.
+              [[ "$VALIDATED_DEV_BUILD" =~ ^radar-puffin-build-[a-f0-9]{7}-[a-f0-9]{16}-[a-f0-9]{16}$ ]] || {
+                echo "ERROR: stable builds require validated_dev_build (the hardware-validated dev build tag)" >&2; exit 1;
               }
               ;;
             *) echo "ERROR: unsupported build purpose: $PURPOSE" >&2; exit 1 ;;
@@ -239,6 +249,10 @@ jobs:
           fi
           printf 'release_version=%s\nrelease_notes=%s\n' "$RELEASE_VERSION" "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           printf 'ssh_enabled=%s\n' "$SSH_ENABLED" >> "$GITHUB_OUTPUT"
+          if [[ "$PURPOSE" != prd && -n "$VALIDATED_DEV_BUILD" ]]; then
+            echo "ERROR: validated_dev_build is only valid for prd dispatches" >&2; exit 1
+          fi
+          printf 'validated_dev_build=%s\n' "$VALIDATED_DEV_BUILD" >> "$GITHUB_OUTPUT"
           printf 'purpose=%s\n' "$PURPOSE" >> "$GITHUB_OUTPUT"
           printf 'signing_mode=%s\n' "$SIGNING_MODE" >> "$GITHUB_OUTPUT"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
@@ -321,6 +335,7 @@ jobs:
             build.tests.test_generate_release_notes \
             build.tests.test_resolve_source_set \
             build.tests.test_release_candidate_selection \
+            build.tests.test_promotion_parity \
             tools.test_shared_mdns_packages \
             tools.test_build_release_workflow \
             tools.test_fastbrick_gate \
@@ -1199,6 +1214,26 @@ jobs:
           echo "$shim" >> "$GITHUB_PATH"
 
 
+      # A stable build adopts the validated dev build's feature payloads byte
+      # for byte, so the daemons it ships are the ones that ran on hardware.
+      - name: Adopt validated dev build payloads
+        if: needs.resolve-and-preflight.outputs.purpose == 'prd'
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATED_DEV_BUILD: ${{ needs.resolve-and-preflight.outputs.validated_dev_build }}
+          TARGETS: ${{ inputs.targets || 'radar_puffin' }}
+          PRODUCT_SHA: ${{ needs.resolve-and-preflight.outputs.product_sha }}
+          PLATFORM_SHA: ${{ needs.resolve-and-preflight.outputs.platform_sha }}
+          LINUX_SHA: ${{ needs.resolve-and-preflight.outputs.linux_sha }}
+          UI_SHA: ${{ needs.resolve-and-preflight.outputs.ui_sha }}
+        run: |
+          set -euo pipefail
+          python3 build/ci/promotion_parity.py fetch --tag "$VALIDATED_DEV_BUILD" \
+            --targets "$TARGETS" --output "$RUNNER_TEMP/validated-dev-build" \
+            --product "$PRODUCT_SHA" --platform "$PLATFORM_SHA" \
+            --linux "$LINUX_SHA" --ui "$UI_SHA" --github-env "$GITHUB_ENV"
+
       - name: Build image and features
         env:
           # The staged ARMHF gcc/as/ld are dynamically linked against the
@@ -1276,6 +1311,16 @@ jobs:
           LIBREECHO_FLITE_ROOT: ${{ runner.temp }}/public-deps/neural/flite-root
           LIBREECHO_SPEEX_PREFIX: ${{ runner.temp }}/public-deps/neural/speexdsp-prefix
         run: build/ci/build-public-release.sh --targets "$LIBREECHO_TARGETS" --release-output image-and-features --no-publish
+
+      # Fail before anything is uploaded or published unless the stable build
+      # is the validated dev build apart from the update-channel files.
+      - name: Gate promotion parity with the validated dev build
+        if: needs.resolve-and-preflight.outputs.purpose == 'prd'
+        run: |
+          set -euo pipefail
+          mapfile -t runs < <(find "$RUNNER_TEMP/libreecho-build/out/runs" -mindepth 1 -maxdepth 1 -type d)
+          test "${#runs[@]}" -ge 1
+          python3 build/ci/promotion_parity.py check --dev "$RUNNER_TEMP/validated-dev-build" "${runs[@]}"
 
       - name: Record release source commits
         env:
