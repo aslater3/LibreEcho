@@ -12,7 +12,9 @@
 ## Safety first
 
 - Unplug the Echo's power adapter before you connect, move, or remove the USB
-  pins, and before opening anything. Never probe a powered board.
+  pins, and before opening anything. Never probe a powered board. Plugging or
+  unplugging the USB cable at the **computer** end is safe at any time; it
+  leaves the pins on the Echo untouched.
 - Do not short any pad or component. The installer does not need it.
 - Keep the USB connection on the approved data cable. Do not connect a TTL UART
   adapter to the USB pads.
@@ -111,6 +113,9 @@ to be shorted.
   adapter will be on sale soon. Until then, a printable carrier is in
   [`tools/libreecho-echo-gen2-pogo-plug-v5.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v5.zip);
   see the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-carrier-v5).
+  The adapter must stay on the contacts without being held: secure it with a
+  clamp or band before you power on. A hand-held adapter shifts during the
+  install and setup, and the computer then loses the device.
 - **Soldered USB cable.** Follow the
   [Echo Gen 2 disassembly guide](../disassembly/echo-gen-2/README.md) and solder
   a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND):
@@ -138,6 +143,10 @@ to be shorted.
    Release the button once the device is listed. `product` should report
    `RADAR`. If nothing is listed, unplug the power, check the pins, and repeat
    the sequence with the other button.
+
+   If the device is still not listed, leave the pins seated but unplug the USB
+   cable at the computer end, then repeat steps 1 and 3. While still holding
+   the button, plug the cable into the computer, and check again.
 
 ### Echo Dot 2nd Gen (`biscuit`, experimental)
 
@@ -322,7 +331,7 @@ the prompt for scripted runs). It:
 ## 5. First boot and setup
 
 1. The installer has rebooted the device and waited for ADB. Do not touch the
-   device or reconnect cables while it is powered.
+   device or move the pins while it is powered.
 2. Verify the temporary ADB connection and forward:
 
    ```sh
@@ -362,9 +371,12 @@ the prompt for scripted runs). It:
    adb forward tcp:18080 tcp:8080
    ```
 
-   Then open `http://127.0.0.1:18080/setup.html` again. If the board does not
-   come back within a few minutes, disconnect and reconnect power without
-   touching any cable, then reconnect as above.
+   Then open `http://127.0.0.1:18080/setup.html` again. If `adb devices` does
+   not list the Echo after a reboot, unplug the USB cable at the computer end,
+   wait until the Echo has finished booting, plug the cable back in, and run
+   `reconnect` again. If the board does not come back within a few minutes,
+   disconnect and reconnect power without touching the pins, then reconnect as
+   above.
 4. Complete the account and setup wizard. After Wi-Fi is applied, disconnect
    power before reconnecting any cables. Reconnect only while unpowered, then
    power on again.
@@ -397,6 +409,11 @@ profiles, and other mutable configuration, then reboots to this first-run state.
   soldered D+, D− and GND joints), then repeat the **Enter fastboot** sequence
   under [Connect the device](#2-connect-the-device). Do not short anything to
   force a different boot mode.
+- Echo 2nd Gen: if the device only appears once it is already in fastboot or
+  booted, connect the USB cable at the computer end after power-on instead of
+  before (see the **Enter fastboot** steps and
+  [First boot and setup](#5-first-boot-and-setup)). Keep the pins seated
+  throughout.
 - A device that has already run LibreEcho ignores the **Action** button at
   power-on. Hold **Volume Down (−)** on its own instead; see
   [Which button to hold](#which-button-to-hold).
