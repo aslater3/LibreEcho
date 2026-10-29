@@ -582,6 +582,66 @@ class InstallerPublicationTests(unittest.TestCase):
             self.assertNotEqual(wrong_serial.returncode, 23)
             self.assertFalse(argv_log.exists(), "unrelated recovery device must not launch an installer")
 
+    def test_run_one_shot_auto_serial_counts_only_fastboot_state_lines(self) -> None:
+        """#320: newer fastboot ends its device list with an empty line."""
+        tag = "radar-puffin-v1.2.3"
+        prefix = f"libreecho-{tag}"
+        digest = hashlib.sha256(b"#!/usr/bin/env python3\n").hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir, tmpdir = root / "bin", root / "tmp"
+            argv_log, getvar_log, listing = root / "installer-argv", root / "getvar-argv", root / "listing"
+            bindir.mkdir()
+            tmpdir.mkdir()
+            (bindir / "curl").write_text(
+                "#!/bin/sh\nout=\nurl=\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = -o ]; then out=$2; shift 2; continue; fi\n  url=$1; shift\ndone\n"
+                "case \"$url\" in\n"
+                f"  *SHA256SUMS) printf '%s  %s\\n' '{digest}' '{prefix}-installer.py' >\"$out\" ;;\n"
+                "  *-installer.py) printf '#!/usr/bin/env python3\\n' >\"$out\" ;;\n  *) exit 9 ;;\nesac\n",
+                encoding="utf-8")
+            (bindir / "python3").write_text(
+                "#!/bin/sh\n"
+                f"if [ \"${{1:-}}\" = -c ]; then exec {sys.executable} \"$@\"; fi\n"
+                f"printf '%s\\n' \"$@\" > {argv_log}\nexit 23\n", encoding="utf-8")
+            (bindir / "fastboot").write_text(
+                "#!/bin/sh\ncase \"$1\" in\n"
+                f"  devices) cat {listing} ;;\n"
+                f"  -s) printf '%s\\n' \"$@\" > {getvar_log}; printf 'product: RADAR\\n' ;;\nesac\n",
+                encoding="utf-8")
+            for tool in bindir.iterdir():
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", TMPDIR=str(tmpdir), HOME=str(root))
+            env.pop("LIBREECHO_TARGET", None)
+
+            def run(devices: str) -> subprocess.CompletedProcess:
+                listing.write_text(devices, encoding="utf-8")
+                for log in (argv_log, getvar_log):
+                    log.unlink(missing_ok=True)
+                return subprocess.run(
+                    ["bash", str(ROOT / "tools/run-one-shot.sh"), tag,
+                     "--fastboot-serial", "auto", "--slots", "both", "--execute-hardware"],
+                    text=True, capture_output=True, env=env, timeout=20)
+
+            for devices in (
+                "FASTBOOT_SERIAL\tfastboot\n\n",
+                "FASTBOOT_SERIAL\tfastboot\nOTHER_SERIAL\tunauthorized\n\n",
+            ):
+                with self.subTest(devices=devices):
+                    result = run(devices)
+                    self.assertEqual(result.returncode, 23, result.stderr)
+                    self.assertEqual(getvar_log.read_text().splitlines(),
+                                     ["-s", "FASTBOOT_SERIAL", "getvar", "product"])
+                    self.assertEqual(argv_log.read_text().splitlines()[4:6], ["--target", "radar_puffin"])
+            for devices in ("\n", "OTHER_SERIAL\tunauthorized\n\n", "A\tfastboot\nB\tfastboot\n\n"):
+                with self.subTest(devices=devices):
+                    result = run(devices)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("zero or several fastboot devices", result.stderr)
+                    self.assertFalse(getvar_log.exists())
+                    self.assertFalse(argv_log.exists())
+
     def test_run_one_shot_cleans_download_directory_after_installer_returns(self) -> None:
         tag = "radar-puffin-v1.2.3"
         prefix = f"libreecho-{tag}"
