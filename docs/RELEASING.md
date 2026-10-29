@@ -70,6 +70,8 @@ the previous stable release:
 - Update at least one unit through its own web UI on the stable channel
   (Check for updates → Install update → Reboot) and return validation units to
   the stable channel.
+- Confirm the **Publish LibreEcho News feed** run that followed the publish
+  added the new release to `news-v1.json` (see [LibreEcho News feed](#libreecho-news-feed)).
 
 ## 5. Documentation sync
 
@@ -92,3 +94,47 @@ These drift if they are not checked on every release:
   migration requirement, and only the validation that actually happened.
 - Close the issues the release fixes, with the hardware evidence.
 - Merge `release/X.Y.Z` into `main` once the release is final.
+
+## LibreEcho News feed
+
+The dashboard's LibreEcho News panel reads one file, `news-v1.json`, from
+`https://dl.libreecho.org/news/news-v1.json` and, if that fails, from
+`https://github.com/aslater3/LibreEcho/releases/download/news-feed/news-v1.json`.
+
+- `.github/workflows/publish-news.yml` (**Publish LibreEcho News feed**) builds
+  the file with `build/ci/generate-news.py` from the published stable releases
+  plus `news/entries.json`, validates it with `tools/check-news.py` (the device
+  rules) and uploads it with `--clobber` as asset `news-v1.json` on the
+  `news-feed` release. It creates that release on first run as a prerelease
+  that is never marked latest, so it is not offered as firmware, not listed as
+  news and not synced by the R2 mirror.
+- It runs after every successful **Publish Product release** run and on manual
+  dispatch. Both run the workflow file from `main`, so it is active once it
+  reaches `main`. Re-run it by hand after editing `news/entries.json`. If the
+  items are unchanged it skips the upload.
+- To publish before the workflow is on `main`, from a checkout of the release
+  branch:
+
+  ```bash
+  gh api "repos/aslater3/LibreEcho/releases?per_page=100" --paginate \
+    --jq '.[] | {tagName: .tag_name, name: (.name // ""), publishedAt: (.published_at // ""),
+                 isPrerelease: .prerelease, isDraft: .draft, url: .html_url, body: (.body // "")}' \
+    | jq -s . > /tmp/releases.json
+  python3 build/ci/generate-news.py --releases /tmp/releases.json --out /tmp/news-v1.json
+  python3 tools/check-news.py /tmp/news-v1.json
+  gh release create news-feed -R aslater3/LibreEcho --prerelease --latest=false \
+    --title "LibreEcho News feed (not a firmware release)" \
+    --notes "Data feed for the dashboard LibreEcho News panel. Not a firmware release."  # first time only
+  gh release upload news-feed /tmp/news-v1.json -R aslater3/LibreEcho --clobber
+  ```
+
+- **`dl.libreecho.org` is not covered yet.** That host is the `libreecho-dl`
+  Worker in LibreEcho-Installer-Web (`mirror/worker/`). It only serves
+  `/<tag>/<asset>`, `/download/<tag>/<asset>` and `/latest/download/<asset>` for
+  `radar-puffin-*` tags and `libreecho-*` names, so `/news/news-v1.json` returns
+  404 and devices fall back to GitHub. To serve the primary URL, add a Worker
+  route that proxies `/news/news-v1.json` to
+  `releases/download/news-feed/news-v1.json` as a mutable path (no edge cache,
+  like the dev pointers) and deploy the Worker. The sync job does not need to
+  change. The publish workflow reports `dl_primary=PASS` once that works and a
+  warning until then.
