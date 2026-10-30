@@ -1059,6 +1059,7 @@ class InstallerPublicationTests(unittest.TestCase):
         pages = (
             "README.md",
             "docs/install/README.md",
+            "docs/install/restore-stock.md",
             "docs/disassembly/echo-gen-2/README.md",
             "tools/README.md",
         )
@@ -1078,6 +1079,42 @@ class InstallerPublicationTests(unittest.TestCase):
                         anchor, anchors(linked.read_text(encoding="utf-8")),
                         f"{page}: missing anchor {target}",
                     )
+
+    def test_restore_stock_guide_is_linked_and_keeps_the_boot_chain(self) -> None:
+        guide = (ROOT / "docs/install/restore-stock.md").read_text(encoding="utf-8")
+        install = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("](restore-stock.md)", install)
+        self.assertIn("](docs/install/restore-stock.md)", product)
+        # Both targets, each with a pinned Amazon package and its SHA-256.
+        for package in ("update-kindle-radar_puffin-", "update-kindle-biscuit_puffin-"):
+            row = next(line for line in guide.splitlines() if package in line)
+            self.assertRegex(row, r"`[0-9a-f]{64}`")
+        self.assertIn("sha256sum", guide)
+        # The procedure: TWRP, wipe before copying, flash both slots, boot.
+        self.assertIn("**Volume Up (+)** only", guide)
+        steps = [
+            "adb shell 'twrp wipe cache && twrp wipe data'",
+            "adb push update-kindle-*.bin /sdcard/update.zip",
+            "adb shell twrp install /sdcard/update.zip",
+            "adb reboot recovery",
+            "adb reboot\n",
+        ]
+        positions = [guide.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(guide.count("adb shell twrp install /sdcard/update.zip"), 2)
+        # It says what stays, and never sends the reader to the boot chain.
+        self.assertIn("## What cannot be undone", guide)
+        self.assertIn("The bootloader stays unlocked", guide)
+        self.assertIn("Never write or erase `expdb`", guide)
+        commands = "\n".join(re.findall(r"```(?:sh|bash)\n(.*?)\n[ \t]*```", guide, re.S))
+        self.assertIn("twrp install", commands)
+        self.assertIsNone(re.search(
+            r"\bfastboot\b|\bdd\b|expdb|preloader|/dev/block|mmcblk|set_active", commands))
+        self.assertNotIn("FASTBOOT_PLEASE", guide)
+        self.assertNotIn("BROM", guide)
+        self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND", guide, re.I))
+        self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", guide))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

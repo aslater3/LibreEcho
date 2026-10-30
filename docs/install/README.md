@@ -78,6 +78,8 @@ sudo apt-get install adb fastboot e2fsprogs
   [Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration) first.
 - **A previous install that did not finish:** see
   [Reinstalling over an existing installation](#reinstalling-over-an-existing-installation).
+- **Going back to Amazon's Fire OS:** see
+  [Going back to stock Fire OS](restore-stock.md).
 
 ## 1. Download and verify the release
 
