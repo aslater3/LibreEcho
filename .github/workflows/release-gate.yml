@@ -34,6 +34,7 @@ on:
       - 'news/**'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
+      - '.github/workflows/publish-news.yml'
   push:
     branches: [main]
     paths:
@@ -68,6 +69,7 @@ on:
       - 'news/**'
       - '.github/workflows/release-gate.yml'
       - '.github/workflows/publish-release.yml'
+      - '.github/workflows/publish-news.yml'
   workflow_dispatch:
 
 permissions:
