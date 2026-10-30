@@ -213,6 +213,36 @@ LK_EXT_MAGIC = 0x58891689
 LK_HEADER_MIN = 80
 LK_HEADER_DEFAULT = 512
 LK_ALIGNMENT = 8
+# Issue #325: on LibreEcho images from before LibreEcho-Platform #209 (2026-09-30), a reboot to
+# bootloader/fastboot requested from the running OS makes /init write FASTBOOT_PLEASE over
+# expdb offset 0. On a Kaeru chain that destroys the LK header and the unit loops in USBDL
+# ("Failed to load LK"). The radar-kaeru-migration kit's pinned radar-kaeru.bin carries its
+# Kaeru header at round8(512 + 240192): a FASTBOOT_PLEASE or zeroed expdb head with that
+# header still present is a clobbered Kaeru chain, not a legacy Amonet v1 one (LibreEcho #327).
+EXPDB_LEGACY_MARKER = b"FASTBOOT_PLEASE"
+MIGRATION_KIT_KAERU_OFFSET = 240704
+# Probe of the running image, the same signal the migration kit's preflight reads (#327):
+# images before Platform #209 carry the FASTBOOT_PLEASE literal in /init (libreecho-init).
+IMAGE_REBOOT_PROBE = (
+    'if [ -f /etc/libreecho/image-profile ]; then echo "profile=$(head -n1 /etc/libreecho/image-profile)"; '
+    'else echo profile=missing; fi; echo "init_markers=$(grep -c FASTBOOT_PLEASE /init 2>/dev/null)"'
+)
+MANUAL_FASTBOOT_ROUTE = (
+    "Enter Kaeru fastboot by hand instead: unplug the power (do not use adb to reboot it), then hold "
+    "Volume Down (-) only while plugging the power back in (install guide, \"Which button to hold\"). "
+    "Then run the same --reinstall command again; the installer finds the unit in fastboot and does "
+    "not reboot it. A radar-kaeru-migration kit that includes the issue #325 reboot guard (LibreEcho "
+    "#327) also reaches fastboot safely with ./migrate.sh -s SERIAL --gpt-fix --verify."
+)
+GPT_FIX_NEXT_STEPS = (
+    "Use a radar-kaeru-migration kit that includes the issue #325 reboot guard (LibreEcho #327; "
+    "older kits reboot through the old OS and leave the unit unable to boot). Run "
+    "./migrate.sh -s SERIAL --gpt-fix --dry-run, then ./migrate.sh -s SERIAL --gpt-fix --verify, "
+    "which ends with the unit in Kaeru fastboot. Keep it there and run one-shot with --reinstall "
+    "--target radar_puffin --install-id <new-name> from fastboot. Do not use adb to reboot the "
+    "running old LibreEcho to bootloader or fastboot, and do not boot it again after the kit: "
+    "the old OS overwrites the Kaeru chain in expdb (issue #325)."
+)
 # A stock bootloader refuses `oem kaeru-version`; anything else is indeterminate.
 FASTBOOT_COMMAND_REFUSED = re.compile(
     r"FAIL(?:ED)?[^\n]*?(?:unknown command|not allowed|not supported|unsupported|invalid command|unrecognized|restricted on locked)",
@@ -952,6 +982,97 @@ def _adb_recovery_is_verified(adb_bin: str, serial: str, target: str) -> bool:
     return _expdb_kaeru_chain_ok(read)
 
 
+def _adb_libreecho_expdb_reader(adb_bin: str, serial: str, node: str) -> Any:
+    """Read-only expdb reader on a running LibreEcho, as the migration kit's hdr_at (dd bs=8 | od).
+
+    Offsets and counts must be multiples of 8 (every header offset in the chain is round8).
+    Any short, unreadable or malformed read returns None.
+    """
+    def read(offset: int, count: int) -> bytes | None:
+        if offset % 8 or count % 8 or count <= 0:
+            return None
+        result = _run_command(
+            [adb_bin, "-s", serial, "shell",
+             f"dd if=/dev/{node} bs=8 skip={offset // 8} count={count // 8} 2>/dev/null | od -An -v -tx1"],
+            15, check=False)
+        tokens = result.stdout.split()
+        if result.returncode != 0 or len(tokens) != count or not all(re.fullmatch(r"[0-9a-f]{2}", t) for t in tokens):
+            return None
+        return bytes(int(t, 16) for t in tokens)
+    return read
+
+
+def _expdb_reboot_hazard(read: Any) -> str | None:
+    """Classify expdb for a reboot request on a pre-Platform-#209 image (issue #325).
+
+    Returns None only for a legacy Amonet v1 chain (FASTBOOT_PLEASE marker or zeroed head, and
+    no Kaeru header where the migration kit puts it), where the old OS's marker write is the
+    intended behaviour. Otherwise returns why a reboot request must not be issued: "kaeru"
+    (an intact LK -> Kaeru chain), "clobbered" (Kaeru header without its LK header, the #325
+    state), "unrecognised" or "unreadable". Fails closed.
+    """
+    if _expdb_kaeru_chain_ok(read):
+        return "kaeru"
+    head = read(0, 16)
+    if head is None:
+        return "unreadable"
+    if head[:15] != EXPDB_LEGACY_MARKER and head != bytes(16):
+        return "unrecognised"
+    block = read(MIGRATION_KIT_KAERU_OFFSET, LK_HEADER_MIN)
+    if block is None:
+        return "unreadable"
+    kaeru = _parse_lk_header(block)
+    if kaeru is not None and kaeru["name"] == b"kaeru" and kaeru["ext"] == LK_EXT_MAGIC:
+        return "clobbered"
+    return None
+
+
+def _adb_reboot_request_writes_expdb(adb_bin: str, serial: str) -> bool:
+    """True unless the running image provably has no reboot-request expdb writer (Platform #209).
+
+    Images before Platform #209 carry the FASTBOOT_PLEASE literal in /init; later images do not.
+    An unreadable or unparsable probe counts as a writer (fail closed).
+    """
+    output = _adb_shell_text(adb_bin, serial, IMAGE_REBOOT_PROBE)
+    values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+    print(f"REINSTALL: running image profile={values.get('profile', 'unknown')!s} "
+          f"init_expdb_markers={values.get('init_markers', '') or 'unknown'}.", flush=True)
+    return values.get("init_markers", "").strip() != "0"
+
+
+def _refuse_unsafe_reinstall_reboot(adb_bin: str, serial: str) -> None:
+    """Never let a pre-#209 image turn the reinstall reboot into an expdb write over Kaeru (#325)."""
+    if not _adb_reboot_request_writes_expdb(adb_bin, serial):
+        return
+    node = _adb_expdb_node(adb_bin, serial)
+    hazard = "unreadable" if node is None else _expdb_reboot_hazard(
+        _adb_libreecho_expdb_reader(adb_bin, serial, node))
+    if hazard is None:
+        print("REINSTALL: older LibreEcho image on a legacy Amonet chain (no Kaeru payload in expdb); "
+              "its reboot-to-bootloader path is safe here.", flush=True)
+        return
+    _append_log(f"REINSTALL refused adb reboot: pre-#209 image, expdb={hazard}")
+    if hazard == "clobbered":
+        raise InstallerError(
+            "this unit runs a LibreEcho image from before 30 September 2026 and its expdb holds a "
+            "damaged Kaeru chain (the LK header at offset 0 has been overwritten; issue #325). Nothing "
+            "was rebooted or written. Do not reboot or power off this unit: it will not boot again. "
+            "Ask for help in issue #325; if it already loops in USB download mode ('Failed to load LK'), "
+            "follow Recovery in tools/radar-kaeru-migration/README.md."
+        )
+    reason = {
+        "kaeru": "its expdb holds the Kaeru chain",
+        "unrecognised": "its expdb content is not a recognised chain",
+        "unreadable": "its expdb could not be read to rule out a Kaeru chain",
+    }[hazard]
+    raise InstallerError(
+        "refusing to reboot this unit to fastboot through adb: it runs a LibreEcho image from before "
+        "30 September 2026, whose reboot-to-bootloader path writes FASTBOOT_PLEASE over the start of "
+        f"expdb, and {reason}. That write leaves the unit unable to boot (issue #325). Nothing was "
+        "rebooted or written. " + MANUAL_FASTBOOT_ROUTE
+    )
+
+
 def target_asset_prefix(tag, target="radar_puffin"):
     if target not in TARGET_INDEX:
         raise InstallerError("unknown target")
@@ -1264,8 +1385,7 @@ def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_s
             raise InstallerError(
                 f"{expected_name} readback hash mismatch: the image fastboot wrote is not in "
                 f"mmcblk0p{part}. If this unit was converted to the kaeru chain, its partition "
-                "table still has the legacy _x layout. Run tools/radar-kaeru-migration/migrate.sh "
-                "-s SERIAL --gpt-fix (try --dry-run first), reboot, then rerun one-shot with --reinstall."
+                "table still has the legacy _x layout. " + GPT_FIX_NEXT_STEPS
             )
         raise InstallerError(f"{actual} readback hash mismatch")
 
@@ -2417,7 +2537,10 @@ def enter_fastboot_for_reinstall(adb_bin: str, fastboot_bin: str, requested: str
 
     Uses the same reviewed ``adb reboot bootloader`` request as userdata repair
     (bootctl writes Kaeru's one-shot command to misc only). A device that is not
-    unique and bound is never selected.
+    unique and bound is never selected. On an image from before Platform #209 that
+    request makes /init write FASTBOOT_PLEASE to expdb, which destroys a Kaeru chain
+    (issue #325); such an image is rebooted only when expdb provably holds a legacy
+    Amonet chain, and otherwise the user is sent to the manual fastboot route.
     """
     present = fastboot_devices_safe(fastboot_bin)
     if (requested == "auto" and len(present) == 1) or (requested != "auto" and requested in present):
@@ -2425,6 +2548,7 @@ def enter_fastboot_for_reinstall(adb_bin: str, fastboot_bin: str, requested: str
     if requested == "auto" and present:
         raise InstallerError("several fastboot devices are present; pass --fastboot-serial")
     serial = select_adb_serial(adb_bin, requested)
+    _refuse_unsafe_reinstall_reboot(adb_bin, serial)
     print(f"REINSTALL: running LibreEcho device {serial} found; requesting a reboot to fastboot.", flush=True)
     _run_command([adb_bin, "-s", serial, "reboot", "bootloader"], 20, check=False)
     try:

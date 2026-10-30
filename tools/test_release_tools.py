@@ -195,6 +195,14 @@ class OneShotFastbootTests(unittest.TestCase):
                 message = str(raised.exception)
                 self.assertTrue(message.startswith(f"{partname} readback hash mismatch"), message)
                 self.assertEqual("--gpt-fix" in message, hint, message)
+                if hint:
+                    # Issue #325: the kit ends in Kaeru fastboot; --reinstall runs from there and
+                    # nothing reboots the old OS (#327 next steps).
+                    self.assertIn("./migrate.sh -s SERIAL --gpt-fix --verify", message)
+                    self.assertIn("--reinstall --target radar_puffin --install-id <new-name> from fastboot", message)
+                    self.assertIn("#327", message)
+                    self.assertNotIn("reboot, then", message)
+                    self.assertNotRegex(message, r"(?i)\breboot\b[^.]*then[^.]*--reinstall")
 
     def test_radar_kaeru_gpt_fix_converts_legacy_x_layout(self) -> None:
         import struct, zlib
