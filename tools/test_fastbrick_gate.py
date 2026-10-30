@@ -562,9 +562,8 @@ class PayloadOutcomeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             log = Path(temporary) / "run.log"
             log.write_text("", encoding="utf-8")
-            with mock.patch.object(INSTALLER, "ACTIVE_LOG_PATH", log), self.assertRaisesRegex(
-                    INSTALLER.InstallerError, "refused the brick payload"):
-                self.run_brick([refused] * 3, budget=60)
+            with mock.patch.object(INSTALLER, "ACTIVE_LOG_PATH", log):
+                self.assertEqual(self.run_brick([refused] * 3, budget=60), ("unknown", 1))
         # Exactly one brick command was issued; the refusal did not loop to the deadline.
         payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
         payload.write_bytes(b"x")
@@ -577,10 +576,59 @@ class PayloadOutcomeTests(unittest.TestCase):
         with mock.patch.object(INSTALLER.subprocess, "run", side_effect=fake_run), \
                 mock.patch.object(INSTALLER.time, "sleep") as sleep, \
                 contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(INSTALLER.InstallerError):
-                INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 60)
+            self.assertEqual(INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 60), "unknown")
         self.assertEqual(len(calls), 1)
         sleep.assert_not_called()
+
+
+class LockedHwBrickReplyTests(unittest.TestCase):
+    """Issue #293: stock LK answered the brick with "restricted on locked hw" although the
+    payload took effect and the unit came up in TWRP. That reply must be reconciled, not fatal."""
+
+    def test_locked_hw_reply_is_unknown_and_never_resent(self):
+        reply = completed([], 1, "Sending 'brick' (111616 KB)...\nOKAY [  5.632s]\nWriting 'brick'...\n",
+                          "FAILED (remote: 'the command you input is restricted on locked hw')\n"
+                          "fastboot: error: Command failed")
+        payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        payload.write_bytes(b"x")
+        calls = []
+
+        def fake_run(argv, timeout=None, **kwargs):
+            calls.append(argv)
+            return reply
+
+        with mock.patch.object(INSTALLER.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(INSTALLER.time, "sleep"), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 60), "unknown")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("outcome is unknown until reconciled", out.getvalue())
+
+    def test_eMMC_read_only_and_device_mismatch_stay_terminal(self):
+        payload = Path(tempfile.mkdtemp()) / "fastbrick.img"
+        payload.write_bytes(b"x")
+        for text, pattern in (("FAILED (remote: 'eMMC-RO')", "read-only"),
+                              ("FAILED (remote: 'Device mismatch')", "Device mismatch")):
+            with self.subTest(text=text), \
+                    mock.patch.object(INSTALLER.subprocess, "run", return_value=completed([], 1, "", text)), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(INSTALLER.InstallerError, pattern):
+                INSTALLER.brick_fastboot_payload("fb", "SERIAL", payload, 60)
+
+
+class AdbDeviceStateTests(unittest.TestCase):
+    LISTING = ("List of devices attached\nSYS\tdevice\nTWRP\trecovery\nNEW\tunauthorized\n"
+               "GONE\toffline\nSIDE\tsideload\n")
+
+    def devices(self, *states):
+        with mock.patch.object(INSTALLER, "_run_command", return_value=completed(["adb"], 0, self.LISTING)):
+            return INSTALLER.adb_devices("adb", *states)
+
+    def test_default_lists_only_booted_system_devices(self):
+        self.assertEqual(self.devices(), ["SYS"])
+
+    def test_recovery_state_is_listed_only_when_requested(self):
+        self.assertEqual(self.devices(("device", "recovery")), ["SYS", "TWRP"])
 
 
 class ProductIdentityTests(unittest.TestCase):
@@ -632,8 +680,9 @@ class FakeHandoffDevice:
     sysfs-visible partition names, and a block image served only through `od -j/-N`."""
 
     def __init__(self, *, fastboot=True, product=("RADAR",), unlock=("true",), adb=False,
-                 device_prop="radar", marker="3.7.0", partnames=None, image=None):
-        self.fastboot, self.adb = fastboot, adb
+                 adb_state="recovery", device_prop="radar", marker="3.7.0", partnames=None, image=None):
+        # Real TWRP lists itself as `recovery` in `adb devices` (issue #293).
+        self.fastboot, self.adb, self.adb_state = fastboot, adb, adb_state
         self.product, self.unlock = list(product), list(unlock)
         self.device_prop, self.marker = device_prop, marker
         self.partnames = {"mmcblk0p9": "expdb", "mmcblk0p10": "boot_a_x"} if partnames is None else partnames
@@ -668,7 +717,7 @@ class FakeHandoffDevice:
     def _adb(self, argv):
         text = " ".join(argv)
         if argv[1:] == ["devices"]:
-            return completed(argv, 0, "List of devices attached\n" + ("SER\tdevice\n" if self.adb else ""))
+            return completed(argv, 0, "List of devices attached\n" + (f"SER\t{self.adb_state}\n" if self.adb else ""))
         if argv[-2:] == ["reboot", "bootloader"]:
             self.reboots += 1
             self.adb, self.fastboot = False, True
@@ -776,6 +825,22 @@ class PostBrickHandoffTests(unittest.TestCase):
         device = FakeHandoffDevice(fastboot=False, adb=True, device_prop="radar")
         self.assertEqual(self.wait(device), "SER")
         self.assertEqual(device.reboots, 1)
+
+    def test_verified_recovery_is_found_in_either_adb_state(self):
+        # Issue #293: TWRP reports `recovery`; some builds report `device`. Both must hand off.
+        for state in ("recovery", "device"):
+            with self.subTest(state=state):
+                device = FakeHandoffDevice(fastboot=False, adb=True, adb_state=state, device_prop="radar")
+                self.assertEqual(self.wait(device), "SER")
+                self.assertEqual(device.reboots, 1)
+
+    def test_unauthorized_or_offline_adb_never_requests_bootloader(self):
+        for state in ("unauthorized", "offline"):
+            with self.subTest(state=state):
+                device = FakeHandoffDevice(fastboot=False, adb=True, adb_state=state, device_prop="radar")
+                with self.assertRaisesRegex(INSTALLER.InstallerError, "timed out"):
+                    self.wait(device, timeout=0.05)
+                self.assertEqual(device.reboots, 0)
 
     def test_recovery_with_damaged_kaeru_header_never_requests_bootloader(self):
         device = FakeHandoffDevice(fastboot=False, adb=True, device_prop="radar",

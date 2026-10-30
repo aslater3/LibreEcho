@@ -162,7 +162,9 @@ old-chain device, so treat early conversions as a test and keep the logs.
   postcode lookup) and an optional spoken clock.
 - **Home Assistant.** A native ESPHome API satellite: adopt the device through
   the ESPHome integration for voice, media, announcements and timers.
-- **Music and audio.** AirPlay, internet radio (including HLS/AAC streams such
+- **Music and audio.** AirPlay (from Music Assistant, use Sendspin or an AirPlay
+  streaming mode that works: see [the Sendspin guide](docs/audio/sendspin.md)),
+  multiroom audio with Music Assistant (Sendspin), internet radio (including HLS/AAC streams such
   as BBC radio), Opus and Ogg playback, USB storage browsing, and speaker
   tuning for each model.
 - **Nursery.** A baby monitor that streams to phones, including iPhone Safari,
@@ -181,8 +183,10 @@ old-chain device, so treat early conversions as a test and keep the logs.
 
 LibreEcho sends one anonymous weekly ping to count active devices by hardware
 model and version. It carries no device ID, serial number, MAC address or
-account, and setup and the **Privacy** page show the exact body sent. Health,
-usage and crash reports are opt-in. Details:
+account, setup and the **Privacy** page show the exact body sent, and from
+0.14.5 it can be switched off on the **Privacy** page. Health, usage and crash
+report choices start ticked on new setups and can be turned off; this release
+only records the choice and sends no health, usage or crash data. Details:
 [Privacy and telemetry](docs/privacy.md).
 
 ## Hardware roadmap

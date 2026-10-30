@@ -191,6 +191,12 @@ AIRPLAY_PAYLOAD_OVERRIDE="${LIBREECHO_AIRPLAY_PAYLOAD_OVERRIDE:-}"
 AIRPLAY_MANIFEST_OVERRIDE="${LIBREECHO_AIRPLAY_MANIFEST_OVERRIDE:-}"
 ASSISTANT_PAYLOAD_OVERRIDE="${LIBREECHO_ASSISTANT_PAYLOAD_OVERRIDE:-}"
 ASSISTANT_MANIFEST_OVERRIDE="${LIBREECHO_ASSISTANT_MANIFEST_OVERRIDE:-}"
+TTS_PAYLOAD_OVERRIDE="${LIBREECHO_TTS_PAYLOAD_OVERRIDE:-}"
+TTS_MANIFEST_OVERRIDE="${LIBREECHO_TTS_MANIFEST_OVERRIDE:-}"
+WAKEWORD_PAYLOAD_OVERRIDE="${LIBREECHO_WAKEWORD_PAYLOAD_OVERRIDE:-}"
+WAKEWORD_MANIFEST_OVERRIDE="${LIBREECHO_WAKEWORD_MANIFEST_OVERRIDE:-}"
+STT_PAYLOAD_OVERRIDE="${LIBREECHO_STT_PAYLOAD_OVERRIDE:-}"
+STT_MANIFEST_OVERRIDE="${LIBREECHO_STT_MANIFEST_OVERRIDE:-}"
 PUBLIC_RELEASE_MODE="${LIBREECHO_PUBLIC_RELEASE:-0}"
 PRODUCT_SRC="${LIBREECHO_PRODUCT_SRC:-}"
 product_head=
@@ -659,8 +665,8 @@ if [[ "$FEATURES_ENABLED" == 1 ]]; then
   fi
   pinned_inputs+=(
     curl-8.21.0.tar.xz ca-certificates-20260601.crt
-    ca-certificates-20260601.copyright nqptp-1.2.8.tar.gz
-    shairport-sync-5.1.tar.gz ffmpeg-6.1.1.tar.xz
+    ca-certificates-20260601.copyright nqptp-1.2.9.tar.gz
+    shairport-sync-5.6.2.tar.gz ffmpeg-6.1.6.tar.xz
     host-tools/bin/plistutil host-tools/lib/libplist-2.0.so.4
     host-tools/manifest.json host-tools/share/libplist/copyright
     host-tools/share/libplist/COPYING.LESSER
@@ -1042,6 +1048,13 @@ if grep -qxF 'CONFIG_USB_G_ANDROID=y' "$KERNEL_OUT/.config" &&
 fi
 
 echo "=== building ARM32 zImage and Radar-Puffin DTB (-j$JOBS) ==="
+# Pin the kernel's build identity (user, host, timestamp, build number) so
+# rebuilding the same commit with the same toolchain gives the same zImage.
+# Without this the version banner records the CI runner's hostname and the
+# wall clock, and a stable rebuild never matches the hardware-tested dev build.
+kernel_build_epoch="$(git -C "$KERNEL_SRC" log -1 --format=%ct HEAD)"
+KBUILD_BUILD_USER=libreecho KBUILD_BUILD_HOST=libreecho KBUILD_BUILD_VERSION=1 \
+KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$kernel_build_epoch" '+%a %b %e %H:%M:%S UTC %Y')" \
 make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
   LD="${CROSS}ld.bfd" -j"$JOBS" zImage "$KERNEL_DTB_NAME"
 
@@ -1891,9 +1904,9 @@ airplay_cache_key_args=(
   --value "payload_layout=v2" \
   --tree "platform-airplay=$TOOLS_DIR/airplay" \
   --value "airplay-sysroot=$AIRPLAY_SYSROOT_KEY" --tree "alsa-data=$AIRPLAY_ALSA_DATA" \
-  --file "nqptp-source=$INPUTS/nqptp-1.2.8.tar.gz" \
-  --file "shairport-source=$INPUTS/shairport-sync-5.1.tar.gz" \
-  --file "ffmpeg-source=$INPUTS/ffmpeg-6.1.1.tar.xz" \
+  --file "nqptp-source=$INPUTS/nqptp-1.2.9.tar.gz" \
+  --file "shairport-source=$INPUTS/shairport-sync-5.6.2.tar.gz" \
+  --file "ffmpeg-source=$INPUTS/ffmpeg-6.1.6.tar.xz" \
   --file "tinyalsa-source=$AIRPLAY_TINYALSA_ARCHIVE" \
   --file "airplay-cxx=$AIRPLAY_CXX" --file "host-plistutil=$AIRPLAY_PLISTUTIL" \
   --tree "host-lib=$AIRPLAY_HOST_LIB" \
@@ -1930,9 +1943,9 @@ if ! component_cache_restore airplay "$airplay_cache_key" "$AIRPLAY_STAGE"; then
   env "${airplay_build_env[@]}" \
     "LIBREECHO_AIRPLAY_RELINK_OUTPUT=$AIRPLAY_STAGE/airplay-relink" \
     "$AIRPLAY_BUILDER" \
-    "$INPUTS/nqptp-1.2.8.tar.gz" \
-    "$INPUTS/shairport-sync-5.1.tar.gz" \
-    "$INPUTS/ffmpeg-6.1.1.tar.xz" \
+    "$INPUTS/nqptp-1.2.9.tar.gz" \
+    "$INPUTS/shairport-sync-5.6.2.tar.gz" \
+    "$INPUTS/ffmpeg-6.1.6.tar.xz" \
     "$AIRPLAY_TINYALSA_ARCHIVE" \
     "$AIRPLAY_SYSROOT" "$AIRPLAY_STAGE/airplay" | tee "$RUN/airplay-build.log"
   require_relink_tree "$AIRPLAY_STAGE/airplay-relink" "AirPlay"
@@ -1971,6 +1984,31 @@ echo "dbus_daemon_sha256=$dbus_daemon_sha"
 echo "audio_producer_sha256=$audio_producer_sha"
 echo "audio_engine_sha256=$audio_engine_sha"
 
+echo "=== building the static ARM32 Sendspin player for the AirPlay 2 payload ==="
+# The pinned Sendspin sources arrive with the public inputs (archive hashes
+# verified, declared patches applied). Release builds must ship the player; a
+# private build without those inputs packages AirPlay 2 without it, which the
+# device reports as Sendspin unavailable.
+SENDSPIN_BUILDER="$TOOLS_DIR/sendspin/build_sendspind.sh"
+SENDSPIN_OUTPUT=
+if [[ -d "$INPUTS/sendspin-sdk" ]]; then
+  [[ -x "$SENDSPIN_BUILDER" ]] || {
+    echo "ERROR: Sendspin player builder is missing or not executable: $SENDSPIN_BUILDER" >&2
+    exit 1
+  }
+  SENDSPIN_OUTPUT="$RUN/components/sendspin"
+  rm -rf "$SENDSPIN_OUTPUT"
+  CROSS_PREFIX="$UI_CROSS" "$SENDSPIN_BUILDER" "$UI_SOURCE" "$INPUTS" "$SENDSPIN_OUTPUT" \
+    | tee "$RUN/sendspin-player-build.log"
+  sendspind_sha="$(sha256sum "$SENDSPIN_OUTPUT/libreecho-sendspind" | awk '{print $1}')"
+  echo "sendspind_sha256=$sendspind_sha"
+elif [[ "$PUBLIC_RELEASE_MODE" == 1 ]]; then
+  echo "ERROR: release build lacks the pinned Sendspin sources under $INPUTS" >&2
+  exit 1
+else
+  echo "WARNING: no Sendspin sources under $INPUTS; AirPlay 2 is packaged without the Sendspin player" >&2
+fi
+
 echo "=== packaging AirPlay 2 as an external feature payload ==="
 AIRPLAY_FEATURE_PACKAGER="$TOOLS_DIR/airplay/package_feature.sh"
 [[ -x "$AIRPLAY_FEATURE_PACKAGER" ]] || {
@@ -1984,7 +2022,8 @@ if [[ -n "$AIRPLAY_PAYLOAD_OVERRIDE" || -n "$AIRPLAY_MANIFEST_OVERRIDE" ]]; then
   adopt_feature_payload airplay2 "$AIRPLAY_PAYLOAD_OVERRIDE" "$AIRPLAY_MANIFEST_OVERRIDE" \
     "$AIRPLAY_PAYLOAD" "$AIRPLAY_FEATURE_MANIFEST" | tee "$RUN/airplay-feature-build.log"
 else
-  "$AIRPLAY_FEATURE_PACKAGER" "$AIRPLAY_OUTPUT" "$UI_BUNDLE" \
+  LIBREECHO_AIRPLAY_SENDSPIN="$SENDSPIN_OUTPUT" \
+    "$AIRPLAY_FEATURE_PACKAGER" "$AIRPLAY_OUTPUT" "$UI_BUNDLE" \
     "$AIRPLAY_PAYLOAD" "$AIRPLAY_FEATURE_MANIFEST" | tee "$RUN/airplay-feature-build.log"
 fi
 [[ -f "$AIRPLAY_PAYLOAD" && -f "$AIRPLAY_FEATURE_MANIFEST" ]] || {
@@ -2006,9 +2045,14 @@ TTS_FEATURE_PACKAGER="$TOOLS_DIR/tts/package_feature.sh"
 }
 TTS_PAYLOAD="$RUN/features/tts.squashfs"
 TTS_FEATURE_MANIFEST="$RUN/features/tts.manifest.json"
-"$TTS_FEATURE_PACKAGER" "$TTS_DAEMON" "$TTS_NORTHERN_MALE_MODEL" \
-  "$TTS_FEMALE_MODEL" "$TTS_TOKENS" "$TTS_ESPEAK_DATA" \
-  "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" | tee "$RUN/tts-feature-build.log"
+if [[ -n "$TTS_PAYLOAD_OVERRIDE" || -n "$TTS_MANIFEST_OVERRIDE" ]]; then
+  adopt_feature_payload tts "$TTS_PAYLOAD_OVERRIDE" "$TTS_MANIFEST_OVERRIDE" \
+    "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" | tee "$RUN/tts-feature-build.log"
+else
+  "$TTS_FEATURE_PACKAGER" "$TTS_DAEMON" "$TTS_NORTHERN_MALE_MODEL" \
+    "$TTS_FEMALE_MODEL" "$TTS_TOKENS" "$TTS_ESPEAK_DATA" \
+    "$TTS_PAYLOAD" "$TTS_FEATURE_MANIFEST" | tee "$RUN/tts-feature-build.log"
+fi
 [[ -f "$TTS_PAYLOAD" && -f "$TTS_FEATURE_MANIFEST" ]] || {
   echo "ERROR: TTS feature payload package is incomplete" >&2
   exit 1
@@ -2029,9 +2073,14 @@ WAKE_FEATURE_PACKAGER="$TOOLS_DIR/wakeword/package_feature.sh"
 }
 WAKE_PAYLOAD="$RUN/features/wakeword.squashfs"
 WAKE_FEATURE_MANIFEST="$RUN/features/wakeword.manifest.json"
-"$WAKE_FEATURE_PACKAGER" "$WAKE_DAEMON" "$WAKE_MEL_MODEL" \
-  "$WAKE_EMBEDDING_MODEL" "$WAKE_CLASSIFIER_MODEL" \
-  "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" | tee "$RUN/wakeword-feature-build.log"
+if [[ -n "$WAKEWORD_PAYLOAD_OVERRIDE" || -n "$WAKEWORD_MANIFEST_OVERRIDE" ]]; then
+  adopt_feature_payload wakeword "$WAKEWORD_PAYLOAD_OVERRIDE" "$WAKEWORD_MANIFEST_OVERRIDE" \
+    "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" | tee "$RUN/wakeword-feature-build.log"
+else
+  "$WAKE_FEATURE_PACKAGER" "$WAKE_DAEMON" "$WAKE_MEL_MODEL" \
+    "$WAKE_EMBEDDING_MODEL" "$WAKE_CLASSIFIER_MODEL" \
+    "$WAKE_PAYLOAD" "$WAKE_FEATURE_MANIFEST" | tee "$RUN/wakeword-feature-build.log"
+fi
 [[ -f "$WAKE_PAYLOAD" && -f "$WAKE_FEATURE_MANIFEST" ]] || {
   echo "ERROR: wakeword feature payload package is incomplete" >&2
   exit 1
@@ -2052,9 +2101,14 @@ STT_FEATURE_PACKAGER="$TOOLS_DIR/stt/package_feature.sh"
 }
 STT_PAYLOAD="$RUN/features/stt.squashfs"
 STT_FEATURE_MANIFEST="$RUN/features/stt.manifest.json"
-"$STT_FEATURE_PACKAGER" "$STT_DAEMON" "$STT_ENCODER" "$STT_DECODER" \
-  "$STT_JOINER" "$STT_TOKENS" "$STT_MODEL_LICENSE" \
-  "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" | tee "$RUN/stt-feature-build.log"
+if [[ -n "$STT_PAYLOAD_OVERRIDE" || -n "$STT_MANIFEST_OVERRIDE" ]]; then
+  adopt_feature_payload stt "$STT_PAYLOAD_OVERRIDE" "$STT_MANIFEST_OVERRIDE" \
+    "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" | tee "$RUN/stt-feature-build.log"
+else
+  "$STT_FEATURE_PACKAGER" "$STT_DAEMON" "$STT_ENCODER" "$STT_DECODER" \
+    "$STT_JOINER" "$STT_TOKENS" "$STT_MODEL_LICENSE" \
+    "$STT_PAYLOAD" "$STT_FEATURE_MANIFEST" | tee "$RUN/stt-feature-build.log"
+fi
 [[ -f "$STT_PAYLOAD" && -f "$STT_FEATURE_MANIFEST" ]] || {
   echo "ERROR: STT feature payload package is incomplete" >&2
   exit 1

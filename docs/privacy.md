@@ -4,12 +4,17 @@ LibreEcho processes your voice, your home and your settings on the device.
 The only things it sends without being asked are listed here. Every item can
 be inspected on the device under **Privacy**.
 
-## Weekly active-device count (always on)
+## Weekly active-device count (on by default, can be turned off)
 
 Once a week LibreEcho sends one anonymous ping to `stats.libreecho.org`,
-purely to count how many devices are running and on which version. This ping
-cannot be turned off. It is how the project knows whether a release is
-actually in use.
+purely to count how many devices are running and on which version. It is how
+the project knows whether a release is actually in use.
+
+From 0.14.5 you can switch it off under **Privacy › Active-device count**.
+While it is off nothing is sent; the device checks the setting before every
+attempt and starts counting again within a day of switching it back on. The
+choice is kept across reboots, updates and configuration backups. Earlier
+releases always send it.
 
 The ping is a single HTTPS `POST` to `https://stats.libreecho.org/v1/ping`
 with `User-Agent: libreecho-ping/1` and this JSON body:
@@ -57,7 +62,16 @@ choices you already made.
 In 0.14 these options record consent only: the release does not send health,
 usage or crash data. They decide whether a future release may.
 
+## LibreEcho News
+
+The dashboard can show LibreEcho release and project news. It is off until you
+turn it on. When it is on, the device downloads one small public file,
+`news-v1.json`, from `dl.libreecho.org` (or the same file from GitHub's release
+downloads if that is unreachable), at most twice a day and only while you have
+the dashboard open. The request carries no cookies, account, device identifier
+or settings. Turning news off deletes the downloaded copy.
+
 ## Everything else
 
-Update checks, remote AI services, Home Assistant and other integrations only
-contact the network when you start them or turn them on.
+Update checks, LibreEcho News, remote AI services, Home Assistant and other
+integrations only contact the network when you start them or turn them on.

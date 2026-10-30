@@ -441,6 +441,7 @@ class Tests(unittest.TestCase):
                           'python3 "'+str(ROOT/'build/ci/resolve-source-set.py')+'"')
   script = script.replace('python3 build/ci/ota_v2_inputs.py', 'python3 "'+str(ROOT/'build/ci/ota_v2_inputs.py')+'"')
   stub = 'git() { printf "%s\trefs/heads/test\n" '+('a'*40)+'; }\n'
+  VALIDATED = 'radar-puffin-build-'+'a'*7+'-'+'b'*16+'-'+'c'*16
   cases = [
    ('pull_request', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
    ('push', 'main', '', '', '', 'sandbox', 'github', 'dev', True),
@@ -450,7 +451,10 @@ class Tests(unittest.TestCase):
    ('workflow_dispatch', 'main', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'sandbox', 'signed', '', 'sandbox', 'local', 'dev', True),
    ('workflow_dispatch', 'release/0.14.0', 'dev', 'unsigned', '', 'dev', 'local', 'dev', True),
-   ('workflow_dispatch', 'release/0.14.0', 'prd', 'unsigned', '0.14.0', 'prd', 'local', 'stable', True),
+   ('workflow_dispatch', 'release/0.14.0', 'prd', 'unsigned', '0.14.0', 'prd', 'local', 'stable', True, VALIDATED),
+   ('workflow_dispatch', 'release/0.14.0', 'prd', 'unsigned', '0.14.0', '', '', '', False),
+   ('workflow_dispatch', 'release/0.14.0', 'prd', 'unsigned', '0.14.0', '', '', '', False, 'radar-puffin-v0.13.0'),
+   ('workflow_dispatch', 'release/0.14.0', 'dev', 'unsigned', '', '', '', '', False, VALIDATED),
    ('workflow_dispatch', 'main', 'prd', 'unsigned', '0.14.0', '', '', '', False),
    ('workflow_dispatch', 'main', 'dev', 'signed', '', '', '', '', False),
    ('workflow_dispatch', 'main', 'prd', 'signed', '0.14.0', '', '', '', False),
@@ -460,7 +464,7 @@ class Tests(unittest.TestCase):
   ]
   import json
   script = script.replace('sys.path.insert(0,"build/ci")', 'sys.path.insert(0,'+json.dumps(str(ROOT/'build/ci'))+')')
-  for event, ref, purpose, signing, version, expected, mode, channel, success in cases:
+  for event, ref, purpose, signing, version, expected, mode, channel, success, *validated in cases:
    with self.subTest(event=event, ref=ref, purpose=purpose, signing=signing), tempfile.TemporaryDirectory() as tmp:
     out = Path(tmp)/'output'
     notes = Path(tmp)/'release/radar-puffin-v0.14.0.md'
@@ -471,7 +475,8 @@ class Tests(unittest.TestCase):
                RELEASE_VERSION=version, SSH_ENABLED_INPUT='disabled',
                OTA_FORMAT_INPUT='v3', OTA_RELEASE_INPUT='',
                PR_HEAD_REPOSITORY='', GITHUB_REPOSITORY='aslater3/LibreEcho', GITHUB_HEAD_REF='test',
-               GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1')
+               GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1',
+               VALIDATED_DEV_BUILD=validated[0] if validated else '')
     result = subprocess.run(['bash', '-c', stub+script], cwd=tmp, env=env,
                             capture_output=True, text=True)
     self.assertEqual(result.returncode == 0, success, result.stdout+result.stderr)
@@ -529,6 +534,26 @@ class Tests(unittest.TestCase):
   # which reads LIBREECHO_PLATFORM_SOURCE; exporting only the test-suite name
   # would silently fall back to the Product adapter.
   self.assertIn('LIBREECHO_PLATFORM_SOURCE: ${{ github.workspace }}/platform-source', W)
+
+ def test_prepare_public_inputs_authenticates_patches_from_pinned_platform_checkout(self):
+  # The whole-inventory fetch stages a patched archive tree, so it must
+  # authenticate the Product patch mirror from the Platform checkout pinned to
+  # the resolved platform_sha (never a mutable ref) and pass those exact
+  # lock/patch paths to the fetch step.
+  start = W.index('  prepare-public-inputs:')
+  end = W.index('  build-image:', start)
+  job = W[start:end]
+  checkout = job[job.index('Check out pinned Platform patch inventory'):job.index('Fetch public input inventory')]
+  fetch = job[job.index('Fetch public input inventory'):job.index('Save fetched public inputs cache')]
+  self.assertIn('repository: aslater3/LibreEcho-Platform', checkout)
+  self.assertIn('ref: ${{ needs.resolve-and-preflight.outputs.platform_sha }}', checkout)
+  self.assertNotIn('ref: main', checkout)
+  self.assertIn('path: platform-source', checkout)
+  self.assertIn("if: steps.restore-deps.outputs.cache-hit != 'true'", checkout)
+  self.assertIn('test -f "$platform_sendspin/SOURCE.lock"', fetch)
+  self.assertIn('test -d "$platform_sendspin/patches"', fetch)
+  self.assertIn('--source-lock "$platform_sendspin/SOURCE.lock"', fetch)
+  self.assertIn('--patch-dir "$platform_sendspin/patches"', fetch)
 
  def test_release_gate_triggers_cover_gate_inputs(self):
   # Files consumed by the release gate must trigger it when changed directly;
