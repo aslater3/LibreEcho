@@ -10,6 +10,7 @@ import os
 import shutil
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -284,6 +285,9 @@ case "$1" in
   get-state) echo device ;;
   shell) case "$2" in
       *mmcblk0p7*bs=64*) printf '%0128d' 0 ;;
+      *image-profile*) printf 'profile=ota\\ntarget=absent\\nrequest=none\\ninit_markers=4\\nkmarker_dmesg=0\\nkmarker_syms=0\\n' ;;
+      *PARTNAME=expdb*) echo /sys/class/block/mmcblk0p7/uevent ;;
+      *PARTNAME=misc*) echo /sys/class/block/mmcblk0p8/uevent ;;
       *strings*) echo biscuit ;;
       *proc/partitions*) cat "$FAKE_GEO" ;;
     esac ;;
@@ -441,6 +445,349 @@ esac
             "|| { echo FEATURE_STAGE_MARKER_SYNC_FAILED; exit 1; }",
             stager[second_sync:second_sync + 100],
         )
+
+
+KAERU_KIT = ROOT / "tools" / "radar-kaeru-migration"
+# radar_puffin legacy `_x` contract: name, first sector, sectors.
+RADAR_X_LAYOUT = (
+    ("kb", 2048, 2048), ("dkb", 4096, 2048), ("lk_a", 32768, 2048), ("tee1", 49152, 10240),
+    ("lk_b", 65536, 2048), ("tee2", 81920, 10240), ("expdb", 98304, 20480), ("misc", 118784, 1025),
+    ("persist", 131072, 32768), ("boot_a_x", 163840, 32768), ("boot_b_x", 196608, 32768),
+    ("recovery", 229376, 32768), ("system_a", 294912, 1572864), ("system_b", 1867776, 1572864),
+    ("cache", 3440640, 1605632), ("userdata", 5046272, 2137088),
+    ("boot_a", 7183360, 225280), ("boot_b", 7408640, 225280),
+)
+RADAR_DISK_SECTORS = 7634944
+
+
+def radar_gpt_images(rows, disk: int = RADAR_DISK_SECTORS) -> tuple[bytes, bytes]:
+    """Primary (34 sectors) and backup (33 sectors) GPT for `rows`."""
+    import zlib
+    ss, nent, esize = 512, 128, 128
+    alt, last = disk - 1, disk - 34
+    raw = b"".join(
+        struct.pack("<16s16sQQQ72s", b"T" * 16, bytes([i + 1]) * 16, start, start + n - 1, 0,
+                    name.encode("utf-16le").ljust(72, b"\0"))
+        for i, (name, start, n) in enumerate(rows)).ljust(nent * esize, b"\0")
+
+    def header(my, other, ent_lba):
+        h = bytearray(b"EFI PART" + struct.pack("<IIIIQQQQ16sQIII", 0x10000, 92, 0, 0, my, other, 34, last,
+                                                b"G" * 16, ent_lba, nent, esize, zlib.crc32(raw)))
+        h[16:20] = struct.pack("<I", zlib.crc32(bytes(h)))
+        return bytes(h).ljust(ss, b"\0")
+
+    return b"\0" * ss + header(1, alt, 2) + raw, raw + header(alt, 1, alt - 32)
+
+
+# Host-side fake adb: runs each `adb shell` command for real with /dev, /sys, /proc,
+# /tmp, /data, /etc and /init mapped into a file-backed device tree, and logs every
+# invocation in order so tests can check what the kit did and when.
+FAKE_ADB = r'''
+import json, os, re, shutil, subprocess, sys
+F = os.environ["FAKE_DEVICE"]
+args = sys.argv[1:]
+if args[:1] == ["-s"]:
+    args = args[2:]
+with open(os.path.join(F, "adb.log"), "a") as log:
+    log.write(json.dumps(args) + "\n")
+def rw(text):
+    text = re.sub(r"(?<![\w.$/-])/(dev|sys|proc|tmp|data|etc)(?=/)", lambda m: F + "/" + m.group(1), text)
+    return re.sub(r"(?<![\w./-])/init\b", F + "/init", text)
+offline = os.path.exists(os.path.join(F, "fastboot-mode"))
+cmd = args[0] if args else ""
+if cmd == "--version":
+    print("Android Debug Bridge version fake")
+elif offline:
+    sys.stderr.write("error: device not found\n"); sys.exit(1)
+elif cmd == "get-state":
+    print("device")
+elif cmd == "push":
+    shutil.copyfile(args[1], rw(args[2]))
+elif cmd == "pull":
+    shutil.copyfile(rw(args[1]), args[2])
+elif cmd == "shell":
+    env = dict(os.environ, PATH=os.path.join(F, "devbin") + ":" + os.environ["PATH"])
+    done = subprocess.run(["sh", "-c", rw(" ".join(args[1:]))], capture_output=True, env=env)
+    sys.stdout.buffer.write(done.stdout.replace(F.encode(), b""))
+    sys.exit(done.returncode)
+else:
+    sys.exit(1)
+'''
+FAKE_FASTBOOT = r'''
+import json, os, sys
+F = os.environ["FAKE_DEVICE"]
+args = sys.argv[1:]
+with open(os.path.join(F, "fastboot.log"), "a") as log:
+    log.write(json.dumps(args) + "\n")
+if args[:1] == ["-s"]:
+    args = args[2:]
+infastboot = os.path.exists(os.path.join(F, "fastboot-mode"))
+if args[:1] == ["--version"]:
+    print("fastboot version fake")
+elif args[:1] == ["devices"]:
+    if infastboot:
+        print("TEST\tfastboot")
+elif args[:1] == ["getvar"] and infastboot:
+    value = {"product": "RADAR", "unlock_status": "true"}.get(args[1], "fake")
+    sys.stderr.write(f"{args[1]}: {value}\nFinished. Total time: 0.001s\n")
+else:
+    sys.exit(1)
+'''
+FAKE_DEVBIN = {
+    "blockdev": '#!/bin/sh\ncase "$1" in\n --getsz) echo $(( $(stat -c%s "$2") / 512 ));;\n'
+                ' --setro) : > "$2.ro";;\n --getro) if [ -e "$2.ro" ]; then echo 1; else echo 0; fi;;\nesac\n',
+    "mknod": '#!/bin/sh\nln -sf "$FAKE_DEVICE/dev/mmcblk0boot0" "$1"\n',
+    "reboot": '#!/bin/sh\necho "reboot $*" >> "$FAKE_DEVICE/events"\n: > "$FAKE_DEVICE/fastboot-mode"\n',
+    "dmesg": '#!/bin/sh\ncat "$FAKE_DEVICE/dmesg"\n',
+    "sync": "#!/bin/sh\n:\n",
+    "strings": "#!/bin/sh\ngrep -a -o '[[:print:]]\\{4,\\}' \"$1\"\n",
+}
+MISC_BCB = b"\x00ABB\x01\x7f\x7e"
+
+
+class RadarKaeruMigrationKitTests(unittest.TestCase):
+    """migrate.sh against a fake adb/fastboot and a file-backed radar (issue #325)."""
+
+    def make_device(self, tmp: Path, *, expdb: bytes | None = None, profile: str | None = "ota",
+                    target: str | None = None, request: str | None = None, dmesg: str = "",
+                    kallsyms: str = "c0008000 T stext\n", gpt_plain: bool = False) -> Path:
+        dev = tmp / "device"
+        for sub in ("dev", "sys/block/mmcblk0boot0", "proc", "tmp", "data", "etc/libreecho", "devbin"):
+            (dev / sub).mkdir(parents=True, exist_ok=True)
+        (dev / "dev" / "null").symlink_to("/dev/null")
+        sizes = {3: 1 << 20, 4: 5 << 20, 5: 1 << 20, 6: 5 << 20, 7: 10 << 20, 8: 1025 * 512}
+        names = {3: "lk_a", 4: "tee1", 5: "lk_b", 6: "tee2", 7: "expdb", 8: "misc",
+                 10: "boot_a" if gpt_plain else "boot_a_x"}
+        for number, size in sizes.items():
+            (dev / "dev" / f"mmcblk0p{number}").write_bytes(b"\0" * size)
+        (dev / "dev" / "mmcblk0p3").write_bytes(b"\0" * 64 + b"biscuit-lk-build\0".ljust((1 << 20) - 64, b"\0"))
+        if expdb is not None:
+            (dev / "dev" / "mmcblk0p7").write_bytes(expdb.ljust(10 << 20, b"\0"))
+        misc = bytearray(b"\x5a" * (1025 * 512)); misc[0x360:0x367] = MISC_BCB
+        (dev / "dev" / "mmcblk0p8").write_bytes(bytes(misc))
+        (dev / "dev" / "mmcblk0boot0").write_bytes(b"EMMC_BOOT".ljust(1 << 20, b"\0"))
+        for number, name in names.items():
+            (dev / "sys/class/block" / f"mmcblk0p{number}").mkdir(parents=True)
+            (dev / "sys/class/block" / f"mmcblk0p{number}" / "uevent").write_text(
+                f"MAJOR=179\nMINOR={number}\nPARTN={number}\nPARTNAME={name}\n")
+        (dev / "sys/block/mmcblk0boot0/force_ro").write_text("1\n")
+        rows = RADAR_X_LAYOUT[:16] if gpt_plain else RADAR_X_LAYOUT
+        if gpt_plain:
+            rows = tuple((n[:-2] if n.endswith("_x") else n, s, c) for n, s, c in rows)
+        primary, backup = radar_gpt_images(rows)
+        with open(dev / "dev" / "mmcblk0", "wb") as disk:
+            disk.truncate(RADAR_DISK_SECTORS * 512)
+            disk.write(primary)
+            disk.seek((RADAR_DISK_SECTORS - 33) * 512)
+            disk.write(backup)
+        geometry = {3: 1024, 4: 5120, 5: 1024, 6: 5120, 7: 10240, 10: 16384, 11: 16384, 16: 1068544}
+        (dev / "proc" / "partitions").write_text(
+            "major minor  #blocks  name\n\n" + "".join(f" 179 {n} {kib} mmcblk0p{n}\n" for n, kib in geometry.items()))
+        (dev / "proc" / "kallsyms").write_text(kallsyms)
+        (dev / "dmesg").write_text(dmesg)
+        (dev / "init").write_text("printf FASTBOOT_PLEASE > \"$EXPDB\"\n" * 4)
+        if profile is not None:
+            (dev / "etc/libreecho/image-profile").write_text(profile + "\n")
+        if target is not None:
+            (dev / "etc/libreecho/target").write_text(target)
+        if request == "file":
+            (dev / "tmp" / "reboot.request").write_text("fastboot")
+        for name, body in FAKE_DEVBIN.items():
+            (dev / "devbin" / name).write_text(body)
+            (dev / "devbin" / name).chmod(0o755)
+        return dev
+
+    def run_kit(self, tmp: Path, device: Path, *flags: str) -> subprocess.CompletedProcess:
+        if not (tmp / "kit").exists():
+            shutil.copytree(KAERU_KIT, tmp / "kit")
+            (tmp / "bin").mkdir()
+            for name, body in (("adb", FAKE_ADB), ("fastboot", FAKE_FASTBOOT)):
+                (tmp / "bin" / name).write_text(f"#!{sys.executable}\n{body}")
+                (tmp / "bin" / name).chmod(0o755)
+        env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}", FAKE_DEVICE=str(device))
+        return subprocess.run(["bash", str(tmp / "kit" / "migrate.sh"), "-s", "TEST", *flags],
+                              capture_output=True, text=True, env=env, timeout=300)
+
+    @staticmethod
+    def adb_log(device: Path) -> list[list[str]]:
+        path = device / "adb.log"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    @staticmethod
+    def first(entries, predicate, start: int = 0) -> int:
+        return next((i for i, e in enumerate(entries) if i >= start and predicate(e)), -1)
+
+    @staticmethod
+    def shell(fragment: str):
+        return lambda e: e[:1] == ["shell"] and fragment in " ".join(e[1:])
+
+    @staticmethod
+    def is_write(entry) -> bool:
+        return entry[:1] == ["push"] or (entry[:1] == ["shell"] and " of=" in " ".join(entry[1:]))
+
+    def assert_no_forbidden_reboot(self, device: Path) -> None:
+        for entry in self.adb_log(device):
+            self.assertNotIn(entry[:1], (["reboot"], ["reboot-bootloader"], ["root"]), entry)
+            text = " ".join(entry[1:])
+            if entry[:1] == ["shell"] and re.search(r"(?<![\w./])reboot(?![\w.])", text):
+                self.assertEqual(text, "sync; sync; reboot -f", entry)
+        path = device / "fastboot.log"
+        for line in (path.read_text().splitlines() if path.exists() else []):
+            for word in ("reboot", "reboot-bootloader", "flash", "erase", "oem", "boot", "continue"):
+                self.assertNotIn(word, json.loads(line), line)
+
+    def assert_nothing_written(self, device: Path, result) -> None:
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        entries = self.adb_log(device)
+        self.assertEqual([e for e in entries if self.is_write(e)], [], result.stdout)
+        self.assertEqual(self.first(entries, self.shell("mkdir /tmp/reboot.request")), -1)
+        self.assertFalse((device / "events").exists())
+        self.assert_no_forbidden_reboot(device)
+
+    def test_full_migration_guards_then_reboots_only_with_reboot_f(self) -> None:
+        kaeru = (KAERU_KIT / "stage" / "radar-kaeru.bin").read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            device = self.make_device(tmp, expdb=b"")
+            misc_before = (device / "dev" / "mmcblk0p8").read_bytes()
+            result = self.run_kit(tmp, device, "--verify")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for text in ("reboot guard in place", "expdb re-verified", "expdb is read-only",
+                         "misc force-fastboot marker written", "VERIFY OK: product=RADAR", "ALLDONE",
+                         "--reinstall --target radar_puffin --install-id <new-name>"):
+                self.assertIn(text, result.stdout)
+            entries = self.adb_log(device)
+            guard = self.first(entries, self.shell("mkdir /tmp/reboot.request"))
+            first_write = self.first(entries, self.is_write)
+            self.assertGreaterEqual(guard, 0)
+            self.assertLess(guard, first_write)
+            last_gpt = max(i for i, e in enumerate(entries) if self.shell("of=/dev/mmcblk0 ")(e))
+            verify = self.first(entries, self.shell("if=/dev/mmcblk0p7 bs=8 skip=0 "), last_gpt)
+            setro = self.first(entries, self.shell("blockdev --setro /dev/mmcblk0p7"))
+            marker = self.first(entries, self.shell("of=/dev/mmcblk0p8"))
+            reboot = self.first(entries, lambda e: e == ["shell", "sync; sync; reboot -f"])
+            self.assertTrue(last_gpt < verify < setro < marker < reboot, (last_gpt, verify, setro, marker, reboot))
+            self.assertEqual(reboot, max(i for i, e in enumerate(entries) if e[:1] == ["shell"]))
+            self.assertEqual((device / "events").read_text(), "reboot -f\n")
+            self.assert_no_forbidden_reboot(device)
+            self.assertTrue((device / "tmp" / "reboot.request").is_dir())
+            self.assertTrue((device / "dev" / "mmcblk0p7.ro").exists())
+            self.assertEqual((device / "dev" / "mmcblk0p7").read_bytes()[:len(kaeru)], kaeru)
+            misc_after = (device / "dev" / "mmcblk0p8").read_bytes()
+            self.assertEqual(misc_after[:16], b"FASTBOOT_PLEASE\0")
+            self.assertEqual(misc_after[16:], misc_before[16:])
+            self.assertEqual(misc_after[0x360:0x367], MISC_BCB)
+            # misc is backed up with the other partitions, before it is written.
+            self.assertEqual((tmp / "kit" / "backup" / "p8.img").read_bytes(), misc_before)
+            misc_sha = hashlib.sha256(misc_before).hexdigest()
+            self.assertIn(f"{misc_sha}  backup/p8.img", (tmp / "kit" / "backup" / "MANIFEST.sha256").read_text())
+            events = [json.loads(line) for line in (tmp / "kit" / "migration.jsonl").read_text().splitlines()]
+            self.assertIn({"event": "backup_p8", "sha256": misc_sha},
+                          [{"event": e["event"], "sha256": e["sha256"]} for e in events])
+            order = [e["event"] for e in events]
+            self.assertLess(order.index("backup_p8"), order.index("write_lk.bin"))
+            self.assertLess(order.index("gpt_write"), order.index("expdb_chain_verified"))
+
+    def test_gpt_fix_on_converted_unit_ends_in_guarded_reboot(self) -> None:
+        kaeru = (KAERU_KIT / "stage" / "radar-kaeru.bin").read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            device = self.make_device(tmp, expdb=kaeru)
+            result = self.run_kit(tmp, device, "--gpt-fix", "--verify")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            entries = self.adb_log(device)
+            self.assertLess(self.first(entries, self.shell("mkdir /tmp/reboot.request")), self.first(entries, self.is_write))
+            self.assertEqual(len(list((tmp / "kit" / "backup").glob("p8-*.img"))), 1)
+            self.assertEqual((device / "dev" / "mmcblk0p8").read_bytes()[:16], b"FASTBOOT_PLEASE\0")
+            self.assertEqual((device / "events").read_text(), "reboot -f\n")
+            self.assertIn("VERIFY OK", result.stdout)
+            self.assert_no_forbidden_reboot(device)
+
+    def test_refusals_write_nothing(self) -> None:
+        kaeru = (KAERU_KIT / "stage" / "radar-kaeru.bin").read_bytes()
+        clobbered = b"FASTBOOT_PLEASE" + kaeru[15:]
+        cases = {
+            "request file": ({"request": "file"}, (), "reboot request is pending"),
+            "development profile": ({"profile": "development"}, (), "DEVELOPMENT-profile"),
+            "missing profile": ({"profile": None}, (), "cannot confirm the image profile"),
+            "dot target": ({"target": "target_id=biscuit\n"}, (), "not radar_puffin"),
+            "kernel writer (dmesg)": ({"dmesg": "[ 0.5] echo-marker: FASTBOOT_PLEASE written\n"}, (), "echo-marker"),
+            "kernel writer (symbol)": ({"kallsyms": "c0f00000 t echo_fastboot_marker_init\n"}, (), "echo-marker"),
+            "clobbered kaeru": ({"expdb": clobbered}, (), "CLOBBERED kaeru chain"),
+            "clobbered kaeru, gpt-fix": ({"expdb": clobbered}, ("--gpt-fix",), "CLOBBERED kaeru chain"),
+            "zeroed head, kaeru body": ({"expdb": b"\0" * 64 + kaeru[64:]}, (), "CLOBBERED kaeru chain"),
+        }
+        for name, (device_args, flags, message) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                device = self.make_device(tmp, **{"expdb": b"", **device_args})
+                result = self.run_kit(tmp, device, *flags)
+                self.assertIn(message, result.stdout)
+                self.assert_nothing_written(device, result)
+                if name == "request file":
+                    self.assertTrue((device / "tmp" / "reboot.request").is_file())
+                if name.startswith("clobbered"):
+                    self.assertNotIn("old chain", result.stdout)
+                    self.assertNotIn("already converted", result.stdout)
+                    self.assertEqual((device / "dev" / "mmcblk0p7").read_bytes()[:len(clobbered)], clobbered)
+
+    def test_target_file_and_dry_run(self) -> None:
+        for target in ("target_id=radar_puffin\n", None):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                device = self.make_device(tmp, expdb=b"", target=target)
+                result = self.run_kit(tmp, device, "--dry-run")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("DRY RUN complete", result.stdout)
+                self.assertIn("pre-0.14 image" if target is None else "image target: radar_puffin", result.stdout)
+                self.assertFalse((device / "tmp" / "reboot.request").exists())  # dry run leaves adb reboot alone
+                self.assertTrue((tmp / "kit" / "backup" / "p8.img").exists())
+                self.assertEqual((device / "dev" / "mmcblk0p8").read_bytes()[:16], b"\x5a" * 16)
+                self.assertFalse((device / "events").exists())
+                self.assert_no_forbidden_reboot(device)
+
+    def test_separate_verify_never_reboots(self) -> None:
+        kaeru = (KAERU_KIT / "stage" / "radar-kaeru.bin").read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            device = self.make_device(tmp, expdb=kaeru)
+            on_adb = self.run_kit(tmp, device, "--verify")
+            self.assertEqual(on_adb.returncode, 0, on_adb.stdout + on_adb.stderr)
+            self.assertIn("--gpt-fix --verify", on_adb.stdout)
+            self.assertEqual([e for e in self.adb_log(device) if self.is_write(e)], [])
+            (device / "fastboot-mode").write_text("")
+            (device / "adb.log").unlink()
+            in_fastboot = self.run_kit(tmp, device, "--verify")
+            self.assertEqual(in_fastboot.returncode, 0, in_fastboot.stdout + in_fastboot.stderr)
+            self.assertIn("read-only fastboot check", in_fastboot.stdout)
+            self.assertIn("VERIFY OK: product=RADAR", in_fastboot.stdout)
+            self.assertEqual([e for e in self.adb_log(device) if e[:1] == ["shell"]], [])
+            self.assertFalse((device / "events").exists())
+            self.assert_no_forbidden_reboot(device)
+
+    def test_kit_text_never_uses_adb_or_fastboot_reboot(self) -> None:
+        script = (KAERU_KIT / "migrate.sh").read_text(encoding="utf-8")
+        reboot_calls = []
+        for number, line in enumerate(script.splitlines(), 1):
+            code = line.strip()
+            if not code or code.startswith("#") or re.match(r"(echo|die|printf) ", code):
+                continue
+            code = re.sub(r'(?:echo|die) "[^"]*"', "", code)  # user-facing text
+            if re.search(r"(?<![\w./-])reboot(?![\w.])|reboot-bootloader", code):
+                reboot_calls.append((number, code))
+        self.assertEqual(len(reboot_calls), 1, reboot_calls)
+        self.assertIn("adb -s \"$S\" shell 'sync; sync; reboot -f'", reboot_calls[0][1])
+        readme = (KAERU_KIT / "README.md").read_text(encoding="utf-8")
+        quickstart = readme.split("## Quickstart", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("./migrate.sh -s SERIAL --verify", quickstart)
+        self.assertNotIn("adb reboot", quickstart)
+        self.assertNotIn("same dd pattern in reverse", readme)
+        for text in ("Failed to load LK", "bootrom-step.sh read expdb", "flash expdb bin/radar-kaeru.bin",
+                     "Never run `bootrom-step.sh` with no arguments", "development"):
+            self.assertIn(text, readme)
+        pinned = (KAERU_KIT / "MANIFEST.sha256").read_text(encoding="ascii")
+        for name in ("gpt-fix.py",):
+            self.assertIn(hashlib.sha256((KAERU_KIT / name).read_bytes()).hexdigest() + f"  {name}", pinned)
 
 
 class PublicMetadataTests(unittest.TestCase):
