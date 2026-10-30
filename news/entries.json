@@ -1,13 +1,4 @@
 {
   "schema": "libreecho-news-entries-v1",
-  "entries": [
-    {
-      "id": "progress-0-14-5",
-      "type": "progress",
-      "date": "2026-10-29",
-      "title": "Coming in LibreEcho 0.14.5",
-      "summary": "Music Assistant multiroom (Sendspin), room setting, LED idle auto-off, an optional setup colour scheme, recovery mode, local services that survive updates, and this news panel.",
-      "url": "https://github.com/aslater3/LibreEcho/releases"
-    }
-  ]
+  "entries": []
 }
