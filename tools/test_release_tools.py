@@ -229,6 +229,13 @@ class OneShotFastbootTests(unittest.TestCase):
                 if hint:  # names the Dot as supported (not the kit's full migration, which refuses it)
                     for text in ("--gpt-fix --dry-run", "Echo Dot (biscuit)", "never run the kit's full boot-chain migration"):
                         self.assertIn(text, message)
+                    # Issue #325: the kit ends in Kaeru fastboot; --reinstall runs from there and
+                    # nothing reboots the old OS (#327 next steps).
+                    self.assertIn("./migrate.sh -s SERIAL --gpt-fix --verify", message)
+                    self.assertIn("--reinstall and a new --install-id from fastboot", message)
+                    self.assertIn("#327", message)
+                    self.assertNotIn("reboot, then", message)
+                    self.assertNotRegex(message, r"(?i)\breboot\b[^.]*then[^.]*--reinstall")
 
     def test_radar_kaeru_gpt_fix_converts_legacy_x_layout(self) -> None:
         import struct, zlib

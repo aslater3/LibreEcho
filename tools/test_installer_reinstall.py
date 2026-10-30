@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -30,6 +31,41 @@ def load():
 
 def done(stdout: str = "", rc: int = 0) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess([], rc, stdout, "")
+
+
+KIT_KAERU = ROOT / "tools/radar-kaeru-migration/stage/radar-kaeru.bin"
+EXPDB_BYTES = 4 * 1024 * 1024
+
+
+def expdb_image(kind: str) -> bytes:
+    """expdb as each chain generation leaves it (issue #325)."""
+    kaeru = KIT_KAERU.read_bytes()
+    pad = lambda data: data + bytes(EXPDB_BYTES - len(data))
+    return {
+        "kaeru": pad(kaeru),
+        "clobbered": pad(b"FASTBOOT_PLEASE" + kaeru[15:]),
+        "legacy-marker": pad(b"FASTBOOT_PLEASE"),
+        "legacy-zero": bytes(EXPDB_BYTES),
+        "other": pad(b"\x7fELF" + bytes(60)),
+    }[kind]
+
+
+def running_image(command, events, init_markers: str, expdb: bytes | None):
+    """Answer the installer's read-only probes as a running LibreEcho; None for anything else."""
+    if "shell" not in command:
+        return None
+    shell = command[-1]
+    if "init_markers=" in shell:
+        events.append("probe-image")
+        return done(f"profile=ota\ninit_markers={init_markers}\n")
+    if "PARTNAME=expdb" in shell:
+        return done("/sys/class/block/mmcblk0p7/uevent\n" if expdb is not None else "", 0 if expdb is not None else 1)
+    match = re.fullmatch(r"dd if=/dev/mmcblk0p7 bs=8 skip=(\d+) count=(\d+) 2>/dev/null \| od -An -v -tx1", shell)
+    if match and expdb is not None:
+        events.append("read-expdb")
+        start, count = int(match.group(1)) * 8, int(match.group(2)) * 8
+        return done(" ".join(f"{b:02x}" for b in expdb[start:start + count]) + "\n")
+    return None
 
 
 class StagerTests(unittest.TestCase):
@@ -192,7 +228,8 @@ class OneShotReinstallTests(unittest.TestCase):
 
     def run_one_shot(self, *, saved_phase: str | None, reinstall: bool, unlocked: bool = True,
                      device_in_fastboot: bool = False, saved_serial: str = "SERIAL123",
-                     fastboot_serial: str = "auto") -> dict:
+                     fastboot_serial: str = "auto", init_markers: str = "0",
+                     expdb: bytes | None = None) -> dict:
         installer = load()
         events: list[str] = []
         with tempfile.TemporaryDirectory() as temporary:
@@ -220,7 +257,7 @@ class OneShotReinstallTests(unittest.TestCase):
                 if command[-2:] == ["reboot", "bootloader"]:
                     events.append("adb-reboot-bootloader")
                     fastboot["present"] = True
-                return done("")
+                return running_image(command, events, init_markers, expdb) or done("")
 
             installer._prepare = lambda *a, **k: (manifest, bundle)
             installer.validate_public_boot_image = lambda *a, **k: None
@@ -283,7 +320,7 @@ class OneShotReinstallTests(unittest.TestCase):
         self.assertIsNone(run["error"])
         self.assertEqual(run["result"], {"phase": "DONE"})
         events = run["events"]
-        self.assertEqual(events[0], "adb-reboot-bootloader")
+        self.assertEqual(events[:2], ["probe-image", "adb-reboot-bootloader"])
         self.assertNotIn("BRICK", events)
         self.assertNotIn("latch", events)
         self.assertLess(events.index("format-userdata"), events.index("flash:boot_a"))
@@ -296,6 +333,48 @@ class OneShotReinstallTests(unittest.TestCase):
         self.assertIsNone(run["error"])
         self.assertNotIn("adb-reboot-bootloader", run["events"])
         self.assertIn("format-userdata", run["events"])
+
+    def test_reinstall_on_pre_209_image_with_kaeru_expdb_never_reboots_to_bootloader(self) -> None:
+        # Issue #325: an old image's reboot-to-bootloader path writes FASTBOOT_PLEASE over expdb[0].
+        for kind in ("kaeru", "clobbered", "other"):
+            with self.subTest(expdb=kind):
+                run = self.run_one_shot(saved_phase="FEATURES_STAGED", reinstall=True, init_markers="2",
+                                        expdb=expdb_image(kind))
+                self.assertNotIn("adb-reboot-bootloader", run["events"])
+                self.assertIn("read-expdb", run["events"])
+                self.assertNotIn("format-userdata", run["events"])
+                self.assertFalse([e for e in run["events"] if e.startswith("flash:")])
+                self.assertIn("issue #325", run["error"])
+                self.assertEqual(len(run["archives"]), 1, "old state archived, not deleted")
+                if kind == "clobbered":
+                    self.assertIn("Do not reboot or power off", run["error"])
+                else:
+                    self.assertIn("Volume Down", run["error"])
+                    self.assertIn("--gpt-fix --verify", run["error"])
+
+    def test_reinstall_fails_closed_when_the_image_or_expdb_cannot_be_read(self) -> None:
+        for markers, expdb in (("", expdb_image("kaeru")), ("2", None)):
+            with self.subTest(init_markers=markers, expdb_readable=expdb is not None):
+                run = self.run_one_shot(saved_phase="FEATURES_STAGED", reinstall=True,
+                                        init_markers=markers, expdb=expdb)
+                self.assertNotIn("adb-reboot-bootloader", run["events"])
+                self.assertIn("Volume Down", run["error"])
+
+    def test_reinstall_on_pre_209_image_with_legacy_amonet_expdb_still_reboots(self) -> None:
+        for kind in ("legacy-marker", "legacy-zero"):
+            with self.subTest(expdb=kind):
+                run = self.run_one_shot(saved_phase="FEATURES_STAGED", reinstall=True, init_markers="2",
+                                        expdb=expdb_image(kind))
+                self.assertIsNone(run["error"])
+                self.assertIn("adb-reboot-bootloader", run["events"])
+                self.assertIn("flash:boot_b", run["events"])
+
+    def test_reinstall_on_post_209_image_reboots_without_reading_expdb(self) -> None:
+        run = self.run_one_shot(saved_phase="FEATURES_STAGED", reinstall=True, init_markers="0",
+                                expdb=expdb_image("kaeru"))
+        self.assertIsNone(run["error"])
+        self.assertEqual(run["events"][:2], ["probe-image", "adb-reboot-bootloader"])
+        self.assertNotIn("read-expdb", run["events"])
 
     def test_reinstall_never_discards_an_unresolved_brick_marker(self) -> None:
         for phase in ("BRICK_SUBMITTED", "AMONET_VERIFIED"):
