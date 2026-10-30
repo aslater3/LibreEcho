@@ -3,6 +3,15 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
+## radar-puffin-v0.14.5
+
+See [the 0.14.5 release note](release/radar-puffin-v0.14.5.md). Adds multiroom
+audio with Music Assistant (Sendspin), a LibreEcho News panel, local services
+that survive updates, room, idle-light auto-off, setup colour scheme and
+recovery panel settings, and an off switch for the weekly device count;
+security updates for Shairport Sync, NQPTP, Mbed TLS and FFmpeg; and update
+fixes for disk space and cached packages.
+
 ## radar-puffin-v0.14.4
 
 See [the 0.14.4 release note](release/radar-puffin-v0.14.4.md). Replaces the
