@@ -274,11 +274,12 @@ before posting them publicly.
 - Write/readback/backup discipline copied from the tested
   `radar-full-stock-20261009/flash.sh` (successful full Radar stock restore log
   ends `ALLDONE`).
-- Gates, backups and staging verified live on a kaeru dev unit (correctly
-  refused: already kaeru). That dev unit is on the **plain** layout (p10/p11
-  named `boot_a`/`boot_b`, no p17/p18), so it never proved the kaeru LK works on
-  `_x`. A field unit (kaeru chain, `_x` GPT) showed it does not: one-shot
-  `flash boot_a` booted fine but p10 kept the previous image.
+- Gates, backups and staging verified live on a maintainer dev unit
+  (correctly refused: already kaeru). Correction: that dev unit is on the
+  **plain** layout (p10/p11 named `boot_a`/`boot_b`, no p17/p18), so it never
+  proved the kaeru LK works on `_x`. A field unit (kaeru chain,
+  `_x` GPT) showed it does not: one-shot `flash boot_a` booted fine but p10 kept
+  the previous image.
 - `gpt-fix.py` output on the `_x` form of the dev unit's table is byte-identical
   to the dev unit's real primary and backup GPT.
 - Host tests (`tools/test_release_tools.py`) run the whole kit against a fake
