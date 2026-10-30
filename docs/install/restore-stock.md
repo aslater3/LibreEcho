@@ -127,11 +127,15 @@ adb shell twrp install /sdcard/update.zip
 adb shell bcbtool get_active
 ```
 
-The two `get_active` answers should differ (`a` and `b`). If the second
-install went into the same slot again, do not switch slots by hand with
-`bcbtool set_active`; repeat this step from `adb reboot recovery`. If `bcbtool`
-is not available in your TWRP, run the commands without the two `get_active`
-lines: both slots are written either way.
+The two `get_active` answers should differ (`a` and `b`). If they are the
+same, the second install may not have reached the other slot, and repeating
+it is unlikely to change that. Do not switch slots by hand with
+`bcbtool set_active`. Go on to step 4: the active slot was just flashed with
+Fire OS and boots it; the other slot may still hold the LibreEcho boot image.
+Then open an issue (see
+[If something goes wrong](#if-something-goes-wrong)) with both `get_active`
+answers. If `bcbtool` is not available in your TWRP, run the commands without
+the two `get_active` lines; you cannot check the slots then.
 
 ## 4. Boot Fire OS
 
