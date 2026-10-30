@@ -115,6 +115,10 @@ explains the layout.
     print a trailing empty line (Product #323);
   - the Kaeru migration kit accepts the legacy Echo Dot userdata size
     (Product #306);
+  - the Kaeru migration kit can no longer have its new boot chain overwritten
+    by the old system's reboot-to-fastboot path: it blocks that path before
+    writing, locks `expdb`, reboots only with `reboot -f`, refuses images that
+    write `expdb` at boot, and recognises a clobbered chain (Product #327);
   - the install guide adds notes for USB connection order and WSL/usbipd
     (Product #307, #312).
 
