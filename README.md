@@ -154,6 +154,13 @@ boot chain in place, with gated writes, backups and readback checks. Always run
 its `--dry-run` first. Its full write path has not yet been run end to end on an
 old-chain device, so treat early conversions as a test and keep the logs.
 
+### Going back to stock Fire OS
+
+To put Amazon's Fire OS and Alexa back on a LibreEcho unit, follow
+[Going back to stock Fire OS](docs/install/restore-stock.md). It flashes
+Amazon's own update package from TWRP into both slots. The bootloader stays
+unlocked.
+
 ## What you get
 
 - **A voice assistant on the device.** Wake word, speech-to-text and
