@@ -1,9 +1,8 @@
 # Sendspin: multiroom audio with Music Assistant
 
-> **Draft for 0.14.5.** Tested on an Echo (2nd generation) and an Echo Dot
-> with Music Assistant 2.10.8: discovery, token pairing, grouping, play,
-> pause, seek, leave/rejoin, volume and mute. Screenshots will be added
-> before 0.14.5 ships.
+> New in 0.14.5. Tested on an Echo (2nd generation) and an Echo Dot with
+> Music Assistant 2.10.8: discovery, token pairing, grouping, play, pause,
+> seek, leave/rejoin, volume and mute.
 
 LibreEcho can join [Music Assistant](https://music-assistant.io/) as a
 Sendspin speaker. Music Assistant then plays to it on its own or in a group
@@ -78,6 +77,34 @@ The speaker only plays for a server it is paired with.
   other sources. Opus is not supported.
 - One server at a time.
 
+## AirPlay from Music Assistant
+
+Music Assistant also finds LibreEcho as an **AirPlay** speaker (Shairport Sync
+on the device). Its AirPlay **streaming mode** setting decides whether that
+plays:
+
+| Music Assistant streaming mode | On LibreEcho |
+| --- | --- |
+| Automatic (recommended) | **Silent**: it picks *AirPlay 2 - PTP timing* |
+| AirPlay 2 - PTP timing | **Silent** |
+| AirPlay 2 - NTP timing | **Silent** |
+| AirPlay 2 - compatibility mode | Plays |
+| AirPlay 1 (RAOP) | Plays |
+
+In the silent modes Music Assistant connects and shows the track as playing,
+but no sound comes out, and Music Assistant logs that the speaker "has not
+answered the server's PTP clock". Music Assistant documents Shairport Sync and
+AirPlay 2 as incompatible.
+
+- **Use Sendspin** (this guide) for Music Assistant. It is the supported way,
+  and grouped speakers stay in time.
+- For AirPlay from Music Assistant instead, open the speaker's AirPlay player
+  in Music Assistant and set **Streaming mode** to **AirPlay 2 - compatibility
+  mode** or **AirPlay 1 (RAOP)**.
+
+AirPlay from an iPhone, iPad or Mac is a different sender and is not affected
+by this setting.
+
 ## Forget paired servers
 
 On the Sendspin card press **Forget paired servers** and confirm. The
@@ -106,6 +133,11 @@ Its pairing is kept; use **Forget paired servers** to remove it.
   bundle from the System page and include it in a bug report.
 - **Connected but no sound.** Check the speaker volume and that it is not
   muted in Music Assistant, and that no alarm is sounding.
+- **Music Assistant shows it playing over AirPlay but there is no sound.**
+  Its AirPlay streaming mode is *Automatic* or an *AirPlay 2 - PTP/NTP
+  timing* mode, which LibreEcho does not support. Play to its Sendspin player,
+  or set the AirPlay streaming mode to *AirPlay 2 - compatibility mode* or
+  *AirPlay 1 (RAOP)* (see *AirPlay from Music Assistant*).
 
 For developers: the REST endpoints are `GET /api/v1/sendspin`,
 `POST /api/v1/sendspin/pairing`, `POST /api/v1/sendspin/unpair` and
