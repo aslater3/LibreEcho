@@ -162,7 +162,9 @@ old-chain device, so treat early conversions as a test and keep the logs.
   postcode lookup) and an optional spoken clock.
 - **Home Assistant.** A native ESPHome API satellite: adopt the device through
   the ESPHome integration for voice, media, announcements and timers.
-- **Music and audio.** AirPlay, internet radio (including HLS/AAC streams such
+- **Music and audio.** AirPlay (from Music Assistant, use Sendspin or an AirPlay
+  streaming mode that works: see [the Sendspin guide](docs/audio/sendspin.md)),
+  multiroom audio with Music Assistant (Sendspin), internet radio (including HLS/AAC streams such
   as BBC radio), Opus and Ogg playback, USB storage browsing, and speaker
   tuning for each model.
 - **Nursery.** A baby monitor that streams to phones, including iPhone Safari,

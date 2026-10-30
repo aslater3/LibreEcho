@@ -138,11 +138,15 @@ explains the layout.
 
 ## Known issues
 
-- **AirPlay from Music Assistant:** Music Assistant's *AirPlay 2 (PTP)*
-  streaming mode does not play on LibreEcho. Music Assistant documents
-  Shairport Sync and AirPlay 2 as incompatible. Use **Sendspin** for Music
-  Assistant, or set the speaker's AirPlay streaming mode in Music Assistant to
-  *AirPlay 1 (RAOP)*, which plays.
+- **AirPlay from Music Assistant:** with Music Assistant's AirPlay streaming
+  mode on *Automatic* (the default, which picks *AirPlay 2 - PTP timing*) or
+  *AirPlay 2 - NTP timing*, the speaker stays silent while Music Assistant
+  shows it playing. Music Assistant documents Shairport Sync and AirPlay 2 as
+  incompatible. Use **Sendspin** for Music Assistant, or set the speaker's
+  AirPlay streaming mode to *AirPlay 2 - compatibility mode* or
+  *AirPlay 1 (RAOP)*, which both play. See
+  [the Sendspin guide](../docs/audio/sendspin.md#airplay-from-music-assistant).
+  AirPlay from Apple devices is a different sender.
 
 ## Validation
 
@@ -169,8 +173,10 @@ a physical Echo Dot (`biscuit`) running development builds of these sources:
   differs by about 0.95 ms between the two units on clicks, the same for FLAC
   and PCM. That is the Echo Dot's speaker processing delay for very short
   clicks; on development builds the acoustic skew measured 0.03–0.04 ms.
-- **AirPlay:** Music Assistant over *AirPlay 1 (RAOP)* to the Echo 2nd Gen
-  played through Shairport Sync 5.6.2.
+- **AirPlay:** Music Assistant to the Echo 2nd Gen through Shairport Sync
+  5.6.2: *AirPlay 1 (RAOP)* and *AirPlay 2 - compatibility mode* play;
+  *AirPlay 2 - PTP timing* (the *Automatic* choice) and *AirPlay 2 - NTP
+  timing* do not.
 - **Echo Dot speaker unmute:** cold unmute wait 0.97 s, against 1.10 s on
   earlier builds.
 
