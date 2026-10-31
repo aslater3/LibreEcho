@@ -1061,6 +1061,7 @@ class InstallerPublicationTests(unittest.TestCase):
             "docs/install/README.md",
             "docs/install/restore-stock.md",
             "docs/porting/README.md",
+            "docs/without-home-assistant.md",
             "docs/disassembly/echo-gen-2/README.md",
             "tools/README.md",
         )
@@ -1168,6 +1169,50 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertNotIn("BROM", guide)
         self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND", guide, re.I))
         self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", guide))
+
+    def test_home_assistant_down_page_is_linked_and_separates_ha_owned_features(self) -> None:
+        page = (ROOT / "docs/without-home-assistant.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("](docs/without-home-assistant.md)", product)
+        summary = page.split("## Summary", 1)[1].split("\n## ", 1)[0]
+        rows = {
+            cells[0]: cells[1:]
+            for cells in (
+                [cell.strip() for cell in line.strip("|").split("|")]
+                for line in summary.splitlines()
+                if line.startswith("| ") and not line.startswith("| Feature")
+            )
+        }
+        # Every row says what happens and how it was checked; nothing is blank.
+        self.assertGreaterEqual(len(rows), 10)
+        for feature, cells in rows.items():
+            self.assertEqual(len(cells), 2, feature)
+            self.assertTrue(all(cells), feature)
+
+        def row(prefix: str) -> list[str]:
+            return next(cells for name, cells in rows.items() if name.startswith(prefix))
+
+        # The device-owned features the comparison row is about: alarms and media.
+        for prefix in ("Timers set on the device", "Alarms set on the device", "Internet radio"):
+            self.assertTrue(row(prefix)[0].startswith("Keep") or row(prefix)[0].startswith("Works"), prefix)
+            self.assertIn("Echo Dot and Echo", row(prefix)[1], prefix)
+        for prefix in ("AirPlay", "Bluetooth", "Web control centre"):
+            self.assertTrue(row(prefix)[0].startswith("Works"), prefix)
+        # HA-owned features are not presented as working offline.
+        for prefix in ("Voice in **Home Assistant** mode", "Timers set by voice in **Home Assistant** mode",
+                       "Announcements"):
+            self.assertTrue(row(prefix)[0].startswith("Stop"), prefix)
+        prose = " ".join(page.split())
+        self.assertIn("the device drops them", prose)
+        self.assertIn("choose **Local** or **Custom**", prose)
+        # Checks that were not run say so instead of claiming a pass.
+        self.assertIn("An audio stream was not sent", prose)
+        self.assertIn("The Home Assistant mode behaviour was not run on a device", prose)
+        self.assertIn("6053", page)
+        # No serials, MAC or IP addresses in a public page.
+        self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", page))
+        self.assertIsNone(re.search(r"\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b", page))
+        self.assertIsNone(re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", page))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

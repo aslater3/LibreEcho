@@ -168,7 +168,10 @@ unlocked.
   local LLM endpoint. Timers, weather (including Met Office models and UK
   postcode lookup) and an optional spoken clock.
 - **Home Assistant.** A native ESPHome API satellite: adopt the device through
-  the ESPHome integration for voice, media, announcements and timers.
+  the ESPHome integration for voice, media, announcements and timers. Timers,
+  alarms, radio, AirPlay, Bluetooth and the local voice modes keep working when
+  Home Assistant is down: see
+  [What keeps working when Home Assistant is down](docs/without-home-assistant.md).
 - **Music and audio.** AirPlay (from Music Assistant, use Sendspin or an AirPlay
   streaming mode that works: see [the Sendspin guide](docs/audio/sendspin.md)),
   multiroom audio with Music Assistant (Sendspin), internet radio (including HLS/AAC streams such
