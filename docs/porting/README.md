@@ -451,7 +451,11 @@ product issue for the exact build tested. Until then its descriptor stays at
 
 ## Worked example: how `biscuit` was added
 
-The Echo Dot 2nd Gen went in as a series of focused PRs:
+The Echo Dot 2nd Gen went in as a series of focused PRs. Its kernel PRs
+landed in the older LibreEcho-Linux-6.1 repository, which holds the kernel
+source for releases up to 0.14.4; their changes are carried in
+[LibreEcho-Linux](https://github.com/aslater3/LibreEcho-Linux), where new
+kernel work goes.
 
 | Step | PR | What it did |
 |---|---|---|
