@@ -66,7 +66,11 @@ own once Home Assistant reconnects; you do not need to restart the device.
   wake word, but speech recognition, the conversation agent and the reply all
   run in Home Assistant Assist. With Home Assistant down the wake word gets no
   answer. If you want voice to work without Home Assistant, choose **Local** or
-  **Custom** on the **Voice assistant** page.
+  **Custom** instead: on the **Integrations** page, under **Voice Assistants**,
+  disable Home Assistant voice and turn on the **On Device Voice Assistant**
+  (ChatGPT uses **Local** mode; a local LLM uses **Custom** mode with your
+  Wyoming servers). Your Local and Custom settings are kept while Home
+  Assistant voice is selected.
 - **Timers set by voice in Home Assistant mode.** These timers belong to Home
   Assistant: Home Assistant counts them down and tells the device when they
   finish. When Home Assistant disconnects, the device drops them, so a timer

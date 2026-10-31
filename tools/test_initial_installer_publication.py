@@ -1205,6 +1205,9 @@ class InstallerPublicationTests(unittest.TestCase):
         prose = " ".join(page.split())
         self.assertIn("the device drops them", prose)
         self.assertIn("choose **Local** or **Custom**", prose)
+        # Points at the real web UI location for the voice mode, not a page that does not exist.
+        self.assertIn("on the **Integrations** page, under **Voice Assistants**", prose)
+        self.assertNotIn("**Voice assistant** page", prose)
         # Checks that were not run say so instead of claiming a pass.
         self.assertIn("An audio stream was not sent", prose)
         self.assertIn("The Home Assistant mode behaviour was not run on a device", prose)
