@@ -216,6 +216,11 @@ See the [full hardware compatibility and porting matrix](https://libreecho.org/#
 on the website, including relevant access repositories and the suggested porting
 priority.
 
+To add a model yourself, follow the
+[porting guide](docs/porting/README.md). It covers target profiles, the device
+tree, audio, light and button mapping and the acceptance checklist, using the
+Echo Dot 2nd Gen as the worked example.
+
 ## Repositories
 
 | Repository | Owns |

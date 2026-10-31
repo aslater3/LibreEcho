@@ -1060,6 +1060,7 @@ class InstallerPublicationTests(unittest.TestCase):
             "README.md",
             "docs/install/README.md",
             "docs/install/restore-stock.md",
+            "docs/porting/README.md",
             "docs/disassembly/echo-gen-2/README.md",
             "tools/README.md",
         )
@@ -1079,6 +1080,58 @@ class InstallerPublicationTests(unittest.TestCase):
                         anchor, anchors(linked.read_text(encoding="utf-8")),
                         f"{page}: missing anchor {target}",
                     )
+
+    def test_porting_guide_is_linked_and_tracks_the_target_files(self) -> None:
+        guide = (ROOT / "docs/porting/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("](docs/porting/README.md)", product)
+        # The worked-example descriptor is the real one, not a stale copy.
+        blocks = [json.loads(block) for block in re.findall(r"```json\n(\{.*?\})\n```", guide, re.S)]
+        descriptor = json.loads((ROOT / "release/targets/biscuit.json").read_text(encoding="utf-8"))
+        self.assertIn(descriptor, blocks)
+        # Every Product file that maps a target ID is named in the guide, so a
+        # new target cannot miss one. Files that only mention biscuit in
+        # passing (release plumbing that derives from the registry, SBOM and
+        # migration tooling) are listed here instead.
+        incidental = {
+            "build/ci/prepare-twrp-installs.py",
+            "build/ci/promotion_parity.py",
+            "build/ci/release_completeness.py",
+            "release/components.json",
+            "release/targets/biscuit.json",
+            "tools/radar-kaeru-migration/gpt-fix.py",
+            "tools/radar-kaeru-migration/migrate.sh",
+        }
+        candidates = [
+            *(ROOT / "build/ci").glob("*.py"), ROOT / "build/build.sh",
+            *(ROOT / ".github/workflows").glob("*.yml"), *(ROOT / "release").glob("*.json"),
+            *(ROOT / "release/targets").glob("*.json"), *(ROOT / "tools").glob("*.py"),
+            *(ROOT / "tools").glob("*.sh"), *(ROOT / "tools/radar-kaeru-migration").glob("*"),
+        ]
+        mapping = sorted(
+            str(path.relative_to(ROOT)) for path in candidates
+            if path.is_file() and not path.name.startswith("test_") and path.suffix != ".md"
+            and re.search(r"\bbiscuit\b", path.read_text(encoding="utf-8", errors="replace"))
+        )
+        self.assertIn("tools/libreecho-install.py", mapping)
+        for name in mapping:
+            if name in incidental:
+                continue
+            self.assertTrue(f"`{name}`" in guide, f"porting guide does not name {name}")
+        for name in incidental - {"release/targets/biscuit.json"}:
+            self.assertIn(name, mapping, f"{name} no longer names biscuit; drop it from the list")
+        # Every descriptor field a new target must set is explained.
+        schema = json.loads((ROOT / "release/target.schema.json").read_text(encoding="utf-8"))
+        for field in schema["required"]:
+            self.assertIn(f'"{field}"', guide)
+        # A new target starts unaccepted, and the guide keeps the boot chain safe.
+        self.assertIn('**`"hardware_accepted": false`**', guide)
+        self.assertIn("## Acceptance checklist", guide)
+        self.assertIn("Never write `FASTBOOT_PLEASE` to `expdb` and never erase `expdb`", guide)
+        commands = "\n".join(re.findall(r"```(?:sh|bash)\n(.*?)\n```", guide, re.S))
+        self.assertIsNone(re.search(r"\bfastboot (flash|erase|oem)\b|\bdd\b|/dev/block|mmcblk", commands))
+        self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", guide))
+        self.assertIsNone(re.search(r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", guide, re.I))
 
     def test_restore_stock_guide_is_linked_and_keeps_the_boot_chain(self) -> None:
         guide = (ROOT / "docs/install/restore-stock.md").read_text(encoding="utf-8")
