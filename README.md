@@ -99,8 +99,9 @@ chmod +x run-one-shot.sh
 installer against the release checksums before running it, and the installer
 verifies everything it downloads.
 
-**Locked (stock) devices** also need the community Amonet unlock archive for
-their model. LibreEcho does not redistribute it: supply the exact file and pass
+**Locked (stock) devices** also need the Amonet unlock archive for their model,
+by Roger Ortiz ([@R0rt1z2](https://github.com/R0rt1z2)) and k4y0z (see
+[Credits](#credits)). LibreEcho does not redistribute it: supply the exact file and pass
 it with `--amonet-zip`. The installer checks its size and SHA-256 and refuses
 any other file.
 
@@ -227,6 +228,28 @@ Optional, irreversible changes to the device itself.
 | Guide | What it enables |
 |---|---|
 | [Adding a USB tail](docs/usb-tail-mod.md) | ADB and external USB storage on the Echo 2nd Gen, by bringing a short cable out of the case |
+
+## Credits
+
+LibreEcho could not be installed on a stock Echo without the bootloader unlock
+work of others. We are grateful to:
+
+- **Roger Ortiz ([@R0rt1z2](https://github.com/R0rt1z2))**: the
+  [Amonet](https://github.com/R0rt1z2/amonet) BootROM/Preloader exploit chains
+  for Amazon Echo devices, [kaeru](https://github.com/R0rt1z2/kaeru) (the
+  LK-stage patch that current unlock chains install), and related tooling. The
+  `--amonet-zip` archives the installer accepts are his work.
+- **[k4y0z](https://github.com/k4y0z)**: Amazon/MediaTek exploit, bootloader
+  and device research behind the Amonet chains.
+- **Ilya Zhuravlev ([@xyzz](https://github.com/xyzz))**: the original
+  [Amonet](https://github.com/xyzz/amonet) MediaTek BootROM exploit.
+- **B. Kerler ([@bkerler](https://github.com/bkerler))**:
+  [mtkclient](https://github.com/bkerler/mtkclient), MediaTek communication and
+  flashing infrastructure.
+
+LibreEcho does not redistribute their work; it is used under its own licences.
+Full third-party notices are in
+[release/THIRD_PARTY_NOTICES.md](release/THIRD_PARTY_NOTICES.md).
 
 ## Support
 
