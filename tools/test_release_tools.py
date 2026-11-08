@@ -56,8 +56,8 @@ def fake_executable(root: Path, name: str) -> Path:
     return path
 
 
-AMONET_RECORD = {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162,
-                 "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"}
+AMONET_RECORD = {"archive": "amonet-radar-v1.0.1.zip", "archive_size": 94789047,
+                 "archive_sha256": "22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9"}
 
 class OneShotFastbootTests(unittest.TestCase):
     def test_prepare_fastboot_tools_stages_complete_toolset(self) -> None:
@@ -1581,7 +1581,7 @@ class OneShotContinuationTests(unittest.TestCase):
         self.state_path.unlink(missing_ok=True)  # a genuine fresh install, not a re-run over FEATURES_STAGED
         self.forward_fails = True
         with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
-            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache, state_root=self.state_root,
+            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.1.zip", cache_root=self.cache, state_root=self.state_root,
                                install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
                                adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True, open_browser=False, target="radar_puffin")
         self.format.assert_called_once()
@@ -1635,7 +1635,7 @@ class OneShotContinuationTests(unittest.TestCase):
         with mock.patch.object(INSTALLER, "wait_for_transport",
                                side_effect=INSTALLER.InstallerError("timed out waiting for ADB")), \
                 self.assertRaisesRegex(INSTALLER.InstallerError, "--continue --fastboot-serial SERIAL"):
-            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", cache_root=self.cache,
+            INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.1.zip", cache_root=self.cache,
                                state_root=self.state_root, install_id="test", release_tag=self.tag,
                                fastboot_bin="fake-fastboot", adb_bin="fake-adb", fastboot_serial="auto",
                                execute_hardware=True, open_browser=False, target="radar_puffin")
@@ -1696,7 +1696,7 @@ class BrickLatchTests(OneShotContinuationTests):
                          fastboot_serial="auto", execute_hardware=True, open_browser=False,
                          target="radar_puffin", fastboot_timeout=0.2, brick_timeout=0.2)
         arguments.update(kwargs)
-        return INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.0.zip", **arguments)
+        return INSTALLER.one_shot(self.release, self.root / "amonet-radar-v1.0.1.zip", **arguments)
 
     def test_latch_is_durably_persisted_before_the_brick_is_submitted(self):
         observed = {}

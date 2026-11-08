@@ -98,7 +98,7 @@ Each target has its own pinned community Amonet ZIP, recorded in
 `63cb91b-20221007_072309` uses its own payload, and any other build uses the archive's
 default `fastbrick.img`, as upstream `fastbrick.sh` does. Radar accepts its three
 reviewed builds (`59779ca-20220524_183401`, `63cb91b-20221007_072309`,
-`63cb91b-20221007_073612`) and refuses any other. Payloads are
+`63cb91b-20221007_073612`, `2c3569d-20260617_051433`) and refuses any other. Payloads are
 selected by exact `lk_build_desc` and verified by size and SHA-256 before any
 write.
 Deleting or retargeting that erase without a reviewed boot-chain decision is

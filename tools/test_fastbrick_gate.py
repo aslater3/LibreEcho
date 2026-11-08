@@ -36,13 +36,17 @@ INSTALLER = load_module("libreecho_install_fastbrick", ROOT / "tools/libreecho-i
 RADAR_OLD = "59779ca-20220524_183401"
 RADAR_NEW = "63cb91b-20221007_072309"
 RADAR_NEW2 = "63cb91b-20221007_073612"
+RADAR_2026 = "2c3569d-20260617_051433"
 BISCUIT_LK = "63cb91b-20221007_072309"
 TARGETS = {
-    "radar_puffin": {"product": "RADAR", "lk_ok": (RADAR_OLD, RADAR_NEW, RADAR_NEW2)},
+    "radar_puffin": {"product": "RADAR", "lk_ok": (RADAR_OLD, RADAR_NEW, RADAR_NEW2, RADAR_2026)},
     "biscuit": {"product": "BISCUIT", "lk_ok": (BISCUIT_LK,)},
 }
-ARCHIVE_NAMES = {"radar_puffin": "amonet-radar-v1.0.0.zip", "biscuit": "amonet-biscuit-v2.0.0.zip"}
-REAL_ARCHIVES = [Path.home() / "Downloads" / name for name in ARCHIVE_NAMES.values()]
+ARCHIVE_NAMES = {"radar_puffin": "amonet-radar-v1.0.1.zip", "biscuit": "amonet-biscuit-v2.0.0.zip"}
+REAL_ARCHIVES = [
+    Path(os.environ.get("AMONET_RADAR_ZIP", Path.home() / "Downloads" / ARCHIVE_NAMES["radar_puffin"])),
+    Path(os.environ.get("AMONET_BISCUIT_ZIP", Path.home() / "Downloads" / ARCHIVE_NAMES["biscuit"])),
+]
 ARCHIVE_ZIPS = {target: Path.home() / "Downloads" / name for target, name in ARCHIVE_NAMES.items()}
 
 
@@ -108,6 +112,21 @@ class PinLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(INSTALLER.InstallerError, "no pinned fastbrick payload"):
             INSTALLER.select_amonet_payload("radar_puffin", "99999-unknown")
 
+    def test_radar_reviewed_builds_select_their_pinned_archive_payloads(self):
+        expected = {
+            RADAR_OLD: "fastbrick-20220524.img",
+            RADAR_NEW: "fastbrick.img",
+            RADAR_NEW2: "fastbrick-20221007.img",
+            RADAR_2026: "fastbrick-20260617.img",
+        }
+        for lk, payload in expected.items():
+            with self.subTest(lk=lk):
+                self.assertEqual(INSTALLER.select_amonet_payload("radar_puffin", lk)["payload"], payload)
+
+    def test_committed_pin_manifest_matches_embedded_installer_pins(self):
+        manifest = json.loads((ROOT / "release/amonet-pins.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["targets"], INSTALLER.AMONET_PINS)
+
     def test_biscuit_accepts_any_build_through_its_pinned_default(self):
         for lk in (BISCUIT_LK, "anything-else-build", "00000-x"):
             with self.subTest(lk=lk):
@@ -133,8 +152,17 @@ class RealArchiveTests(unittest.TestCase):
                 self.assertEqual(INSTALLER._sha256(path), pin["archive_sha256"])
                 with zipfile.ZipFile(path) as bundle:
                     names = {info.filename: info.file_size for info in bundle.infolist()}
-                    for entry in pin["lk_builds"].values():
-                        self.assertEqual(names.get(f"amonet/bin/{entry['payload']}"), entry["size"])
+                    entries = list(pin["lk_builds"].values())
+                    if "default_payload" in pin:
+                        entries.append(pin["default_payload"])
+                    for entry in entries:
+                        member = f"amonet/bin/{entry['payload']}"
+                        self.assertEqual(names.get(member), entry["size"])
+                        self.assertEqual(hashlib.sha256(bundle.read(member)).hexdigest(), entry["sha256"])
+                    for name, entry in INSTALLER.AMONET_HOST_TOOLS.items():
+                        member = f"amonet/bin/{name}"
+                        self.assertEqual(names.get(member), entry["size"])
+                        self.assertEqual(hashlib.sha256(bundle.read(member)).hexdigest(), entry["sha256"])
 
     def test_extraction_reproduces_each_pinned_payload_hash(self):
         for target, path in zip(TARGETS, REAL_ARCHIVES):
@@ -144,6 +172,16 @@ class RealArchiveTests(unittest.TestCase):
                 with self.subTest(target=target, lk=lk), tempfile.TemporaryDirectory() as tmp:
                     out = INSTALLER.extract_amonet_payload(path, target, entry, Path(tmp))
                     self.assertEqual(INSTALLER._sha256(out), entry["sha256"])
+
+    def test_host_fastboot_staging_reproduces_the_pinned_binary(self):
+        path = REAL_ARCHIVES[0]
+        if not path.exists():
+            self.skipTest(f"{path} not present in this checkout")
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = INSTALLER.stage_amonet_host_fastboot(path, "radar_puffin", Path(tmp), machine="x86_64")
+            expected = INSTALLER.AMONET_HOST_TOOLS["fastboot"]
+            self.assertEqual(staged.stat().st_size, expected["size"])
+            self.assertEqual(INSTALLER._sha256(staged), expected["sha256"])
 
 
 class KaeruGateTests(unittest.TestCase):

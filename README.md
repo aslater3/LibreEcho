@@ -106,7 +106,7 @@ any other file.
 
 | Device | Archive | SHA-256 |
 |---|---|---|
-| Echo 2nd Gen | `amonet-radar-v1.0.0.zip` | `ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a` |
+| Echo 2nd Gen | `amonet-radar-v1.0.1.zip` | `22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9` |
 | Echo Dot 2nd Gen | `amonet-biscuit-v2.0.0.zip` | `98297293701082bc7272efe077f941c56fc7b6e1f27ef6f2e93b6e4c6fc7b62d` |
 
 ```sh
