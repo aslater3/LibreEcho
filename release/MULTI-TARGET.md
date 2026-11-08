@@ -96,7 +96,7 @@ LK-stage payload, which is the unlock proof, so it must stay intact.
 Each target has its own pinned community Amonet ZIP, recorded in
 `release/amonet-pins.json`. Biscuit accepts any LK build: its reviewed build
 `63cb91b-20221007_072309` uses its own payload, and any other build uses the archive's
-default `fastbrick.img`, as upstream `fastbrick.sh` does. Radar accepts its three
+default `fastbrick.img`, as upstream `fastbrick.sh` does. Radar accepts its four
 reviewed builds (`59779ca-20220524_183401`, `63cb91b-20221007_072309`,
 `63cb91b-20221007_073612`, `2c3569d-20260617_051433`) and refuses any other. Payloads are
 selected by exact `lk_build_desc` and verified by size and SHA-256 before any
