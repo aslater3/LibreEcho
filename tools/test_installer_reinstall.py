@@ -351,17 +351,6 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("--reinstall is a one-shot option", result.stderr)
 
-    def test_wrapper_names_unset_serial_variable(self) -> None:
-        # LibreEcho #360: `--fastboot-serial "$SERIAL"` with SERIAL unset passed "".
-        for options in (["--fastboot-serial", ""], ["--fastboot-serial", "--slots", "both"], ["--fastboot-serial"]):
-            with self.subTest(options=options):
-                result = subprocess.run(["bash", str(WRAPPER), RELEASE_OLD, "--continue", *options],
-                                        capture_output=True, text=True, timeout=30)
-                self.assertEqual(result.returncode, 2)
-                self.assertIn("--fastboot-serial needs a value", result.stderr)
-                self.assertIn("set SERIAL", result.stderr)
-                self.assertNotIn("options[i+1]", result.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()

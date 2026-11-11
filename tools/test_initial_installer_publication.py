@@ -510,6 +510,19 @@ class InstallerPublicationTests(unittest.TestCase):
             self.assertIn("saved immutable release tag", result.stderr)
             self.assertFalse(argv_log.exists())
 
+    def test_run_one_shot_names_unset_serial_variable(self) -> None:
+        # LibreEcho #360: `--fastboot-serial "$SERIAL"` with SERIAL unset passed "".
+        for options in (["--fastboot-serial", ""], ["--fastboot-serial", "--slots", "both"], ["--fastboot-serial"]):
+            with self.subTest(options=options):
+                result = subprocess.run(
+                    ["bash", str(ROOT / "tools/run-one-shot.sh"), "radar-puffin-v0.14.0", "--continue", *options],
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--fastboot-serial needs a value", result.stderr)
+                self.assertIn("set SERIAL", result.stderr)
+                self.assertNotIn("options[i+1]", result.stderr)
+
     def test_run_one_shot_continuation_without_fastboot_uses_saved_or_adb_target(self) -> None:
         """TWRP/recovery has no fastboot product; continuation must not demand --target."""
         tag = "radar-puffin-v1.2.3"
