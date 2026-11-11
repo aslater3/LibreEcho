@@ -292,7 +292,16 @@ to share with support if a run aborts.
 contains the printable six-pin carrier for the Echo 2nd Gen base contacts. With
 pogo pins, installation only requires removing the outer cover on the base; the
 device does not need to be taken apart and nothing is shorted. A ready-made
-LibreEcho pogo-pin adapter will be on sale soon. To solder a USB cable instead,
+LibreEcho pogo-pin adapter will be on sale soon.
+
+The carrier has six holes so that it seats on the full 2 × 3 contact grid, but
+only three pins are needed: TP15 (D+), TP14 (D−) and TP13 (GND). Wire only those
+three and leave TP17, TP19 and TP22 unwired or empty. The v5 carrier fits either
+way round, so check with a multimeter that each wire lands on the right pad
+before you power on. The pad photo is in the
+[installation guide](../docs/install/README.md#echo-2nd-gen-radar_puffin).
+
+To solder a USB cable instead,
 follow the [Echo Gen 2 disassembly guide](../docs/disassembly/echo-gen-2/README.md).
 The [installation guide](../docs/install/README.md#2-connect-the-device) gives
 the fastboot entry sequence.

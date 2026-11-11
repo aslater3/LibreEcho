@@ -117,15 +117,22 @@ to be shorted.
   adapter will be on sale soon. Until then, a printable carrier is in
   [`tools/libreecho-echo-gen2-pogo-plug-v5.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v5.zip);
   see the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-carrier-v5).
+  Only three of the six contacts are used: TP15 (D+), TP14 (D−) and TP13
+  (GND), the same pads as the soldered method below. Wire only those three
+  and leave the other three positions (TP17, TP19 and TP22) unwired, or leave
+  their holes in the carrier empty. Check the orientation before you power on:
+  the printed carrier fits either way round, so confirm with a multimeter that
+  your D+, D− and GND wires land on TP15, TP14 and TP13.
+
+  ![USB D+, D− and GND pads on the AMP board](assets/usb-dplus-dminus-gnd.jpg)
+
   The adapter must stay on the contacts without being held: secure it with a
   clamp or band before you power on. A hand-held adapter shifts during the
   install and setup, and the computer then loses the device.
 - **Soldered USB cable.** Follow the
   [Echo Gen 2 disassembly guide](../disassembly/echo-gen-2/README.md) and solder
-  a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND):
-
-  ![USB D+, D− and GND pads on the AMP board](assets/usb-dplus-dminus-gnd.jpg)
-
+  a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND), shown
+  in the photo above.
   Connect only D+, D− and GND. Leave the cable's 5 V wire unconnected; the Echo
   runs from its own power adapter.
 
