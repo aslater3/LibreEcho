@@ -305,6 +305,8 @@ roots, install ID, and slot selection. For example, after all payloads were
 staged but local port 18080 was unavailable:
 
 ```sh
+TAG=radar-puffin-vX.Y.Z   # the exact tag from the original log
+SERIAL=XXXXXXXXXXXXXXXX   # the serial from `fastboot devices` or `adb devices`
 ./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
   --slots both --local-port 18081 --execute-hardware
 ```
