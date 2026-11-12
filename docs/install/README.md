@@ -38,7 +38,7 @@ accepts only the builds listed in its row.
 
 ### Required
 
-- Data-capable USB cable
+- Data-capable USB cable. It is very important that the cable is not power-only, and that the D+ and D− wires are twisted together, as in a proper USB cable.
 - **Echo 2nd Gen only:** a way to reach the USB pins on the bottom — a pogo-pin
   adapter, or a USB cable soldered to the pads (see
   [Connect the device](#2-connect-the-device))
