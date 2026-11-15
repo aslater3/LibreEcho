@@ -63,11 +63,8 @@ sudo apt-get install adb fastboot e2fsprogs
 
 ### Optional: Linux host tools in rootless Podman
 
-To avoid installing the flashing tools directly on the host, follow the
-[rootless Podman guide](podman.md). It uses the same installer and release
-verification, with explicit USB passthrough and persistent local recovery state.
-The host still needs USB permissions; a rootless privileged container cannot
-bypass them. The native procedure below remains unchanged.
+Use the [rootless Podman guide](podman.md) for containerized host tools.
+The native procedure below is unchanged.
 
 ## Already running LibreEcho?
 
