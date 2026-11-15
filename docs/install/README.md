@@ -61,6 +61,11 @@ sudo apt-get install adb fastboot e2fsprogs
 **not** install `adb` or `fastboot`. Confirm they are available with
 `command -v adb fastboot mke2fs dumpe2fs`.
 
+### Optional: Linux host tools in rootless Podman
+
+Use the [rootless Podman guide](podman.md) for containerized host tools.
+The native procedure below is unchanged.
+
 ## Already running LibreEcho?
 
 - **0.14.x:** you do not need this guide. Update over the air from the web UI:
