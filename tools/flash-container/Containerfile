@@ -1,0 +1,12 @@
+FROM docker.io/library/debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        adb bash ca-certificates curl e2fsprogs fastboot python3 usbutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Keep downloaded installers, payloads and ADB keys in a runtime bind mount.
+# Follow docs/install/podman.md; building or starting this image never flashes.
+ENV HOME=/work/.installer-home
+WORKDIR /work
+CMD ["bash"]

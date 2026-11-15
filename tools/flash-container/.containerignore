@@ -1,0 +1,3 @@
+# No workspace files, payloads or credentials belong in the image build context.
+**
+!Containerfile
