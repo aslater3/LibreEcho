@@ -66,8 +66,8 @@ sudo apt-get install adb fastboot e2fsprogs
 ### 2. Connect the device in fastboot
 
 - **Echo 2nd Gen:** remove only the outer cover on the base and seat a pogo-pin
-  adapter on the six gold USB contacts. A printable carrier is in
-  [`tools/`](tools/README.md#echo-gen-2-pogo-pin-carrier-v5), and a ready-made
+  adapter on the six gold USB contacts. A printable keyed plug is in
+  [`tools/`](tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed), and a ready-made
   adapter will be on sale soon. Alternatively, solder a USB cable to the D+, D−
   and GND pads using the [disassembly guide](docs/disassembly/echo-gen-2/README.md).
   With the power adapter unplugged, connect USB to the computer, then hold
