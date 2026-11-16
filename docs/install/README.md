@@ -121,9 +121,11 @@ to be shorted.
 - **Pogo pins (no soldering).** Remove only the outer cover on the base to
   expose the 2 × 3 gold contacts. You do not need to take the device apart.
   Seat the pogo-pin adapter on the contacts. A ready-made LibreEcho pogo-pin
-  adapter will be on sale soon. Until then, a printable carrier is in
-  [`tools/libreecho-echo-gen2-pogo-plug-v5.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v5.zip);
-  see the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-carrier-v5).
+  adapter will be on sale soon. Until then, a printable keyed plug is in
+  [`tools/libreecho-echo-gen2-pogo-plug-v6.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v6.zip);
+  the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed)
+  gives its pin-out. Only the row of contacts nearer the edge of the base is
+  used (D+, D− and GND); connect nothing to the other three.
   The adapter must stay on the contacts without being held: secure it with a
   clamp or band before you power on. A hand-held adapter shifts during the
   install and setup, and the computer then loses the device.
