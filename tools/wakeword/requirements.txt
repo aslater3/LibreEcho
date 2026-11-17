@@ -1,0 +1,4 @@
+# Host-side wake model tooling (tools/wakeword/wakeword_model.py).
+onnx==1.23.2
+onnxruntime==1.31.1
+numpy==2.5.4

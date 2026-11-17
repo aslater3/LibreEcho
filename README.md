@@ -66,8 +66,8 @@ sudo apt-get install adb fastboot e2fsprogs
 ### 2. Connect the device in fastboot
 
 - **Echo 2nd Gen:** remove only the outer cover on the base and seat a pogo-pin
-  adapter on the six gold USB contacts. A printable carrier is in
-  [`tools/`](tools/README.md#echo-gen-2-pogo-pin-carrier-v5), and a ready-made
+  adapter on the six gold USB contacts. A printable keyed plug is in
+  [`tools/`](tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed), and a ready-made
   adapter will be on sale soon. Alternatively, solder a USB cable to the D+, D−
   and GND pads using the [disassembly guide](docs/disassembly/echo-gen-2/README.md).
   With the power adapter unplugged, connect USB to the computer, then hold
@@ -155,6 +155,13 @@ boot chain in place, with gated writes, backups and readback checks. Always run
 its `--dry-run` first. Its full write path has not yet been run end to end on an
 old-chain device, so treat early conversions as a test and keep the logs.
 
+### Going back to stock Fire OS
+
+To put Amazon's Fire OS and Alexa back on a LibreEcho unit, follow
+[Going back to stock Fire OS](docs/install/restore-stock.md). It flashes
+Amazon's own update package from TWRP into both slots. The bootloader stays
+unlocked.
+
 ## What you get
 
 - **A voice assistant on the device.** Wake word, speech-to-text and
@@ -162,7 +169,10 @@ old-chain device, so treat early conversions as a test and keep the logs.
   local LLM endpoint. Timers, weather (including Met Office models and UK
   postcode lookup) and an optional spoken clock.
 - **Home Assistant.** A native ESPHome API satellite: adopt the device through
-  the ESPHome integration for voice, media, announcements and timers.
+  the ESPHome integration for voice, media, announcements and timers. Timers,
+  alarms, radio, AirPlay, Bluetooth and the local voice modes keep working when
+  Home Assistant is down: see
+  [What keeps working when Home Assistant is down](docs/without-home-assistant.md).
 - **Music and audio.** AirPlay (from Music Assistant, use Sendspin or an AirPlay
   streaming mode that works: see [the Sendspin guide](docs/audio/sendspin.md)),
   multiroom audio with Music Assistant (Sendspin), internet radio (including HLS/AAC streams such
@@ -209,6 +219,11 @@ does not mean Fenrir is currently proven on Echo hardware.
 See the [full hardware compatibility and porting matrix](https://libreecho.org/#hardware-roadmap)
 on the website, including relevant access repositories and the suggested porting
 priority.
+
+To add a model yourself, follow the
+[porting guide](docs/porting/README.md). It covers target profiles, the device
+tree, audio, light and button mapping and the acceptance checklist, using the
+Echo Dot 2nd Gen as the worked example.
 
 ## Repositories
 

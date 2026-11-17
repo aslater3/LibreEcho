@@ -38,7 +38,7 @@ accepts only the builds listed in its row.
 
 ### Required
 
-- A good-quality, data-capable USB cable. Charge-only cables will not work. Very cheap or thin cables may not twist the D+ and D− wires together inside, which can make the connection unreliable; if the device does not show up, try a better cable first.
+- Data-capable USB cable
 - **Echo 2nd Gen only:** a way to reach the USB pins on the bottom — a pogo-pin
   adapter, or a USB cable soldered to the pads (see
   [Connect the device](#2-connect-the-device))
@@ -61,6 +61,11 @@ sudo apt-get install adb fastboot e2fsprogs
 **not** install `adb` or `fastboot`. Confirm they are available with
 `command -v adb fastboot mke2fs dumpe2fs`.
 
+### Optional: Linux host tools in rootless Podman
+
+Use the [rootless Podman guide](podman.md) for containerized host tools.
+The native procedure below is unchanged.
+
 ## Already running LibreEcho?
 
 - **0.14.x:** you do not need this guide. Update over the air from the web UI:
@@ -78,6 +83,8 @@ sudo apt-get install adb fastboot e2fsprogs
   [Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration) first.
 - **A previous install that did not finish:** see
   [Reinstalling over an existing installation](#reinstalling-over-an-existing-installation).
+- **Going back to Amazon's Fire OS:** see
+  [Going back to stock Fire OS](restore-stock.md).
 
 ## 1. Download and verify the release
 
@@ -114,25 +121,23 @@ to be shorted.
 - **Pogo pins (no soldering).** Remove only the outer cover on the base to
   expose the 2 × 3 gold contacts. You do not need to take the device apart.
   Seat the pogo-pin adapter on the contacts. A ready-made LibreEcho pogo-pin
-  adapter will be on sale soon. Until then, a printable carrier is in
-  [`tools/libreecho-echo-gen2-pogo-plug-v5.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v5.zip);
-  see the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-carrier-v5).
-  Only three of the six contacts are used: TP15 (D+), TP14 (D−) and TP13
-  (GND), the same pads as the soldered method below. Wire only those three
-  and leave the other three positions (TP17, TP19 and TP22) unwired, or leave
-  their holes in the carrier empty. Check the orientation before you power on:
-  the printed carrier fits either way round, so confirm with a multimeter that
-  your D+, D− and GND wires land on TP15, TP14 and TP13.
-
-  ![USB D+, D− and GND pads on the AMP board](assets/usb-dplus-dminus-gnd.jpg)
-
+  adapter will be on sale soon. Until then, a printable keyed plug is in
+  [`tools/libreecho-echo-gen2-pogo-plug-v6.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v6.zip);
+  the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed)
+  gives its pin-out. Only the row of contacts nearer the edge of the base is
+  used: TP15 (D+), TP14 (D−) and TP13
+  (GND), the same pads as the soldered method below
+  ([pad photo](assets/usb-dplus-dminus-gnd.jpg)). Connect nothing to the
+  other three (TP17, TP19 and TP22).
   The adapter must stay on the contacts without being held: secure it with a
   clamp or band before you power on. A hand-held adapter shifts during the
   install and setup, and the computer then loses the device.
 - **Soldered USB cable.** Follow the
   [Echo Gen 2 disassembly guide](../disassembly/echo-gen-2/README.md) and solder
-  a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND), shown
-  in the photo above.
+  a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND):
+
+  ![USB D+, D− and GND pads on the AMP board](assets/usb-dplus-dminus-gnd.jpg)
+
   Connect only D+, D− and GND. Leave the cable's 5 V wire unconnected; the Echo
   runs from its own power adapter.
 
@@ -305,8 +310,6 @@ roots, install ID, and slot selection. For example, after all payloads were
 staged but local port 18080 was unavailable:
 
 ```sh
-TAG=radar-puffin-vX.Y.Z   # the exact tag from the original log
-SERIAL=XXXXXXXXXXXXXXXX   # the serial from `fastboot devices` or `adb devices`
 ./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
   --slots both --local-port 18081 --execute-hardware
 ```

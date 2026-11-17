@@ -1034,8 +1034,9 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("TP15 (D+), TP14 (D−) and TP13\n  (GND)", pogo)
         self.assertIn("usb-dplus-dminus-gnd.jpg", pogo)
         tools_readme = (ROOT / "tools/README.md").read_text(encoding="utf-8")
-        carrier = tools_readme.split("## Echo Gen 2 pogo-pin carrier (v5)", 1)[1]
-        self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", carrier)
+        plug = tools_readme.split("## Echo Gen 2 pogo-pin plug (v6, keyed)", 1)[1]
+        for row in ("| GND | TP13 |", "| D− | TP14 |", "| D+ | TP15 |"):
+            self.assertIn(row, plug)
         # Button depends on bootloader state: Action on stock, Volume Down once Kaeru is installed.
         self.assertIn("Press and hold the fastboot button", connect)
         self.assertIn("**Action** on a stock Echo", connect)
@@ -1078,6 +1079,9 @@ class InstallerPublicationTests(unittest.TestCase):
         pages = (
             "README.md",
             "docs/install/README.md",
+            "docs/install/restore-stock.md",
+            "docs/porting/README.md",
+            "docs/without-home-assistant.md",
             "docs/disassembly/echo-gen-2/README.md",
             "tools/README.md",
         )
@@ -1097,6 +1101,141 @@ class InstallerPublicationTests(unittest.TestCase):
                         anchor, anchors(linked.read_text(encoding="utf-8")),
                         f"{page}: missing anchor {target}",
                     )
+
+    def test_porting_guide_is_linked_and_tracks_the_target_files(self) -> None:
+        guide = (ROOT / "docs/porting/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("](docs/porting/README.md)", product)
+        # The worked-example descriptor is the real one, not a stale copy.
+        blocks = [json.loads(block) for block in re.findall(r"```json\n(\{.*?\})\n```", guide, re.S)]
+        descriptor = json.loads((ROOT / "release/targets/biscuit.json").read_text(encoding="utf-8"))
+        self.assertIn(descriptor, blocks)
+        # Every Product file that maps a target ID is named in the guide, so a
+        # new target cannot miss one. Files that only mention biscuit in
+        # passing (release plumbing that derives from the registry, SBOM and
+        # migration tooling) are listed here instead.
+        incidental = {
+            "build/ci/prepare-twrp-installs.py",
+            "build/ci/promotion_parity.py",
+            "build/ci/release_completeness.py",
+            "release/components.json",
+            "release/targets/biscuit.json",
+            "tools/radar-kaeru-migration/gpt-fix.py",
+            "tools/radar-kaeru-migration/migrate.sh",
+        }
+        candidates = [
+            *(ROOT / "build/ci").glob("*.py"), ROOT / "build/build.sh",
+            *(ROOT / ".github/workflows").glob("*.yml"), *(ROOT / "release").glob("*.json"),
+            *(ROOT / "release/targets").glob("*.json"), *(ROOT / "tools").glob("*.py"),
+            *(ROOT / "tools").glob("*.sh"), *(ROOT / "tools/radar-kaeru-migration").glob("*"),
+        ]
+        mapping = sorted(
+            str(path.relative_to(ROOT)) for path in candidates
+            if path.is_file() and not path.name.startswith("test_") and path.suffix != ".md"
+            and re.search(r"\bbiscuit\b", path.read_text(encoding="utf-8", errors="replace"))
+        )
+        self.assertIn("tools/libreecho-install.py", mapping)
+        for name in mapping:
+            if name in incidental:
+                continue
+            self.assertTrue(f"`{name}`" in guide, f"porting guide does not name {name}")
+        for name in incidental - {"release/targets/biscuit.json"}:
+            self.assertIn(name, mapping, f"{name} no longer names biscuit; drop it from the list")
+        # Every descriptor field a new target must set is explained.
+        schema = json.loads((ROOT / "release/target.schema.json").read_text(encoding="utf-8"))
+        for field in schema["required"]:
+            self.assertIn(f'"{field}"', guide)
+        # A new target starts unaccepted, and the guide keeps the boot chain safe.
+        self.assertIn('**`"hardware_accepted": false`**', guide)
+        self.assertIn("## Acceptance checklist", guide)
+        self.assertIn("Never write `FASTBOOT_PLEASE` to `expdb` and never erase `expdb`", guide)
+        commands = "\n".join(re.findall(r"```(?:sh|bash)\n(.*?)\n```", guide, re.S))
+        self.assertIsNone(re.search(r"\bfastboot (flash|erase|oem)\b|\bdd\b|/dev/block|mmcblk", commands))
+        self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", guide))
+        self.assertIsNone(re.search(r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", guide, re.I))
+
+    def test_restore_stock_guide_is_linked_and_keeps_the_boot_chain(self) -> None:
+        guide = (ROOT / "docs/install/restore-stock.md").read_text(encoding="utf-8")
+        install = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("](restore-stock.md)", install)
+        self.assertIn("](docs/install/restore-stock.md)", product)
+        # Both targets, each with a pinned Amazon package and its SHA-256.
+        for package in ("update-kindle-radar_puffin-", "update-kindle-biscuit_puffin-"):
+            row = next(line for line in guide.splitlines() if package in line)
+            self.assertRegex(row, r"`[0-9a-f]{64}`")
+        self.assertIn("sha256sum", guide)
+        # The procedure: TWRP, wipe before copying, flash both slots, boot.
+        self.assertIn("**Volume Up (+)** only", guide)
+        steps = [
+            "adb shell 'twrp wipe cache && twrp wipe data'",
+            "adb push update-kindle-*.bin /sdcard/update.zip",
+            "adb shell twrp install /sdcard/update.zip",
+            "adb reboot recovery",
+            "adb reboot\n",
+        ]
+        positions = [guide.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(guide.count("adb shell twrp install /sdcard/update.zip"), 2)
+        # It says what stays, and never sends the reader to the boot chain.
+        self.assertIn("## What cannot be undone", guide)
+        self.assertIn("The bootloader stays unlocked", guide)
+        self.assertIn("Never write or erase `expdb`", guide)
+        commands = "\n".join(re.findall(r"```(?:sh|bash)\n(.*?)\n[ \t]*```", guide, re.S))
+        self.assertIn("twrp install", commands)
+        self.assertIsNone(re.search(
+            r"\bfastboot\b|\bdd\b|expdb|preloader|/dev/block|mmcblk|set_active", commands))
+        self.assertNotIn("FASTBOOT_PLEASE", guide)
+        self.assertNotIn("BROM", guide)
+        self.assertIsNone(re.search(r"\bshort(ing)? the\b|CLK-to-GND", guide, re.I))
+        self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", guide))
+
+    def test_home_assistant_down_page_is_linked_and_separates_ha_owned_features(self) -> None:
+        page = (ROOT / "docs/without-home-assistant.md").read_text(encoding="utf-8")
+        product = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("](docs/without-home-assistant.md)", product)
+        summary = page.split("## Summary", 1)[1].split("\n## ", 1)[0]
+        rows = {
+            cells[0]: cells[1:]
+            for cells in (
+                [cell.strip() for cell in line.strip("|").split("|")]
+                for line in summary.splitlines()
+                if line.startswith("| ") and not line.startswith("| Feature")
+            )
+        }
+        # Every row says what happens and how it was checked; nothing is blank.
+        self.assertGreaterEqual(len(rows), 10)
+        for feature, cells in rows.items():
+            self.assertEqual(len(cells), 2, feature)
+            self.assertTrue(all(cells), feature)
+
+        def row(prefix: str) -> list[str]:
+            return next(cells for name, cells in rows.items() if name.startswith(prefix))
+
+        # The device-owned features the comparison row is about: alarms and media.
+        for prefix in ("Timers set on the device", "Alarms set on the device", "Internet radio"):
+            self.assertTrue(row(prefix)[0].startswith("Keep") or row(prefix)[0].startswith("Works"), prefix)
+            self.assertIn("Echo Dot and Echo", row(prefix)[1], prefix)
+        for prefix in ("AirPlay", "Bluetooth", "Web control centre"):
+            self.assertTrue(row(prefix)[0].startswith("Works"), prefix)
+        # HA-owned features are not presented as working offline.
+        for prefix in ("Voice in **Home Assistant** mode", "Timers set by voice in **Home Assistant** mode",
+                       "Announcements"):
+            self.assertTrue(row(prefix)[0].startswith("Stop"), prefix)
+        prose = " ".join(page.split())
+        self.assertIn("the device drops them", prose)
+        self.assertIn("choose **Local** or **Custom**", prose)
+        # Points at the real web UI location for the voice mode, not a page that does not exist.
+        self.assertIn("on the **Integrations** page, under **Voice Assistants**", prose)
+        self.assertNotIn("**Voice assistant** page", prose)
+        # Checks that were not run say so instead of claiming a pass.
+        self.assertIn("An audio stream was not sent", prose)
+        self.assertIn("The Home Assistant mode behaviour was not run on a device", prose)
+        self.assertIn("6053", page)
+        # No serials, MAC or IP addresses in a public page.
+        self.assertIsNone(re.search(r"\bG0[0-9A-Z]{14}\b", page))
+        self.assertIsNone(re.search(r"\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b", page))
+        self.assertIsNone(re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", page))
 
     def test_install_guide_uses_copyable_public_wrapper_syntax(self) -> None:
         guide = (ROOT / "docs/install/README.md").read_text(encoding="utf-8")

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 666" width="880" height="666" font-family="Liberation Sans, Arial, Helvetica, sans-serif" role="img" aria-label="Echo 2nd Gen pogo plug v6 pin-out">
+<title>Echo 2nd Gen pogo plug v6 pin-out</title>
+<defs><clipPath id="win"><rect x="0" y="58" width="880" height="544"/></clipPath></defs>
+<rect width="880" height="666" fill="#ffffff"/>
+<g clip-path="url(#win)">
+<circle cx="49.4" cy="63.6" r="640.0" fill="#dcdcdc" stroke="#555555" stroke-width="3"/>
+<polygon points="320.0,294.8 320.4,299.8 321.6,304.7 323.5,309.3 326.1,313.6 329.4,317.4 333.2,320.7 337.5,323.3 615.2,482.6 619.1,477.2 623.0,471.8 626.9,466.3 630.7,460.8 634.4,455.2 638.1,449.7 641.8,444.1 645.3,438.4 648.9,432.8 652.3,427.1 655.8,421.4 659.1,415.6 662.4,409.8 665.7,404.0 668.9,398.1 672.0,392.3 675.1,386.3 678.1,380.4 681.1,374.4 684.0,368.4 686.9,362.4 689.7,356.3 692.5,350.2 695.2,344.0 462.5,208.7 457.9,206.8 453.0,205.6 448.0,205.2 352.0,205.2 347.0,205.6 342.1,206.8 337.5,208.7 333.2,211.3 329.4,214.6 326.1,218.4 323.5,222.7 321.6,227.3 320.4,232.2 320.0,237.2" fill="#3d7fb1" stroke="#1f4e73" stroke-width="2"/>
+<polygon points="573.3,458.4 577.3,453.1 581.3,447.6 585.2,442.2 589.0,436.7 592.8,431.2 596.5,425.6 600.1,420.0 603.7,414.4 607.3,408.8 610.8,403.1 614.2,397.4 617.5,391.6 620.8,385.8 624.1,380.0 627.3,374.1 630.4,368.2 633.5,362.3 636.5,356.3 639.4,350.4 642.3,344.3 645.2,338.3 647.9,332.2 650.7,326.0 653.3,319.9 695.2,344.0 692.5,350.2 689.7,356.3 686.9,362.4 684.0,368.4 681.1,374.4 678.1,380.4 675.1,386.3 672.0,392.3 668.9,398.1 665.7,404.0 662.4,409.8 659.1,415.6 655.8,421.4 652.3,427.1 648.9,432.8 645.3,438.4 641.8,444.1 638.1,449.7 634.4,455.2 630.7,460.8 626.9,466.3 623.0,471.8 619.1,477.2 615.2,482.6" fill="#1f4e73"/>
+<polygon points="468.8,289.8 468.5,286.6 467.8,283.5 466.6,280.5 464.9,277.7 462.8,275.2 460.3,273.1 457.5,271.4 454.5,270.2 451.4,269.5 448.2,269.2 351.8,269.2 348.6,269.5 345.5,270.2 342.5,271.4 339.7,273.1 337.2,275.2 335.1,277.7 333.4,280.5 332.2,283.5 331.5,286.6 331.2,289.8 331.2,290.2 331.5,293.4 332.2,296.5 333.4,299.5 335.1,302.3 337.2,304.8 339.7,306.9 342.5,308.6 345.5,309.8 348.6,310.5 351.8,310.8 448.2,310.8 451.4,310.5 454.5,309.8 457.5,308.6 460.3,306.9 462.8,304.8 464.9,302.3 466.6,299.5 467.8,296.5 468.5,293.4 468.8,290.2" fill="#a9c9e2" stroke="#1f4e73" stroke-width="1"/>
+<polygon points="468.8,241.8 468.5,238.6 467.8,235.5 466.6,232.5 464.9,229.7 462.8,227.2 460.3,225.1 457.5,223.4 454.5,222.2 451.4,221.5 448.2,221.2 351.8,221.2 348.6,221.5 345.5,222.2 342.5,223.4 339.7,225.1 337.2,227.2 335.1,229.7 333.4,232.5 332.2,235.5 331.5,238.6 331.2,241.8 331.2,242.2 331.5,245.4 332.2,248.5 333.4,251.5 335.1,254.3 337.2,256.8 339.7,258.9 342.5,260.6 345.5,261.8 348.6,262.5 351.8,262.8 448.2,262.8 451.4,262.5 454.5,261.8 457.5,260.6 460.3,258.9 462.8,256.8 464.9,254.3 466.6,251.5 467.8,248.5 468.5,245.4 468.8,242.2" fill="#a9c9e2" stroke="#1f4e73" stroke-width="1"/>
+<circle cx="352.0" cy="242.0" r="12.8" fill="#8a8a8a" stroke="#333333" stroke-width="1.5"/>
+<path d="M345.3 235.3 L358.7 248.7 M345.3 248.7 L358.7 235.3" stroke="#ffffff" stroke-width="2.5"/>
+<circle cx="400.0" cy="242.0" r="12.8" fill="#8a8a8a" stroke="#333333" stroke-width="1.5"/>
+<path d="M393.3 235.3 L406.7 248.7 M393.3 248.7 L406.7 235.3" stroke="#ffffff" stroke-width="2.5"/>
+<circle cx="448.0" cy="242.0" r="12.8" fill="#8a8a8a" stroke="#333333" stroke-width="1.5"/>
+<path d="M441.3 235.3 L454.7 248.7 M441.3 248.7 L454.7 235.3" stroke="#ffffff" stroke-width="2.5"/>
+<path d="M352.0 290.0 L352.0 394.0 L268.8 394.0" fill="none" stroke="#ffffff" stroke-width="6"/>
+<path d="M352.0 290.0 L352.0 394.0 L268.8 394.0" fill="none" stroke="#222222" stroke-width="2"/>
+<circle cx="352.0" cy="290.0" r="12.8" fill="#2e9e4f" stroke="#222222" stroke-width="2"/>
+<text x="24.0" y="402.0" font-size="24" font-weight="bold" fill="#111111">D+</text>
+<text x="90.0" y="401.0" font-size="18" fill="#111111">TP15, green wire</text>
+<path d="M400.0 290.0 L400.0 446.8 L268.8 446.8" fill="none" stroke="#ffffff" stroke-width="6"/>
+<path d="M400.0 290.0 L400.0 446.8 L268.8 446.8" fill="none" stroke="#222222" stroke-width="2"/>
+<circle cx="400.0" cy="290.0" r="12.8" fill="#ffffff" stroke="#222222" stroke-width="2"/>
+<text x="24.0" y="454.8" font-size="24" font-weight="bold" fill="#111111">D−</text>
+<text x="90.0" y="453.8" font-size="18" fill="#111111">TP14, white wire</text>
+<path d="M448.0 290.0 L448.0 499.6 L268.8 499.6" fill="none" stroke="#ffffff" stroke-width="6"/>
+<path d="M448.0 290.0 L448.0 499.6 L268.8 499.6" fill="none" stroke="#222222" stroke-width="2"/>
+<circle cx="448.0" cy="290.0" r="12.8" fill="#111111" stroke="#222222" stroke-width="2"/>
+<text x="24.0" y="507.6" font-size="24" font-weight="bold" fill="#111111">GND</text>
+<text x="90.0" y="506.6" font-size="18" fill="#111111">TP13, black wire</text>
+<path d="M343.0 233.0 L300.8 150.8 L232.0 150.8" fill="none" stroke="#ffffff" stroke-width="6"/>
+<path d="M343.0 233.0 L300.8 150.8 L232.0 150.8" fill="none" stroke="#222222" stroke-width="2"/>
+<text x="24.0" y="146.8" font-size="18" font-weight="bold" fill="#111111">Other three contacts:</text>
+<text x="24.0" y="168.8" font-size="18" fill="#111111">not used, connect nothing</text>
+<text x="464.0" y="93.2" font-size="17" fill="#333333">↑ centre of the Echo</text>
+<text x="24.0" y="576.4" font-size="17" fill="#333333">↓ &#8220;amazon&#8221; wordmark</text>
+<text x="548.8" y="186.0" font-size="17" fill="#333333">rim of the base</text>
+<text x="587.1" y="525.2" font-size="17" font-weight="bold" fill="#1f4e73">key: the lip hangs</text>
+<text x="587.1" y="546.2" font-size="17" font-weight="bold" fill="#1f4e73">over the rim</text>
+</g>
+<text x="14" y="26" font-size="21" font-weight="bold" fill="#111111">Echo 2nd Gen pogo plug v6: pin-out</text>
+<text x="14" y="48" font-size="16" fill="#333333">Wiring side of the seated plug, looking at the underside of the Echo.</text>
+<text x="14" y="627.0" font-size="16" fill="#111111">GND is the pin nearest the key arm. The red USB wire (5 V) is not connected.</text>
+<text x="14" y="650.0" font-size="16" fill="#111111">The order along the row is read from the board photo: check GND with a multimeter before first use.</text>
+</svg>

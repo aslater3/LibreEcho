@@ -3,6 +3,17 @@
 Security advisories are listed separately in
 [SECURITY-ADVISORIES.md](SECURITY-ADVISORIES.md).
 
+## radar-puffin-v0.14.6
+
+See [the 0.14.6 release note](release/radar-puffin-v0.14.6.md). Adds a
+four-band equaliser with presets and speaker boost, a light-ring music
+animation that follows the beat, alarms with repeat days and snooze, spoken
+reminders, do not disturb, time zone and time server settings, more voice
+controls and Home Assistant entities, and device pairing; fixes AirPlay jumps
+and tails, Sendspin dropouts, Wi-Fi pauses and a blocked update after an
+interrupted confirmation. Several features are experimental and off by
+default.
+
 ## radar-puffin-v0.14.5
 
 See [the 0.14.5 release note](release/radar-puffin-v0.14.5.md). Adds multiroom

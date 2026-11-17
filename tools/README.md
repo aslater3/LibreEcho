@@ -286,22 +286,47 @@ SHA-pinned payloads, full-partition backups and readback verification, and a
 shareable per-run support log. See its README for the exact run order and what
 to share with support if a run aborts.
 
-## Echo Gen 2 pogo-pin carrier (v5)
+## Echo Gen 2 pogo-pin plug (v6, keyed)
 
-[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)
-contains the printable six-pin carrier for the Echo 2nd Gen base contacts. With
-pogo pins, installation only requires removing the outer cover on the base; the
-device does not need to be taken apart and nothing is shorted. A ready-made
-LibreEcho pogo-pin adapter will be on sale soon.
-
-The carrier has six holes so that it seats on the full 2 × 3 contact grid, but
-only three pins are needed: TP15 (D+), TP14 (D−) and TP13 (GND). Wire only those
-three and leave TP17, TP19 and TP22 unwired or empty. The v5 carrier fits either
-way round, so check with a multimeter that each wire lands on the right pad
-before you power on. The pad photo is in the
-[installation guide](../docs/install/README.md#echo-2nd-gen-radar_puffin).
-
-To solder a USB cable instead,
-follow the [Echo Gen 2 disassembly guide](../docs/disassembly/echo-gen-2/README.md).
+[`libreecho-echo-gen2-pogo-plug-v6.zip`](./libreecho-echo-gen2-pogo-plug-v6.zip)
+contains the printable pogo-pin plug for the Echo 2nd Gen base contacts: STLs
+for 0.80 to 1.20 mm bores, a bore coupon, the OpenSCAD source and a README.
+With pogo pins, installation only requires removing the outer cover on the
+base; the device does not need to be taken apart and nothing is shorted. A
+ready-made LibreEcho pogo-pin adapter will be on sale soon. To solder a USB
+cable instead, follow the
+[Echo Gen 2 disassembly guide](../docs/disassembly/echo-gen-2/README.md).
 The [installation guide](../docs/install/README.md#2-connect-the-device) gives
 the fastboot entry sequence.
+
+The plug is keyed. An arm runs from the plug to the nearest edge of the base
+and a lip hangs over that edge, so the plug only seats one way round. Print it
+in a rigid material (PLA or PETG), not TPU.
+
+Pin-out, looking at the wiring side of the seated plug:
+
+![Pin-out of the v6 pogo plug](../docs/install/assets/echo-gen2-pogo-plug-v6-pinout.svg)
+
+| Position | Signal | Board pad | USB cable wire |
+|---|---|---|---|
+| Row nearer the edge of the base, pin nearest the key arm | GND | TP13 | black |
+| Same row, middle pin | D− | TP14 | white |
+| Same row, pin furthest from the key arm | D+ | TP15 | green |
+| Row nearer the centre of the Echo, all three | not used | TP17, TP19, TP22 | none |
+
+- Connect only D+, D− and GND. Leave the cable's red 5 V wire unconnected; the
+  Echo runs from its own power adapter.
+- Connect nothing to the other three contacts. One of them is reported to
+  carry the 15 V supply rail; which one has not been measured.
+- The order along the USB row is read from the
+  [AMP board photo](../docs/install/assets/usb-dplus-dminus-gnd.jpg) and has
+  not been measured on a device. Before first use, check with a multimeter
+  that the pin nearest the key arm is ground.
+- The fit was checked with a PLA print on one Echo 2nd Gen. A USB connection
+  through a v6 print has not been tested yet.
+
+The earlier carrier,
+[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)
+and the loose `echo_gen2_pogo_*.stl` files, has the same insert but no key: it
+fits either way round, and the wrong way round puts the USB wires on the other
+three contacts. Use v6 for new prints.

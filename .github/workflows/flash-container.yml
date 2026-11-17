@@ -1,0 +1,35 @@
+name: Flash container checks
+
+on:
+  pull_request:
+    paths:
+      - 'tools/flash-container/**'
+      - 'docs/install/podman.md'
+      - '.github/workflows/flash-container.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/flash-container/**'
+      - 'docs/install/podman.md'
+      - '.github/workflows/flash-container.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: {persist-credentials: false}
+      - name: Build host-tool image
+        run: podman build -t localhost/libreecho-flasher tools/flash-container
+      - name: Check tools without USB or host networking
+        run: |
+          podman run --rm localhost/libreecho-flasher bash -euc '
+            command -v adb fastboot curl python3 mke2fs dumpe2fs lsusb
+            test "$HOME" = /work/.installer-home
+            test "$PWD" = /work
+            test ! -e /usr/local/bin/run-one-shot.sh
+          '
