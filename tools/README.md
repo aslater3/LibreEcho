@@ -17,7 +17,7 @@ tools/libreecho-install.py.sha256
 
 | Target | Product string | Amonet archive | Accepted LK builds |
 |---|---|---|---|
-| `radar_puffin` (Echo 2nd Gen) | `RADAR` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
+| `radar_puffin` (Echo 2nd Gen) | `RADAR` | `amonet-radar-v1.0.1.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612`, `2c3569d-20260617_051433` |
 | `biscuit` (Echo Dot 2nd Gen) | `BISCUIT` | `amonet-biscuit-v2.0.0.zip` | Any; `63cb91b-20221007_072309` uses its reviewed payload, other builds the default `fastbrick.img` |
 
 The pinned archive and per-build payload digests are recorded in

@@ -167,16 +167,18 @@ RELEASE_REPOSITORY = "https://github.com/aslater3/LibreEcho"
 # Each target has its own archive. Payloads are chosen by exact lk_build_desc.
 AMONET_PINS = {
     "radar_puffin": {
-        "archive": "amonet-radar-v1.0.0.zip",
-        "archive_size": 58531162,
-        "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a",
+        "archive": "amonet-radar-v1.0.1.zip",
+        "archive_size": 94789047,
+        "archive_sha256": "22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9",
         "lk_builds": {
-            "59779ca-20220524_183401": {"payload": "fastbrick-20220524.img", "size": 114509028,
-                                        "sha256": "cc78ba7e497b7049361da4e3a85a69ee33e0e6cc5eef89e2752bc8c024f63ffb"},
+            "59779ca-20220524_183401": {"payload": "fastbrick-20220524.img", "size": 114508738,
+                                        "sha256": "1d4e1fd86727ad4b4522d8c5cbfae8fc80509ff08ab2b251678e1c8248074b1c"},
             "63cb91b-20221007_072309": {"payload": "fastbrick.img", "size": 114294816,
-                                        "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"},
-            "63cb91b-20221007_073612": {"payload": "fastbrick.img", "size": 114294816,
-                                        "sha256": "d4001739e752149b0e07ed6c2ffa6fc7ff4cbd08e63e7b6d7251d9bce4d4c494"},
+                                        "sha256": "ad18d648902b2f044869cfb7db7a91b215906cce0d854e8a7d233d754f2fb0ca"},
+            "63cb91b-20221007_073612": {"payload": "fastbrick-20221007.img", "size": 114431594,
+                                        "sha256": "6372e567fd33b060ed30c4a33ec4bcb780be91e5ab47717893de59ee0adc4444"},
+            "2c3569d-20260617_051433": {"payload": "fastbrick-20260617.img", "size": 114431594,
+                                        "sha256": "af05459656070dc5cd66c848a75fdca4c538a04993c92c345caba4c66adca3c9"},
         },
     },
     # Biscuit accepts any LK build. A reviewed build maps to its own payload; any other

@@ -351,7 +351,7 @@
     {
       "id": "amonet-installer",
       "name": "Amonet fastbrick ZIPs (pinned, operator-supplied)",
-      "version": "amonet-radar-v1.0.0 / amonet-biscuit-v2.0.0",
+      "version": "amonet-radar-v1.0.1 / amonet-biscuit-v2.0.0",
       "license": "NOASSERTION",
       "release_status": "not-redistributed",
       "distribution_scope": "external-user-supplied",

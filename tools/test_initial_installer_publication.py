@@ -327,7 +327,7 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("radar-puffin-build-", source)
         self.assertIn("def download_release", source)
         self.assertIn("AMONET_PINS = {", source)
-        self.assertIn("ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a", source)
+        self.assertIn("22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9", source)
         self.assertIn("98297293701082bc7272efe077f941c56fc7b6e1f27ef6f2e93b6e4c6fc7b62d", source)
         self.assertIn("release_dir = download_release", source)
 
@@ -709,7 +709,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "boot": {"name": f"{prefix}-boot.img", "size": len(files[f"{prefix}-boot.img"]), "sha256": hashlib.sha256(files[f"{prefix}-boot.img"]).hexdigest()},
                 "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": len(files[f"{prefix}-ota-public-key.hex"]), "sha256": hashlib.sha256(files[f"{prefix}-ota-public-key.hex"]).hexdigest()},
                 "features": [],
-                "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
+                "amonet": {"archive": "amonet-radar-v1.0.1.zip", "archive_size": 94789047, "archive_sha256": "22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9"},
             }
             bundle = release / f"{prefix}-initial-install.tar"
             with tarfile.open(bundle, "w") as archive:
@@ -792,7 +792,7 @@ class InstallerPublicationTests(unittest.TestCase):
             "boot": {"name": f"{prefix}-boot.img", "size": 4, "sha256": hashlib.sha256(b"boot").hexdigest()},
             "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65, "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
             "features": [],
-            "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
+            "amonet": {"archive": "amonet-radar-v1.0.1.zip", "archive_size": 94789047, "archive_sha256": "22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9"},
         }
 
         def materialize(release: Path, files: dict) -> Path:
@@ -919,7 +919,7 @@ class InstallerPublicationTests(unittest.TestCase):
                 "ota_public_key": {"name": f"{prefix}-ota-public-key.hex", "size": 65,
                                    "sha256": hashlib.sha256(b"a" * 64 + b"\n").hexdigest()},
                 "features": [],
-                "amonet": {"archive": "amonet-radar-v1.0.0.zip", "archive_size": 58531162, "archive_sha256": "ecdb07bc05a508532e5ffed77121592d492b1a91572839e0f17545421f398f1a"},
+                "amonet": {"archive": "amonet-radar-v1.0.1.zip", "archive_size": 94789047, "archive_sha256": "22809bc44b9b7b71750c1955bb94a92c965b557d4f9055bb7bbc098b788188a9"},
             }
             bundle = release / bundle_name
             with tarfile.open(bundle, "w") as archive:
