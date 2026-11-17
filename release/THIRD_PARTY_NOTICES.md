@@ -37,7 +37,7 @@ complete notices and component inventory.
 - **libnl 3.11.0** — LGPL-2.1-only; the pinned source archive and public
   Platform build instructions allow rebuilding and relinking the statically
   incorporated `libnl-3` and `libnl-genl-3` code.
-- **Mbed TLS 3.6.4** — Apache-2.0; rebuilt from the pinned upstream release
+- **Mbed TLS 3.6.7** — Apache-2.0; rebuilt from the pinned upstream release
   archive as static ARM32 `libmbedcrypto`, `libmbedx509`, and `libmbedtls`
   archives and linked into the Web UI (`libreecho-web`) and the radio client
   (`libreecho-radiod`). The upstream `LICENSE` ships beside the archives and the
@@ -81,8 +81,8 @@ allowed only in the explicitly labelled `community-noncommercial` scope.
 
 ### AirPlay 2
 
-The AirPlay payload contains Shairport Sync 5.1, NQPTP 1.2.8, a minimal FFmpeg
-7.1.1 build, TinyALSA, Avahi, D-Bus, OpenSSL and their dynamic dependency
+The AirPlay payload contains Shairport Sync 5.6.2, NQPTP 1.2.9, a minimal FFmpeg
+6.1.6 build, TinyALSA, Avahi, D-Bus, OpenSSL and their dynamic dependency
 closure. The payload embeds:
 
 - source license files for Shairport Sync, NQPTP, FFmpeg, and TinyALSA;
@@ -92,6 +92,15 @@ closure. The payload embeds:
 
 Copyleft source is supplied from the pinned upstream archives and exact Debian
 source packages recorded by the payload inventory.
+
+The same payload carries the Sendspin player (`libreecho-sendspind`), a static
+ARM executable built from the LibreEcho UI sources and the pinned Sendspin C++
+SDK (Apache-2.0) with ArduinoJson (MIT), IXWebSocket (BSD-3-Clause), micro-flac
+and micro-ogg-demuxer (Apache-2.0) and noise-c (MIT), statically linked against
+glibc and the GCC runtime. `usr/local/share/licenses/libreecho-sendspin/` holds
+each component's license text, the glibc and GCC runtime notices, and a
+component/commit inventory; the pinned commits are listed in
+`build/inputs/public-inputs.json`.
 
 ### Speech to text
 
@@ -145,6 +154,20 @@ images. The host-side installer accepts an owner-supplied upstream Amonet input,
 credits the upstream Amonet/mtkclient contributors, preserves `system_a`,
 userdata and rollback by default, and records only LibreEcho-generated release
 artifacts in its SBOM.
+
+The unlock chain is the work of:
+
+- **Roger Ortiz ([@R0rt1z2](https://github.com/R0rt1z2))**: Amonet exploit
+  chains for Amazon Echo devices (<https://github.com/R0rt1z2/amonet>) and the
+  kaeru LK-stage patch (<https://github.com/R0rt1z2/kaeru>).
+- **k4y0z** (<https://github.com/k4y0z>): Amazon/MediaTek exploit and
+  bootloader research.
+- **Ilya Zhuravlev ([@xyzz](https://github.com/xyzz))**: the original Amonet
+  MediaTek BootROM exploit (<https://github.com/xyzz/amonet>).
+- **B. Kerler ([@bkerler](https://github.com/bkerler))**: mtkclient
+  (<https://github.com/bkerler/mtkclient>).
+
+Their work remains under its own licences and copyright notices.
 
 ## No endorsement
 

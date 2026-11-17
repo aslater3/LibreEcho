@@ -19,15 +19,25 @@ state_root="$HOME/.local/state/libreecho-installer"
 install_id=default
 reinstall=0
 options=("$@")
+# An empty value usually means an unset shell variable such as "$SERIAL" (#360).
+option_value() {
+  local value="${options[i+1]-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "ERROR: $1 needs a value${2:+ ($2)}" >&2
+    exit 2
+  fi
+  printf '%s' "$value"
+}
 for ((i=0; i<${#options[@]}; i++)); do
   case "${options[i]}" in
     --reinstall) reinstall=1 ;;
-    --target) target="${options[i+1]:?missing target}" ;;
-    --fastboot-bin) fastboot_bin="${options[i+1]:?missing fastboot binary}" ;;
-    --adb-bin) adb_bin="${options[i+1]:?missing adb binary}" ;;
-    --fastboot-serial) serial="${options[i+1]:?missing fastboot serial}" ;;
-    --state-root) state_root="${options[i+1]:?missing state root}" ;;
-    --install-id) install_id="${options[i+1]:?missing install id}" ;;
+    --target) target="$(option_value --target)" ;;
+    --fastboot-bin) fastboot_bin="$(option_value --fastboot-bin)" ;;
+    --adb-bin) adb_bin="$(option_value --adb-bin)" ;;
+    --fastboot-serial) serial="$(option_value --fastboot-serial \
+      "set SERIAL to the device serial from 'fastboot devices' or 'adb devices', or pass auto")" ;;
+    --state-root) state_root="$(option_value --state-root)" ;;
+    --install-id) install_id="$(option_value --install-id)" ;;
   esac
 done
 # A continuation already knows its board: the device may be in TWRP/recovery or

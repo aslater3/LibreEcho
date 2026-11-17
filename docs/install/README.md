@@ -12,7 +12,9 @@
 ## Safety first
 
 - Unplug the Echo's power adapter before you connect, move, or remove the USB
-  pins, and before opening anything. Never probe a powered board.
+  pins, and before opening anything. Never probe a powered board. Plugging or
+  unplugging the USB cable at the **computer** end is safe at any time; it
+  leaves the pins on the Echo untouched.
 - Do not short any pad or component. The installer does not need it.
 - Keep the USB connection on the approved data cable. Do not connect a TTL UART
   adapter to the USB pads.
@@ -24,9 +26,13 @@
 | Device | Target | Amonet archive | Accepted LK build |
 |---|---|---|---|
 | Echo 2nd Gen | `radar_puffin` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
-| Echo Dot 2nd Gen | `biscuit` | `amonet-biscuit-v2.0.0.zip` | `63cb91b-20221007_072309` only |
+| Echo Dot 2nd Gen | `biscuit` | `amonet-biscuit-v2.0.0.zip` | Any; `63cb91b-20221007_072309` uses its reviewed payload, other builds the default `fastbrick.img` |
 
-Biscuit accepts any LK build. An unknown or empty LK build stops before any write.
+Biscuit accepts any LK build the device reports. The reviewed build
+`63cb91b-20221007_072309` uses its own payload; any other build uses the
+archive's default `fastbrick.img`. If the device reports no LK build (an empty
+`lk_build_desc`), the installer stops before any write. The Echo 2nd Gen
+accepts only the builds listed in its row.
 
 ## Equipment
 
@@ -55,6 +61,11 @@ sudo apt-get install adb fastboot e2fsprogs
 **not** install `adb` or `fastboot`. Confirm they are available with
 `command -v adb fastboot mke2fs dumpe2fs`.
 
+### Optional: Linux host tools in rootless Podman
+
+Use the [rootless Podman guide](podman.md) for containerized host tools.
+The native procedure below is unchanged.
+
 ## Already running LibreEcho?
 
 - **0.14.x:** you do not need this guide. Update over the air from the web UI:
@@ -72,6 +83,8 @@ sudo apt-get install adb fastboot e2fsprogs
   [Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration) first.
 - **A previous install that did not finish:** see
   [Reinstalling over an existing installation](#reinstalling-over-an-existing-installation).
+- **Going back to Amazon's Fire OS:** see
+  [Going back to stock Fire OS](restore-stock.md).
 
 ## 1. Download and verify the release
 
@@ -108,9 +121,17 @@ to be shorted.
 - **Pogo pins (no soldering).** Remove only the outer cover on the base to
   expose the 2 × 3 gold contacts. You do not need to take the device apart.
   Seat the pogo-pin adapter on the contacts. A ready-made LibreEcho pogo-pin
-  adapter will be on sale soon. Until then, a printable carrier is in
-  [`tools/libreecho-echo-gen2-pogo-plug-v5.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v5.zip);
-  see the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-carrier-v5).
+  adapter will be on sale soon. Until then, a printable keyed plug is in
+  [`tools/libreecho-echo-gen2-pogo-plug-v6.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v6.zip);
+  the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed)
+  gives its pin-out. Only the row of contacts nearer the edge of the base is
+  used: TP15 (D+), TP14 (D−) and TP13
+  (GND), the same pads as the soldered method below
+  ([pad photo](assets/usb-dplus-dminus-gnd.jpg)). Connect nothing to the
+  other three (TP17, TP19 and TP22).
+  The adapter must stay on the contacts without being held: secure it with a
+  clamp or band before you power on. A hand-held adapter shifts during the
+  install and setup, and the computer then loses the device.
 - **Soldered USB cable.** Follow the
   [Echo Gen 2 disassembly guide](../disassembly/echo-gen-2/README.md) and solder
   a USB cable to the AMP-board pads TP15 (D+), TP14 (D−) and TP13 (GND):
@@ -138,6 +159,10 @@ to be shorted.
    Release the button once the device is listed. `product` should report
    `RADAR`. If nothing is listed, unplug the power, check the pins, and repeat
    the sequence with the other button.
+
+   If the device is still not listed, leave the pins seated but unplug the USB
+   cable at the computer end, then repeat steps 1 and 3. While still holding
+   the button, plug the cable into the computer, and check again.
 
 ### Echo Dot 2nd Gen (`biscuit`, experimental)
 
@@ -251,8 +276,9 @@ The installer:
 1. Verifies the release and the installer checksum.
 2. Reads the fastboot product and checks it against the release target.
 3. If the bootloader is unlocked, skips the unlock step. If it is locked,
-   selects the payload for the exact `lk_build_desc`, verifies it, and sends it
-   with `fastboot flash brick`.
+   selects the payload for the device's `lk_build_desc` (on the Echo Dot, the
+   default payload when the build has no reviewed mapping), verifies it, and
+   sends it with `fastboot flash brick`.
 4. Formats userdata, flashes both verified boot slots, reboots, and waits for
    ADB.
 5. Verifies boot readback, stages the feature payloads, and creates the
@@ -322,7 +348,7 @@ the prompt for scripted runs). It:
 ## 5. First boot and setup
 
 1. The installer has rebooted the device and waited for ADB. Do not touch the
-   device or reconnect cables while it is powered.
+   device or move the pins while it is powered.
 2. Verify the temporary ADB connection and forward:
 
    ```sh
@@ -362,9 +388,12 @@ the prompt for scripted runs). It:
    adb forward tcp:18080 tcp:8080
    ```
 
-   Then open `http://127.0.0.1:18080/setup.html` again. If the board does not
-   come back within a few minutes, disconnect and reconnect power without
-   touching any cable, then reconnect as above.
+   Then open `http://127.0.0.1:18080/setup.html` again. If `adb devices` does
+   not list the Echo after a reboot, unplug the USB cable at the computer end,
+   wait until the Echo has finished booting, plug the cable back in, and run
+   `reconnect` again. If the board does not come back within a few minutes,
+   disconnect and reconnect power without touching the pins, then reconnect as
+   above.
 4. Complete the account and setup wizard. After Wi-Fi is applied, disconnect
    power before reconnecting any cables. Reconnect only while unpowered, then
    power on again.
@@ -397,9 +426,47 @@ profiles, and other mutable configuration, then reboots to this first-run state.
   soldered D+, D− and GND joints), then repeat the **Enter fastboot** sequence
   under [Connect the device](#2-connect-the-device). Do not short anything to
   force a different boot mode.
+- Echo 2nd Gen: if the device only appears once it is already in fastboot or
+  booted, connect the USB cable at the computer end after power-on instead of
+  before (see the **Enter fastboot** steps and
+  [First boot and setup](#5-first-boot-and-setup)). Keep the pins seated
+  throughout.
 - A device that has already run LibreEcho ignores the **Action** button at
   power-on. Hold **Volume Down (−)** on its own instead; see
   [Which button to hold](#which-button-to-hold).
+
+### Windows with WSL: ADB is lost after the first boot
+
+A native Linux host is the tested setup. Under WSL2 with `usbipd-win`, the
+installer can stop after the boot slots are written:
+
+```text
+ERROR: timed out waiting for ADB after the first boot.
+The boot image is already written (phase BOOT_WRITTEN)...
+```
+
+The Echo changes USB identity several times during an install (fastboot,
+preloader, recovery, then LibreEcho). Each change is a new USB device to
+Windows, so a usbipd attachment can drop before LibreEcho's ADB comes up. The
+installed image is fine. **Do not reflash or reinstall.**
+
+1. Let the device finish booting with Windows keeping the USB device (do not
+   attach it to WSL). Confirm Windows `adb devices` lists it.
+2. Make that connection reachable from the WSL installer. For example, point
+   WSL's `adb` at the Windows ADB server rather than attaching the device to
+   WSL.
+3. Resume with the same tag, serial, cache and state roots, and slot selection,
+   as in [Recovering from a forwarding failure](#recovering-from-a-forwarding-failure):
+
+   ```sh
+   ./run-one-shot.sh "$TAG" --continue --fastboot-serial "$SERIAL" \
+     --slots both --execute-hardware
+   ```
+
+`--continue` verifies the written boot slots before staging anything, and does
+not reflash. This route has been confirmed on one Echo 2nd Gen
+([#293](https://github.com/aslater3/LibreEcho/issues/293)). If you have a native
+Linux machine, use it instead.
 
 ### The product does not match the release
 
@@ -423,9 +490,11 @@ Pass the pinned archive with `--amonet-zip`. The installer requires it only when
 
 ### The Amonet ZIP is refused
 
-The archive's SHA-256 or size does not match the pin, or the device's `lk_build_desc`
-is not in the accepted list for its target. Use the exact archive named in the
-table above. For Biscuit, any LK build is accepted; the default payload covers builds without a reviewed mapping.
+The archive's SHA-256 or size does not match the pin, the device reported an
+empty `lk_build_desc`, or, on the Echo 2nd Gen, its LK build is not one of the
+builds listed for `radar_puffin`. Use the exact archive named in the table
+above. The Echo Dot accepts any non-empty LK build; the default payload covers
+builds without a reviewed mapping.
 
 ### The brick step reports `eMMC-RO` or `Device mismatch`
 

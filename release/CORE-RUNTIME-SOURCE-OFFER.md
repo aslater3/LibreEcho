@@ -37,11 +37,11 @@ runtime input has a complete corresponding-source and relink path.
   verifies the archive and patch hashes, static ARM32 outputs, and every
   shipped utility hash; BSD-3-Clause creates no static relinkable-object
   obligation.
-- `mbedTLS 3.6.4` is Apache-2.0 and is rebuilt from the pinned upstream release
+- `mbedTLS 3.6.7` is Apache-2.0 and is rebuilt from the pinned upstream release
   archive
-  `https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/mbedtls-3.6.4.tar.bz2`,
+  `https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2`,
   SHA-256
-  `ec35b18a6c593cf98c3e30db8b98ff93e8940a8c4e690e66b41dfc011d678110`.
+  `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`.
   The public Platform builder `tools/mt8163-arm32/mbedtls/build_mbedtls.sh`
   verifies that archive hash, builds static ARM32 `libmbedcrypto`,
   `libmbedx509`, and `libmbedtls` with the pinned UI cross compiler, and records

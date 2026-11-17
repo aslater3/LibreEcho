@@ -38,8 +38,8 @@ the Echo; please report Dot problems with a diagnostic bundle from
 **Settings**.
 
 The current stable release is
-[`radar-puffin-v0.14.3`](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.14.3)
-([release note](release/radar-puffin-v0.14.3.md)). See
+[`radar-puffin-v0.14.4`](https://github.com/aslater3/LibreEcho/releases/tag/radar-puffin-v0.14.4)
+([release note](release/radar-puffin-v0.14.4.md)). See
 [the 0.14.0 release note](release/radar-puffin-v0.14.0.md) for what is new in
 the 0.14 line and the [changelog](CHANGELOG.md) for every release.
 
@@ -66,8 +66,8 @@ sudo apt-get install adb fastboot e2fsprogs
 ### 2. Connect the device in fastboot
 
 - **Echo 2nd Gen:** remove only the outer cover on the base and seat a pogo-pin
-  adapter on the six gold USB contacts. A printable carrier is in
-  [`tools/`](tools/README.md#echo-gen-2-pogo-pin-carrier-v5), and a ready-made
+  adapter on the six gold USB contacts. A printable keyed plug is in
+  [`tools/`](tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed), and a ready-made
   adapter will be on sale soon. Alternatively, solder a USB cable to the D+, D−
   and GND pads using the [disassembly guide](docs/disassembly/echo-gen-2/README.md).
   With the power adapter unplugged, connect USB to the computer, then hold
@@ -99,8 +99,9 @@ chmod +x run-one-shot.sh
 installer against the release checksums before running it, and the installer
 verifies everything it downloads.
 
-**Locked (stock) devices** also need the community Amonet unlock archive for
-their model. LibreEcho does not redistribute it: supply the exact file and pass
+**Locked (stock) devices** also need the Amonet unlock archive for their model,
+by Roger Ortiz ([@R0rt1z2](https://github.com/R0rt1z2)) and k4y0z (see
+[Credits](#credits)). LibreEcho does not redistribute it: supply the exact file and pass
 it with `--amonet-zip`. The installer checks its size and SHA-256 and refuses
 any other file.
 
@@ -139,7 +140,7 @@ running device into fastboot itself. It **erases userdata** and asks you to
 type `ERASE` first:
 
 ```sh
-TAG=radar-puffin-v0.14.3
+TAG=radar-puffin-v0.14.4
 curl -fL -o run-one-shot.sh "https://github.com/aslater3/LibreEcho/releases/download/${TAG}/libreecho-${TAG}-run-one-shot.sh"
 chmod +x run-one-shot.sh
 ./run-one-shot.sh "$TAG" --reinstall --execute-hardware
@@ -154,6 +155,13 @@ boot chain in place, with gated writes, backups and readback checks. Always run
 its `--dry-run` first. Its full write path has not yet been run end to end on an
 old-chain device, so treat early conversions as a test and keep the logs.
 
+### Going back to stock Fire OS
+
+To put Amazon's Fire OS and Alexa back on a LibreEcho unit, follow
+[Going back to stock Fire OS](docs/install/restore-stock.md). It flashes
+Amazon's own update package from TWRP into both slots. The bootloader stays
+unlocked.
+
 ## What you get
 
 - **A voice assistant on the device.** Wake word, speech-to-text and
@@ -161,8 +169,13 @@ old-chain device, so treat early conversions as a test and keep the logs.
   local LLM endpoint. Timers, weather (including Met Office models and UK
   postcode lookup) and an optional spoken clock.
 - **Home Assistant.** A native ESPHome API satellite: adopt the device through
-  the ESPHome integration for voice, media, announcements and timers.
-- **Music and audio.** AirPlay, internet radio (including HLS/AAC streams such
+  the ESPHome integration for voice, media, announcements and timers. Timers,
+  alarms, radio, AirPlay, Bluetooth and the local voice modes keep working when
+  Home Assistant is down: see
+  [What keeps working when Home Assistant is down](docs/without-home-assistant.md).
+- **Music and audio.** AirPlay (from Music Assistant, use Sendspin or an AirPlay
+  streaming mode that works: see [the Sendspin guide](docs/audio/sendspin.md)),
+  multiroom audio with Music Assistant (Sendspin), internet radio (including HLS/AAC streams such
   as BBC radio), Opus and Ogg playback, USB storage browsing, and speaker
   tuning for each model.
 - **Nursery.** A baby monitor that streams to phones, including iPhone Safari,
@@ -207,6 +220,11 @@ See the [full hardware compatibility and porting matrix](https://libreecho.org/#
 on the website, including relevant access repositories and the suggested porting
 priority.
 
+To add a model yourself, follow the
+[porting guide](docs/porting/README.md). It covers target profiles, the device
+tree, audio, light and button mapping and the acceptance checklist, using the
+Echo Dot 2nd Gen as the worked example.
+
 ## Repositories
 
 | Repository | Owns |
@@ -225,6 +243,28 @@ Optional, irreversible changes to the device itself.
 | Guide | What it enables |
 |---|---|
 | [Adding a USB tail](docs/usb-tail-mod.md) | ADB and external USB storage on the Echo 2nd Gen, by bringing a short cable out of the case |
+
+## Credits
+
+LibreEcho could not be installed on a stock Echo without the bootloader unlock
+work of others. We are grateful to:
+
+- **Roger Ortiz ([@R0rt1z2](https://github.com/R0rt1z2))**: the
+  [Amonet](https://github.com/R0rt1z2/amonet) BootROM/Preloader exploit chains
+  for Amazon Echo devices, [kaeru](https://github.com/R0rt1z2/kaeru) (the
+  LK-stage patch that current unlock chains install), and related tooling. The
+  `--amonet-zip` archives the installer accepts are his work.
+- **[k4y0z](https://github.com/k4y0z)**: Amazon/MediaTek exploit, bootloader
+  and device research behind the Amonet chains.
+- **Ilya Zhuravlev ([@xyzz](https://github.com/xyzz))**: the original
+  [Amonet](https://github.com/xyzz/amonet) MediaTek BootROM exploit.
+- **B. Kerler ([@bkerler](https://github.com/bkerler))**:
+  [mtkclient](https://github.com/bkerler/mtkclient), MediaTek communication and
+  flashing infrastructure.
+
+LibreEcho does not redistribute their work; it is used under its own licences.
+Full third-party notices are in
+[release/THIRD_PARTY_NOTICES.md](release/THIRD_PARTY_NOTICES.md).
 
 ## Support
 

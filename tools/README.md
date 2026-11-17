@@ -18,7 +18,7 @@ tools/libreecho-install.py.sha256
 | Target | Product string | Amonet archive | Accepted LK builds |
 |---|---|---|---|
 | `radar_puffin` (Echo 2nd Gen) | `RADAR` | `amonet-radar-v1.0.0.zip` | `59779ca-20220524_183401`, `63cb91b-20221007_072309`, `63cb91b-20221007_073612` |
-| `biscuit` (Echo Dot 2nd Gen) | `BISCUIT` | `amonet-biscuit-v2.0.0.zip` | `63cb91b-20221007_072309` only |
+| `biscuit` (Echo Dot 2nd Gen) | `BISCUIT` | `amonet-biscuit-v2.0.0.zip` | Any; `63cb91b-20221007_072309` uses its reviewed payload, other builds the default `fastbrick.img` |
 
 The pinned archive and per-build payload digests are recorded in
 `release/amonet-pins.json` and embedded in the installer as `AMONET_PINS`. A
@@ -38,7 +38,8 @@ k32 launcher.
 verify/download the Product release
 → check the device's fastboot product against the release target
 → if the bootloader is locked:
-     select the payload for the exact lk_build_desc
+     select the payload for the device's lk_build_desc
+       (biscuit: default payload if the build has no reviewed mapping)
      extract and verify it from the pinned Amonet ZIP
      fastboot flash brick <payload>
 → wait for the unlocked fastboot device
@@ -127,8 +128,11 @@ installer leaves it intact.
   check. It never stands in for an unreadable product.
 
 - The archive's SHA-256 and size must match the pin for the selected target.
-  The payload's size and SHA-256 must match the entry for the device's exact
-  `lk_build_desc`. Any mismatch stops before the brick write.
+  The payload's size and SHA-256 must match the pinned entry selected for the
+  device's `lk_build_desc`: the exact build's entry, or on `biscuit` the
+  default payload for a build without one. An empty `lk_build_desc`, or an
+  unlisted build on `radar_puffin`, stops before the brick write, as does any
+  size or digest mismatch.
 - `eMMC-RO` and `Device mismatch` in the brick output are hard stops. The
   installer does not retry them.
 
@@ -282,13 +286,47 @@ SHA-pinned payloads, full-partition backups and readback verification, and a
 shareable per-run support log. See its README for the exact run order and what
 to share with support if a run aborts.
 
-## Echo Gen 2 pogo-pin carrier (v5)
+## Echo Gen 2 pogo-pin plug (v6, keyed)
 
-[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)
-contains the printable six-pin carrier for the Echo 2nd Gen base contacts. With
-pogo pins, installation only requires removing the outer cover on the base; the
-device does not need to be taken apart and nothing is shorted. A ready-made
-LibreEcho pogo-pin adapter will be on sale soon. To solder a USB cable instead,
-follow the [Echo Gen 2 disassembly guide](../docs/disassembly/echo-gen-2/README.md).
+[`libreecho-echo-gen2-pogo-plug-v6.zip`](./libreecho-echo-gen2-pogo-plug-v6.zip)
+contains the printable pogo-pin plug for the Echo 2nd Gen base contacts: STLs
+for 0.80 to 1.20 mm bores, a bore coupon, the OpenSCAD source and a README.
+With pogo pins, installation only requires removing the outer cover on the
+base; the device does not need to be taken apart and nothing is shorted. A
+ready-made LibreEcho pogo-pin adapter will be on sale soon. To solder a USB
+cable instead, follow the
+[Echo Gen 2 disassembly guide](../docs/disassembly/echo-gen-2/README.md).
 The [installation guide](../docs/install/README.md#2-connect-the-device) gives
 the fastboot entry sequence.
+
+The plug is keyed. An arm runs from the plug to the nearest edge of the base
+and a lip hangs over that edge, so the plug only seats one way round. Print it
+in a rigid material (PLA or PETG), not TPU.
+
+Pin-out, looking at the wiring side of the seated plug:
+
+![Pin-out of the v6 pogo plug](../docs/install/assets/echo-gen2-pogo-plug-v6-pinout.svg)
+
+| Position | Signal | Board pad | USB cable wire |
+|---|---|---|---|
+| Row nearer the edge of the base, pin nearest the key arm | GND | TP13 | black |
+| Same row, middle pin | D− | TP14 | white |
+| Same row, pin furthest from the key arm | D+ | TP15 | green |
+| Row nearer the centre of the Echo, all three | not used | TP17, TP19, TP22 | none |
+
+- Connect only D+, D− and GND. Leave the cable's red 5 V wire unconnected; the
+  Echo runs from its own power adapter.
+- Connect nothing to the other three contacts. One of them is reported to
+  carry the 15 V supply rail; which one has not been measured.
+- The order along the USB row is read from the
+  [AMP board photo](../docs/install/assets/usb-dplus-dminus-gnd.jpg) and has
+  not been measured on a device. Before first use, check with a multimeter
+  that the pin nearest the key arm is ground.
+- The fit was checked with a PLA print on one Echo 2nd Gen. A USB connection
+  through a v6 print has not been tested yet.
+
+The earlier carrier,
+[`libreecho-echo-gen2-pogo-plug-v5.zip`](./libreecho-echo-gen2-pogo-plug-v5.zip)
+and the loose `echo_gen2_pogo_*.stl` files, has the same insert but no key: it
+fits either way round, and the wrong way round puts the USB wires on the other
+three contacts. Use v6 for new prints.

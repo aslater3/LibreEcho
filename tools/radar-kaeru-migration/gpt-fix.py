@@ -97,9 +97,11 @@ def main():
             die("%s is not the larger wrapper partition" % n)
         if by[n]["s"] <= by["userdata"]["e"]:
             die("%s is not appended after userdata" % n)
+    # Legacy amonet v1 shrinks userdata to 2137088 sectors with the radar GPT and
+    # 2153472 with the biscuit GPT; old-chain radar units exist with either.
     ud = by["userdata"]
-    if ud["e"] - ud["s"] + 1 != 2137088:
-        die("userdata is %d sectors, not the contract 2137088" % (ud["e"] - ud["s"] + 1))
+    if ud["e"] - ud["s"] + 1 not in (2137088, 2153472):
+        die("userdata is %d sectors, not a legacy contract (2137088 or 2153472)" % (ud["e"] - ud["s"] + 1))
 
     def table(es):
         return "\n".join("p%-2d %-12s %9d-%9d  %8d sectors" % (e["i"], e["name"], e["s"], e["e"],

@@ -38,17 +38,17 @@ WHEELHOUSE = ROOT / "build/inputs/reviewed/python-wheels"
 REQUIREMENTS = WHEELHOUSE / "mbedtls-build-requirements.txt"
 INTERPRETER_STEP = "Install the pinned mbedTLS build interpreter"
 
-MBEDTLS_VERSION = "3.6.4"
+MBEDTLS_VERSION = "3.6.7"
 # The exact archive pin recorded by the Platform mbedtls SOURCE.lock and by the
 # Product public-input inventory.  Both halves of the fix must agree on it.
 MBEDTLS_SOURCE_SHA256 = (
-    "ec35b18a6c593cf98c3e30db8b98ff93e8940a8c4e690e66b41dfc011d678110"
+    "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6"
 )
 MBEDTLS_SOURCE_URL = (
-    "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.4/"
-    "mbedtls-3.6.4.tar.bz2"
+    "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/"
+    "mbedtls-3.6.7.tar.bz2"
 )
-MBEDTLS_ARCHIVE_NAME = "mbedtls-3.6.4.tar.bz2"
+MBEDTLS_ARCHIVE_NAME = "mbedtls-3.6.7.tar.bz2"
 BLOCK_START = "# --- mbedtls-arm32 component block"
 BLOCK_END = "# --- end mbedtls-arm32 component block ---"
 BUNDLE_KEY_START = 'ui_bundle_cache_key="$(component_cache_key ui-bundle'

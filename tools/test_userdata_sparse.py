@@ -241,8 +241,9 @@ class UserdataSparseTests(unittest.TestCase):
                      contextlib.redirect_stdout(io.StringIO()):
                     INSTALLER.format_userdata_in_fastboot(str(root / "fastboot"), "TEST", 120)
                 write.assert_called_once()
-                self.assertIn("4096", commands[0])
-                self.assertEqual(commands[1][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
+                self.assertTrue(commands[0][-1].endswith("feature-probe.ext4"))
+                self.assertIn("4096", commands[1])
+                self.assertEqual(commands[2][:3], ["env", "LC_ALL=C", str(root / "dumpe2fs")])
 
     def test_stock_layouts_format_aligned_prefix_and_flash(self):
         # Issue #230: each board's stock userdata left by Kaeru is not 4 KiB aligned.
