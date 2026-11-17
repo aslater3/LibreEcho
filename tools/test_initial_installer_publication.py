@@ -510,6 +510,19 @@ class InstallerPublicationTests(unittest.TestCase):
             self.assertIn("saved immutable release tag", result.stderr)
             self.assertFalse(argv_log.exists())
 
+    def test_run_one_shot_names_unset_serial_variable(self) -> None:
+        # LibreEcho #360: `--fastboot-serial "$SERIAL"` with SERIAL unset passed "".
+        for options in (["--fastboot-serial", ""], ["--fastboot-serial", "--slots", "both"], ["--fastboot-serial"]):
+            with self.subTest(options=options):
+                result = subprocess.run(
+                    ["bash", str(ROOT / "tools/run-one-shot.sh"), "radar-puffin-v0.14.0", "--continue", *options],
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--fastboot-serial needs a value", result.stderr)
+                self.assertIn("set SERIAL", result.stderr)
+                self.assertNotIn("options[i+1]", result.stderr)
+
     def test_run_one_shot_continuation_without_fastboot_uses_saved_or_adb_target(self) -> None:
         """TWRP/recovery has no fastboot product; continuation must not demand --target."""
         tag = "radar-puffin-v1.2.3"
@@ -1017,6 +1030,12 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("Remove only the outer cover", connect)
         self.assertIn("disassembly/echo-gen-2/README.md", connect)
         self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", connect)
+        pogo = connect.split("**Pogo pins (no soldering).**", 1)[1].split("**Soldered USB cable.**", 1)[0]
+        self.assertIn("TP15 (D+), TP14 (D−) and TP13\n  (GND)", pogo)
+        self.assertIn("usb-dplus-dminus-gnd.jpg", pogo)
+        tools_readme = (ROOT / "tools/README.md").read_text(encoding="utf-8")
+        carrier = tools_readme.split("## Echo Gen 2 pogo-pin carrier (v5)", 1)[1]
+        self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", carrier)
         # Button depends on bootloader state: Action on stock, Volume Down once Kaeru is installed.
         self.assertIn("Press and hold the fastboot button", connect)
         self.assertIn("**Action** on a stock Echo", connect)

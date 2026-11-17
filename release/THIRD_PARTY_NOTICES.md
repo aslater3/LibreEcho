@@ -155,6 +155,20 @@ credits the upstream Amonet/mtkclient contributors, preserves `system_a`,
 userdata and rollback by default, and records only LibreEcho-generated release
 artifacts in its SBOM.
 
+The unlock chain is the work of:
+
+- **Roger Ortiz ([@R0rt1z2](https://github.com/R0rt1z2))**: Amonet exploit
+  chains for Amazon Echo devices (<https://github.com/R0rt1z2/amonet>) and the
+  kaeru LK-stage patch (<https://github.com/R0rt1z2/kaeru>).
+- **k4y0z** (<https://github.com/k4y0z>): Amazon/MediaTek exploit and
+  bootloader research.
+- **Ilya Zhuravlev ([@xyzz](https://github.com/xyzz))**: the original Amonet
+  MediaTek BootROM exploit (<https://github.com/xyzz/amonet>).
+- **B. Kerler ([@bkerler](https://github.com/bkerler))**: mtkclient
+  (<https://github.com/bkerler/mtkclient>).
+
+Their work remains under its own licences and copyright notices.
+
 ## No endorsement
 
 Amazon, Alexa, AirPlay, Apple, Android, MediaTek, and other names are trademarks
