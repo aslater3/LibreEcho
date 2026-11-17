@@ -1034,8 +1034,9 @@ class InstallerPublicationTests(unittest.TestCase):
         self.assertIn("TP15 (D+), TP14 (D−) and TP13\n  (GND)", pogo)
         self.assertIn("usb-dplus-dminus-gnd.jpg", pogo)
         tools_readme = (ROOT / "tools/README.md").read_text(encoding="utf-8")
-        carrier = tools_readme.split("## Echo Gen 2 pogo-pin carrier (v5)", 1)[1]
-        self.assertIn("TP15 (D+), TP14 (D−) and TP13 (GND)", carrier)
+        plug = tools_readme.split("## Echo Gen 2 pogo-pin plug (v6, keyed)", 1)[1]
+        for row in ("| GND | TP13 |", "| D− | TP14 |", "| D+ | TP15 |"):
+            self.assertIn(row, plug)
         # Button depends on bootloader state: Action on stock, Volume Down once Kaeru is installed.
         self.assertIn("Press and hold the fastboot button", connect)
         self.assertIn("**Action** on a stock Echo", connect)

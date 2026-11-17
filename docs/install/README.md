@@ -125,7 +125,10 @@ to be shorted.
   [`tools/libreecho-echo-gen2-pogo-plug-v6.zip`](../../tools/libreecho-echo-gen2-pogo-plug-v6.zip);
   the [tools README](../../tools/README.md#echo-gen-2-pogo-pin-plug-v6-keyed)
   gives its pin-out. Only the row of contacts nearer the edge of the base is
-  used (D+, D− and GND); connect nothing to the other three.
+  used: TP15 (D+), TP14 (D−) and TP13
+  (GND), the same pads as the soldered method below
+  ([pad photo](assets/usb-dplus-dminus-gnd.jpg)). Connect nothing to the
+  other three (TP17, TP19 and TP22).
   The adapter must stay on the contacts without being held: secure it with a
   clamp or band before you power on. A hand-held adapter shifts during the
   install and setup, and the computer then loses the device.
