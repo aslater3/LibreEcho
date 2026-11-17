@@ -250,6 +250,10 @@ says what was tested on which model.
 - **No volume level on the ring during do not disturb or the sunrise light.**
   The volume buttons still change the volume, but the ring does not show the
   level while either holds the ring (LibreEcho-UI #543).
+- **Short sounds clipped when nothing is playing.** From idle, the start of
+  short sounds such as the volume press tone is cut off while the amplifier
+  starts. During music they play in full. Not new in 0.14.6; fix planned for
+  0.14.7 (LibreEcho-Platform #325).
 - **AirPlay from Music Assistant** still needs *AirPlay 2 - compatibility
   mode* or *AirPlay 1 (RAOP)*, or Sendspin; see
   [the 0.14.5 note](radar-puffin-v0.14.5.md#known-issues).
@@ -297,7 +301,20 @@ interface, and the privacy wording. On the Echo Dot also: wake model upload,
 select and delete, a second wake word, and turning on the on-device assistant.
 On the Echo 2nd Gen also: adding and removing a private certificate authority.
 
-<!-- FINAL-BUILD-VALIDATION -->
+**Both units, on the final release candidate** (the build these release
+files come from):
+
+- Installed over the air through the control centre (**Check for updates →
+  Install update → Restart into update**). Each booted the new slot, confirmed
+  it, kept it across a further reboot and kept the previous slot as the
+  rollback target.
+- The **Equaliser** card while AirPlay music played: sliders, presets
+  (Loudness, Warm on the Echo 2nd Gen; Bass boost on the Echo Dot) and speaker
+  boost (+3 and +6 dB) changed the sound live, and Flat with boost off
+  returned to the stock sound.
+- Echo 2nd Gen: the light ring moved with the music; a reminder was spoken on
+  time; an alarm rang on time and kept ringing until stopped.
+- Echo Dot: an alarm rang on time and the action button snoozed it.
 
 Not yet tested on hardware, and handed to community testing: long playback
 runs (AirPlay for 60 minutes, Sendspin after voice replies, after hours idle
