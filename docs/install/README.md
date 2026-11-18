@@ -242,8 +242,7 @@ checks the device and saves backups without writing anything.
 
 ```sh
 ./migrate.sh -s SERIAL --dry-run   # checks + backups, no writes
-./migrate.sh -s SERIAL             # converts the boot chain and partition table
-./migrate.sh -s SERIAL --verify    # reboots to fastboot, expects product=RADAR
+./migrate.sh -s SERIAL --verify    # converts chain + table, reboots itself to fastboot, expects product=RADAR
 ```
 
 If an older copy of the kit already moved the unit to Kaeru but left the `_x`
@@ -251,10 +250,13 @@ partition table, convert only the table, then reinstall:
 
 ```sh
 ./migrate.sh -s SERIAL --gpt-fix --dry-run
-./migrate.sh -s SERIAL --gpt-fix
-adb -s SERIAL reboot
-./run-one-shot.sh "$TAG" --reinstall --execute-hardware
+./migrate.sh -s SERIAL --gpt-fix --verify   # reboots itself to fastboot
+./run-one-shot.sh "$TAG" --reinstall --target radar_puffin --install-id <new-name> --fastboot-serial SERIAL --execute-hardware
 ```
+
+The kit reboots the unit itself and leaves it in fastboot. Never use
+`adb reboot` or `adb reboot bootloader` on the old system between the kit and
+the reinstall: on old images that can overwrite the new boot chain (#325).
 
 The kit refuses anything outside the documented Echo 2nd Gen layout. Every run
 writes a log under `logs/` and a `migration.jsonl`; share both if something goes
