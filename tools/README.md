@@ -279,8 +279,11 @@ biscuit/k32 boot chain (`fastboot getvar product` reports `BISCUIT` on a
 radar_puffin). [`radar-kaeru-migration/`](./radar-kaeru-migration/README.md)
 holds `migrate.sh`, which converts that chain to the current kaeru-based radar
 amonet chain in place and converts the `_x` GPT to the plain kaeru layout
-(units migrated with an older copy that fail one-shot with
-`boot_a_x readback hash mismatch`: run `migrate.sh -s SERIAL --gpt-fix`):
+(units on the Kaeru chain with the `_x` table, which current one-shot refuses
+before writing and older one-shot failed with `boot_a_x readback hash mismatch`:
+run `migrate.sh -s SERIAL --gpt-fix --dry-run`, then `--gpt-fix --verify`; this
+GPT step also covers an Echo Dot already on the Kaeru chain, the chain
+migration is Echo 2nd Gen only):
 gated writes only (chain identity, `_x` geometry),
 SHA-pinned payloads, full-partition backups and readback verification, and a
 shareable per-run support log. See its README for the exact run order and what

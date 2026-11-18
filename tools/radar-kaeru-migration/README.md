@@ -72,6 +72,48 @@ an already-converted unit from the old OS into fastboot.
 back (checked against `backup/GPT-MANIFEST.sha256`).
 `--no-gpt-fix` runs the old chain-only migration.
 
+### Echo Dot already on the Kaeru chain with an `_x` table
+
+Some Echo Dot units (`/etc/libreecho/target` says `target_id=biscuit`,
+`fastboot getvar product` reports `BISCUIT`) run the Kaeru chain on the legacy
+`_x` partition table. The installer then stops before writing with
+`runs the Kaeru chain ... on the legacy _x partition table`, or older
+installers fail with `boot_a_x readback hash mismatch`. On such a Dot the kit
+does **only** the GPT step. With LibreEcho running and ADB up:
+
+```sh
+./migrate.sh -s SERIAL --gpt-fix --dry-run   # Dot gate + table check, saves the current GPT, writes nothing
+./migrate.sh -s SERIAL --gpt-fix --verify    # converts the table, guarded reboot, expects product=BISCUIT
+```
+
+Then reinstall from fastboot with `--target biscuit` (see
+[After the migration](#after-the-migration)).
+
+It applies only when all of these hold, checked before anything is written:
+
+- `expdb` holds a verified LK -> kaeru chain;
+- `PARTNAME` `boot_a_x`/`boot_b_x` are exactly p10/p11;
+- the whole table is the reviewed Dot `_x` table: disk 3817472 KiB (7634944
+  sectors) and p1..p18, in sectors, `kb` 2048, `dkb` 2048, `lk_a` 2048,
+  `tee1` 10240, `lk_b` 2048, `tee2` 10240, `expdb` 20480, `misc` 1025,
+  `persist` 32768, `boot_a_x` 32768, `boot_b_x` 32768, `recovery` 32768,
+  `system_a` 1572864, `system_b` 1572864, `cache` 1605632, `userdata`
+  2137088 or 2153472, `boot_a` 225280, `boot_b` 225280, in this order with no
+  other entries (`/proc/partitions` on the device, then every GPT entry in
+  `gpt-fix.py --board=biscuit`).
+
+Anything else refuses. The result is the plain layout of a normally installed
+Dot (`boot_a`/`boot_b` on p10/p11, no p17/p18); `userdata` keeps its start and
+end. `--gpt-restore` on a Dot also needs the Kaeru chain and only writes back a
+saved table that passes the same check. A standalone `--verify` against a Dot
+already in fastboot needs `--target=biscuit`.
+
+**The boot-chain migration (preloader, LK, TEE and expdb writes) is for the
+Echo 2nd Gen only.** The kit refuses it on a Dot (plain run, `--dry-run`
+without `--gpt-fix`, `--no-gpt-fix`), and `--gpt-fix` refuses a Dot that is
+not on the Kaeru chain. A Dot that already has the plain table does not need
+the kit.
+
 If the device is stuck in fastboot with rainbow LEDs **and `fastboot getvar
 product` reports `BISCUIT`** (the old chain left a `FASTBOOT_PLEASE` marker in
 expdb), unstick it first with `fastboot -s SERIAL erase expdb` +
@@ -84,7 +126,9 @@ never be erased.
 
 1. **The running image.** `/etc/libreecho/image-profile` must be `ota`
    (development images are refused). `/etc/libreecho/target`, when present, must
-   say `target_id=radar_puffin`. Images before 0.14 have no target file; they
+   say `target_id=radar_puffin`, or `target_id=biscuit` for the Echo Dot GPT
+   step only (see
+   [Echo Dot already on the Kaeru chain](#echo-dot-already-on-the-kaeru-chain-with-an-_x-table)). Images before 0.14 have no target file; they
    were built for radar_puffin only (LibreEcho's own init makes the same
    assumption), so the kit accepts a missing file and relies on the geometry
    check below. A kernel that writes expdb at boot (`echo-marker` in `dmesg`, or
@@ -158,7 +202,7 @@ After all writes and readbacks, in this order:
    `adb reboot`, `adb reboot-bootloader` or `fastboot reboot`.
 
 With `--verify` it then waits up to 120 s for fastboot and checks
-`product=RADAR` and `unlock_status`. It leaves the unit in fastboot.
+`product=RADAR` (`BISCUIT` on an Echo Dot) and `unlock_status`. It leaves the unit in fastboot.
 
 ## After the migration
 
@@ -284,7 +328,11 @@ before posting them publicly.
   to the dev unit's real primary and backup GPT.
 - Host tests (`tools/test_release_tools.py`) run the whole kit against a fake
   adb/fastboot and a file-backed device: full migration, `--gpt-fix`, the
-  separate read-only `--verify`, and every refusal above.
+  separate read-only `--verify`, and every refusal above, plus the Echo Dot
+  `--gpt-fix`/`--gpt-restore` path and its refusals.
+- Echo Dot path (issue #378): the gates follow the field unit's verified
+  facts (Kaeru chain in expdb, `_x` table above). It has **not yet been run on
+  real hardware**; run `--gpt-fix --dry-run` first and keep the logs.
 - Issue #325: a real run wrote the chain correctly, then a manual
   `adb reboot-bootloader` from the old OS overwrote expdb. The reboot guard,
   the expdb lock, the misc marker and the `reboot -f` reboot were added for
