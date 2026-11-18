@@ -134,8 +134,14 @@ class OneShotFastbootTests(unittest.TestCase):
                 INSTALLER.USERDATA_BYTES,
             )
 
-    def _getvar_fixture(self, sizes):
+    def _getvar_fixture(self, sizes, kaeru: str = "stock", calls: list | None = None):
         def run(argv, timeout, *, check=True):
+            if calls is not None:
+                calls.append(list(argv))
+            if argv[-2:] == ["oem", "kaeru-version"]:
+                return {"stock": subprocess.CompletedProcess(argv, 1, "", "FAILED (remote: 'unknown command')\n"),
+                        "kaeru": subprocess.CompletedProcess(argv, 0, "", "(bootloader) kaeru-v2\nOKAY\n"),
+                        "silent": subprocess.CompletedProcess(argv, 0, "", "")}[kaeru]
             name = argv[-1].split(":", 1)[1]
             value = sizes.get(name, "")
             return subprocess.CompletedProcess(
@@ -148,14 +154,38 @@ class OneShotFastbootTests(unittest.TestCase):
 
     def test_payload_geometry_legacy_amonet_layout_unchanged(self) -> None:
         sizes = {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "6e00000", "boot_b": "6e00000"}
-        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
-            self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "amonet")
+        for target in (None, "radar_puffin", "biscuit"):
+            with self.subTest(target=target), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+                self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL", target), "amonet")
 
     def test_payload_geometry_accepts_pinned_kaeru_layout(self) -> None:
         # Measured on a Kaeru v2 Radar: no _x stores; boot_a/boot_b are the 16 MiB stores.
         sizes = {"boot_a": "1000000", "boot_b": "1000000"}
-        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+        calls: list = []
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes, "kaeru", calls)):
             self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "pinned")
+        self.assertFalse(any("oem" in c for c in calls), calls)  # the pinned path is not probed
+
+    def test_payload_geometry_refuses_kaeru_on_legacy_x_layout(self) -> None:
+        # Issue #378: Kaeru chain + legacy `_x` GPT. Kaeru has no `_x` redirect, so
+        # flash boot_a would land in the p17 wrapper. Refuse with the board's kit command.
+        sizes = {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "6e00000", "boot_b": "6e00000"}
+        for target, board in (("radar_puffin", "Echo 2nd Gen (radar_puffin)"), ("biscuit", "Echo Dot (biscuit)")):
+            calls: list = []
+            with self.subTest(target=target), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes, "kaeru", calls)):
+                with self.assertRaises(INSTALLER.InstallerError) as raised:
+                    INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL", target)
+                message = str(raised.exception)
+                self.assertTrue(message.startswith(f"{board} runs the Kaeru chain"), message)
+                for text in ("Nothing was written", "migrate.sh -s SERIAL --gpt-fix --dry-run",
+                             "migrate.sh -s SERIAL --gpt-fix --verify", "--reinstall", "Echo Dot (biscuit)"):
+                    self.assertIn(text, message)
+                self.assertFalse(any("flash" in c for c in calls), calls)
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes, "silent")):
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "could not be determined.*nothing was written"):
+                INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL", "biscuit")
 
     def test_payload_geometry_rejects_mixed_or_wrapper_layouts(self) -> None:
         for sizes in (
@@ -196,6 +226,9 @@ class OneShotFastbootTests(unittest.TestCase):
                 message = str(raised.exception)
                 self.assertTrue(message.startswith(f"{partname} readback hash mismatch"), message)
                 self.assertEqual("--gpt-fix" in message, hint, message)
+                if hint:  # names the Dot as supported (not the kit's full migration, which refuses it)
+                    for text in ("--gpt-fix --dry-run", "Echo Dot (biscuit)", "never run the kit's full boot-chain migration"):
+                        self.assertIn(text, message)
 
     def test_radar_kaeru_gpt_fix_converts_legacy_x_layout(self) -> None:
         import struct, zlib
@@ -1670,6 +1703,8 @@ class OneShotContinuationTests(unittest.TestCase):
         self.bad_boot = False
         self.bad_manifest = False
         self.device = "SERIAL"
+        self.product = "RADAR"
+        self.kaeru = False  # True: `oem kaeru-version` answers like a Kaeru LK
         self.staging_present = False
         self.current_feature = ""
         self.stack = contextlib.ExitStack()
@@ -1712,11 +1747,13 @@ class OneShotContinuationTests(unittest.TestCase):
         elif argv == ["fake-adb", "devices"]:
             output = f"List of devices attached\n{self.device}\tdevice\n"
         elif argv[-2:] == ["oem", "kaeru-version"]:
+            if self.kaeru:
+                return subprocess.CompletedProcess(argv, 0, "", "(bootloader) kaeru-v2\nOKAY\n")
             # Stock bootloader rejects the Kaeru probe; this is the expected unconverted state.
             return subprocess.CompletedProcess(argv, 1, "", "FAILunknown command\n")
         elif "getvar" in argv:
             if argv[-1] == "product":
-                output = "product: RADAR\n"
+                output = f"product: {self.product}\n"
             elif argv[-1] == "unlock_status":
                 output = f"unlock_status: {'true' if self.unlocked else 'false'}\n"
             elif argv[-1] in {"partition-size:boot_a", "partition-size:boot_b"}:
@@ -1760,6 +1797,53 @@ class OneShotContinuationTests(unittest.TestCase):
         self.tools.assert_not_called()
         self.amonet.assert_not_called()
         self.raw_run.assert_not_called()
+
+    def test_kaeru_on_legacy_x_layout_refuses_before_format_or_flash(self):
+        # Issue #378: an unlocked unit whose `_x` stores sit behind a Kaeru LK.
+        self.unlocked = True
+        self.kaeru = True
+        self.state_path.unlink(missing_ok=True)
+        with self.assertRaises(INSTALLER.InstallerError) as raised:
+            INSTALLER.one_shot(self.release, None, cache_root=self.cache, state_root=self.state_root,
+                               install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
+                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True,
+                               open_browser=False, target="radar_puffin")
+        message = str(raised.exception)
+        self.assertIn("Echo 2nd Gen (radar_puffin) runs the Kaeru chain", message)
+        self.assertIn("migrate.sh -s SERIAL --gpt-fix --dry-run", message)
+        self.assertFalse(any("flash" in c or "erase" in c or "reboot" in c for c in self.calls), self.calls)
+        self.format.assert_not_called()
+        self.amonet.assert_not_called()
+        # The same unit through continue-one-shot: the saved board reaches the gate (the
+        # biscuit wording itself is covered by the geometry test; this fixture bundle is radar).
+        self.save_state(phase="AMONET_HANDOFF", board="radar_puffin", userdata_formatted=False)
+        self.calls.clear()
+        with mock.patch.object(INSTALLER, "_verify_fastboot_payload_geometry",
+                               wraps=INSTALLER._verify_fastboot_payload_geometry) as gate:
+            with self.assertRaises(INSTALLER.InstallerError) as raised:
+                self.continuation()
+        gate.assert_called_once_with("fake-fastboot", "SERIAL", "radar_puffin")
+        message = str(raised.exception)
+        self.assertIn("Echo 2nd Gen (radar_puffin) runs the Kaeru chain", message)
+        self.assertIn("migrate.sh -s SERIAL --gpt-fix --dry-run", message)
+        self.assertFalse(any("flash" in c or "erase" in c for c in self.calls), self.calls)
+        self.format.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "AMONET_HANDOFF")
+
+    def test_legacy_x_layout_on_stock_lk_still_formats_and_flashes(self):
+        # The legacy redirect path is unchanged: the probe is refused, so boot_a/boot_b are flashed.
+        self.unlocked = True
+        self.state_path.unlink(missing_ok=True)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
+            self.forward_fails = True
+            INSTALLER.one_shot(self.release, None, cache_root=self.cache, state_root=self.state_root,
+                               install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
+                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True,
+                               open_browser=False, target="radar_puffin")
+        self.format.assert_called_once()
+        self.assertEqual([c[c.index("flash") + 1] for c in self.calls if "flash" in c], ["boot_a", "boot_b"])
+        probe = next(i for i, c in enumerate(self.calls) if c[-2:] == ["oem", "kaeru-version"])
+        self.assertLess(probe, next(i for i, c in enumerate(self.calls) if "flash" in c))
 
     def test_completed_staging_and_completed_forward_are_readonly_resumable(self):
         shutil.rmtree(self.release)

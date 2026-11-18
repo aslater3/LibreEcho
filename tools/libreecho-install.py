@@ -1298,14 +1298,14 @@ def verify_adb_payload_readback(adb_bin: str, serial: str, slot: str, expected_s
     if digest is None or digest.group(1).lower() != expected_sha256.lower():
         actual = next(iter(names))
         if actual == expected_name:
-            # Legacy `_x` GPT behind an LK without the `_x` redirect (a unit converted
-            # to the kaeru chain by an old radar-kaeru-migration kit): `flash boot_X`
-            # landed in the ~110 MiB wrapper and p10/p11 still hold the old image.
+            # Legacy `_x` GPT behind an LK without the `_x` redirect (a unit on the Kaeru
+            # chain, e.g. converted by an old radar-kaeru-migration kit, or an Echo Dot,
+            # issue #378): `flash boot_X` landed in the ~110 MiB wrapper and p10/p11
+            # still hold the old image.
             raise InstallerError(
                 f"{expected_name} readback hash mismatch: the image fastboot wrote is not in "
-                f"mmcblk0p{part}. If this unit was converted to the kaeru chain, its partition "
-                "table still has the legacy _x layout. Run tools/radar-kaeru-migration/migrate.sh "
-                "-s SERIAL --gpt-fix (try --dry-run first), reboot, then rerun one-shot with --reinstall."
+                f"mmcblk0p{part}. If this unit runs the Kaeru chain, its partition table still "
+                f"has the legacy _x layout. {_KAERU_X_GPT_FIX_STEPS}"
             )
         raise InstallerError(f"{actual} readback hash mismatch")
 
@@ -2365,10 +2365,11 @@ def one_shot(
                                   "bundle_sha256": bundle_sha, "userdata_formatted": False,
                                   "device_serial": serial, "slots": slots})
         verify_fastboot_product(fastboot_bin, serial, target, target_override)
+        # Read-only geometry/chain proof first: a refusal leaves userdata unformatted too.
+        print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
+        _verify_fastboot_payload_geometry(fastboot_bin, serial, target)
         format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
         _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release_tag, "bundle_sha256": bundle_sha, "userdata_formatted": True})
-        print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
-        _verify_fastboot_payload_geometry(fastboot_bin, serial)
         _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release_tag, "bundle_sha256": bundle_sha})
         for slot in selected:
             print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
@@ -2418,13 +2419,50 @@ def _fastboot_partition_size(fastboot_bin: str, serial: str, partition: str) -> 
     return int(value, 16)
 
 
-def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> str:
+_KAERU_X_GPT_FIX_STEPS = (
+    "Convert only the partition table with the Kaeru migration kit "
+    "(tools/radar-kaeru-migration), with LibreEcho running and ADB connected: first "
+    "./migrate.sh -s SERIAL --gpt-fix --dry-run, then ./migrate.sh -s SERIAL --gpt-fix --verify, "
+    "which leaves the unit in fastboot; then rerun one-shot with --reinstall and a new --install-id. "
+    "This applies to the Echo 2nd Gen (radar_puffin) and the Echo Dot (biscuit); on an Echo Dot "
+    "never run the kit's full boot-chain migration, which is for the Echo 2nd Gen only."
+)
+
+
+def _refuse_kaeru_on_legacy_x_layout(fastboot_bin: str, serial: str, target: str | None) -> None:
+    """Stop before any write when the `_x` stores sit behind a Kaeru LK (issue #378).
+
+    Only legacy Amonet redirects `flash boot_X` into `boot_X_x`. Kaeru resolves the
+    name boot_X, which on this table is the ~110 MiB wrapper (p17/p18), so the image
+    would boot from the wrapper while bootctl, OTA and the readback use p10/p11.
+    A stock-LK refusal of `oem kaeru-version` is the legacy chain; anything that is
+    not a clear refusal fails closed.
+    """
+    try:
+        kaeru = identify_kaeru(fastboot_bin, serial)
+    except InstallerError as error:
+        raise InstallerError(
+            "boot payload partitions are the legacy _x layout, but whether this unit runs the Kaeru "
+            "chain could not be determined (oem kaeru-version gave no clear answer); nothing was "
+            "written, refusing to flash boot_a/boot_b") from error
+    if kaeru is None:
+        return
+    board = {"radar_puffin": "Echo 2nd Gen (radar_puffin)", "biscuit": "Echo Dot (biscuit)"}.get(
+        target or "", target or "this unit")
+    raise InstallerError(
+        f"{board} runs the Kaeru chain ({kaeru}) on the legacy _x partition table. Kaeru has no _x "
+        "redirect, so flash boot_a/boot_b would write the old p17/p18 wrappers instead of "
+        f"boot_a_x/boot_b_x. Nothing was written. {_KAERU_X_GPT_FIX_STEPS}")
+
+
+def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str, target: str | None = None) -> str:
     """Prove which reviewed chain is present before `flash boot_X` is issued.
 
     The 16 MiB OS store is the same device node on both chains; only the name
     differs. Legacy Amonet redirects `flash boot_X` into `boot_X_x` and keeps the
     ~110 MiB wrapper in boot_X. The pinned Kaeru chain has no _x stores and
-    boot_X *is* the 16 MiB store. Anything else fails closed.
+    boot_X *is* the 16 MiB store. The `_x` layout behind a Kaeru LK has no
+    redirect and is refused. Anything else fails closed.
     """
     sizes = {name: _fastboot_partition_size(fastboot_bin, serial, name)
              for name in ("boot_a_x", "boot_b_x", "boot_a", "boot_b")}
@@ -2434,6 +2472,7 @@ def _verify_fastboot_payload_geometry(fastboot_bin: str, serial: str) -> str:
         wrappers = (sizes["boot_a"], sizes["boot_b"])
         if not all(size is not None and size > BOOT_BYTES for size in wrappers):
             raise InstallerError(f"legacy Amonet layout has unexpected wrapper geometry: {sizes}")
+        _refuse_kaeru_on_legacy_x_layout(fastboot_bin, serial, target)
         return "amonet"
     if stores_x == (None, None) and (sizes["boot_a"], sizes["boot_b"]) == (BOOT_BYTES, BOOT_BYTES):
         return "pinned"
@@ -2658,13 +2697,14 @@ def continue_one_shot(
             print(f"FASTBOOT STAGE: detected device {serial}; starting validated fastboot operations.", flush=True)
             _write_state(state_path, {**state, "device_serial": serial, "slots": slots})
             verify_fastboot_product(fastboot_bin, serial, saved_target, target)
+            if not userdata_formatted and phase == "FASTBOOT_READY" and not repair_userdata:
+                raise InstallerError("FASTBOOT_READY lacks userdata-format evidence; explicit --repair-userdata is required")
+            # Read-only geometry/chain proof first: a refusal leaves userdata unformatted too.
+            print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
+            _verify_fastboot_payload_geometry(fastboot_bin, serial, saved_target)
             if not userdata_formatted:
-                if phase == "FASTBOOT_READY" and not repair_userdata:
-                    raise InstallerError("FASTBOOT_READY lacks userdata-format evidence; explicit --repair-userdata is required")
                 format_userdata_in_fastboot(fastboot_bin, serial, fastboot_timeout)
             _write_state(state_path, {"phase": "AMONET_HANDOFF", "release": release, "bundle_sha256": state["bundle_sha256"], "userdata_formatted": True})
-            print("FASTBOOT STAGE: verifying boot payload partition geometry.", flush=True)
-            _verify_fastboot_payload_geometry(fastboot_bin, serial)
             _write_state(state_path, {"phase": "FASTBOOT_READY", "release": release, "bundle_sha256": state["bundle_sha256"]})
             for slot in selected:
                 print(f"FASTBOOT STAGE: flashing verified boot payload to boot_{slot}.", flush=True)
