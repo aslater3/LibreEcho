@@ -8,13 +8,30 @@
 This is the layout of a working pinned-Kaeru unit; the Kaeru LK resolves the
 partition NAME `boot_a`, it has no `_x` redirect.
 
-Usage: gpt-fix.py primary.bin backup.bin out_primary.bin out_backup.bin [--show]
+Usage: gpt-fix.py primary.bin backup.bin out_primary.bin out_backup.bin [--show] [--board=BOARD]
   primary.bin = LBA 0..33 (34 sectors), backup.bin = last 33 sectors.
+  --board=radar_puffin (default): the radar `_x` checks below.
+  --board=biscuit: additionally the whole table must be the reviewed Echo Dot
+    `_x` table (BISCUIT_X_TABLE: names, order and sizes exact, userdata either
+    legacy size, entries in order inside the usable area, BISCUIT_DISK_SECTORS
+    disk); an already plain table is refused instead of reported.
 Stdlib only. Exit 0 = converted files written, 3 = already plain, 2 = refused.
 """
 import struct, sys, zlib
 
 SS = 512
+LEGACY_USERDATA = (2137088, 2153472)
+# Reviewed legacy `_x` table of an Echo Dot already on the Kaeru chain (LibreEcho
+# issue #378): p1..p18 in this order, sizes in 512-byte sectors. None = userdata,
+# which may be either legacy size. Same shape as the radar_puffin `_x` table.
+BISCUIT_X_TABLE = (
+    ("kb", 2048), ("dkb", 2048), ("lk_a", 2048), ("tee1", 10240), ("lk_b", 2048),
+    ("tee2", 10240), ("expdb", 20480), ("misc", 1025), ("persist", 32768),
+    ("boot_a_x", 32768), ("boot_b_x", 32768), ("recovery", 32768),
+    ("system_a", 1572864), ("system_b", 1572864), ("cache", 1605632),
+    ("userdata", None), ("boot_a", 225280), ("boot_b", 225280),
+)
+BISCUIT_DISK_SECTORS = 7634944  # mmcblk0 = 3817472 KiB
 
 
 def die(msg, rc=2):
@@ -60,11 +77,35 @@ def pack(ents, h):
     return raw
 
 
+def check_biscuit_table(ents, h):
+    """The whole table must be the reviewed Echo Dot `_x` table; anything else refuses."""
+    if h["alt"] + 1 != BISCUIT_DISK_SECTORS:
+        die("disk is %d sectors, not the reviewed Echo Dot disk (%d)" % (h["alt"] + 1, BISCUIT_DISK_SECTORS))
+    used = [e for e in ents if e["name"] or e["tg"] != b"\0" * 16]
+    if [e["i"] for e in used] != list(range(1, len(BISCUIT_X_TABLE) + 1)):
+        die("Echo Dot table does not have exactly entries p1..p%d" % len(BISCUIT_X_TABLE))
+    prev_end = h["first"] - 1
+    for e, (name, sectors) in zip(used, BISCUIT_X_TABLE):
+        size = e["e"] - e["s"] + 1
+        if e["name"] != name:
+            die("p%d is %r, the reviewed Echo Dot table has %r" % (e["i"], e["name"], name))
+        if sectors is None and size not in LEGACY_USERDATA or sectors is not None and size != sectors:
+            die("p%d %s is %d sectors, not the reviewed Echo Dot size" % (e["i"], name, size))
+        if e["s"] <= prev_end or e["e"] > h["last"] or e["e"] < e["s"]:
+            die("p%d %s is out of order or outside the usable area" % (e["i"], name))
+        prev_end = e["e"]
+
+
 def main():
-    if len(sys.argv) < 5:
-        die("usage: gpt-fix.py primary.bin backup.bin out_primary.bin out_backup.bin [--show]")
-    prim = open(sys.argv[1], "rb").read()
-    back = open(sys.argv[2], "rb").read()
+    pos = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if len(pos) != 4:
+        die("usage: gpt-fix.py primary.bin backup.bin out_primary.bin out_backup.bin [--show] [--board=BOARD]")
+    boards = [a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--board=")]
+    board = boards[-1] if boards else "radar_puffin"
+    if board not in ("radar_puffin", "biscuit"):
+        die("unknown board %r" % board)
+    prim = open(pos[0], "rb").read()
+    back = open(pos[1], "rb").read()
     show = "--show" in sys.argv
     h = parse_header(prim[SS:2 * SS])
     ent_sectors = (h["nent"] * h["esize"] + SS - 1) // SS
@@ -83,6 +124,8 @@ def main():
     ents = entries(raw, h)
     by = {e["name"]: e for e in ents if e["name"]}
     if "boot_a_x" not in by and "boot_b_x" not in by:
+        if board == "biscuit":
+            die("Echo Dot table has no boot_*_x partitions: it is not the legacy _x table, nothing to convert")
         print("GPT already plain (no boot_*_x partitions); nothing to do.")
         sys.exit(3)
     need = ["boot_a_x", "boot_b_x", "boot_a", "boot_b", "userdata", "lk_a", "lk_b", "expdb"]
@@ -100,8 +143,10 @@ def main():
     # Legacy amonet v1 shrinks userdata to 2137088 sectors with the radar GPT and
     # 2153472 with the biscuit GPT; old-chain radar units exist with either.
     ud = by["userdata"]
-    if ud["e"] - ud["s"] + 1 not in (2137088, 2153472):
+    if ud["e"] - ud["s"] + 1 not in LEGACY_USERDATA:
         die("userdata is %d sectors, not a legacy contract (2137088 or 2153472)" % (ud["e"] - ud["s"] + 1))
+    if board == "biscuit":
+        check_biscuit_table(ents, h)
 
     def table(es):
         return "\n".join("p%-2d %-12s %9d-%9d  %8d sectors" % (e["i"], e["name"], e["s"], e["e"],
@@ -128,8 +173,8 @@ def main():
     parse_header(nprim[SS:2 * SS]); parse_header(nback[-SS:])
     if len(nprim) != len(prim) or len(nback) != (ent_sectors + 1) * SS:
         die("internal size check failed")
-    open(sys.argv[3], "wb").write(nprim)
-    open(sys.argv[4], "wb").write(nback)
+    open(pos[2], "wb").write(nprim)
+    open(pos[3], "wb").write(nback)
     print("GPT-FIX OK")
 
 
