@@ -81,6 +81,9 @@ The native procedure below is unchanged.
   `BISCUIT` on an Echo 2nd Gen, or the installer fails with
   `boot_a_x readback hash mismatch`, run the
   [Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration) first.
+  An Echo Dot that stops with `runs the Kaeru chain ... legacy _x partition
+  table` or `boot_a_x readback hash mismatch` needs only the kit's `--gpt-fix`;
+  see [`boot_a_x readback hash mismatch`](#boot_a_x-readback-hash-mismatch).
 - **A previous install that did not finish:** see
   [Reinstalling over an existing installation](#reinstalling-over-an-existing-installation).
 - **Going back to Amazon's Fire OS:** see
@@ -239,8 +242,7 @@ checks the device and saves backups without writing anything.
 
 ```sh
 ./migrate.sh -s SERIAL --dry-run   # checks + backups, no writes
-./migrate.sh -s SERIAL             # converts the boot chain and partition table
-./migrate.sh -s SERIAL --verify    # reboots to fastboot, expects product=RADAR
+./migrate.sh -s SERIAL --verify    # converts chain + table, reboots itself to fastboot, expects product=RADAR
 ```
 
 If an older copy of the kit already moved the unit to Kaeru but left the `_x`
@@ -248,15 +250,21 @@ partition table, convert only the table, then reinstall:
 
 ```sh
 ./migrate.sh -s SERIAL --gpt-fix --dry-run
-./migrate.sh -s SERIAL --gpt-fix
-adb -s SERIAL reboot
-./run-one-shot.sh "$TAG" --reinstall --execute-hardware
+./migrate.sh -s SERIAL --gpt-fix --verify   # reboots itself to fastboot
+./run-one-shot.sh "$TAG" --reinstall --target radar_puffin --install-id <new-name> --fastboot-serial SERIAL --execute-hardware
 ```
+
+The kit reboots the unit itself and leaves it in fastboot. Never use
+`adb reboot` or `adb reboot bootloader` on the old system between the kit and
+the reinstall: on old images that can overwrite the new boot chain (#325).
 
 The kit refuses anything outside the documented Echo 2nd Gen layout. Every run
 writes a log under `logs/` and a `migration.jsonl`; share both if something goes
-wrong. Echo Dot 2nd Gen units and Echo 2nd Gen units already on the plain
-Kaeru layout do not need the kit.
+wrong. Echo Dot and Echo 2nd Gen units already on the plain Kaeru layout do not
+need the kit. An Echo Dot on the Kaeru chain with the old `_x` table needs only
+`--gpt-fix`; see
+[`boot_a_x readback hash mismatch`](#boot_a_x-readback-hash-mismatch). Never
+run the full migration on an Echo Dot; the kit refuses it.
 
 ## 3. Run the installer
 
@@ -479,9 +487,32 @@ An Echo 2nd Gen that reports `BISCUIT` is on the old boot chain; see
 
 ### `boot_a_x readback hash mismatch`
 
-The unit runs the Kaeru boot chain on the old `_x` partition table. Run the
-migration kit with `--gpt-fix`, then reinstall; see
-[Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration).
+The unit runs the Kaeru boot chain on the old `_x` partition table. Kaeru has
+no `_x` redirect, so `flash boot_a` wrote the old p17 wrapper instead of
+p10. Current installers stop before writing on such a unit with
+`runs the Kaeru chain ... on the legacy _x partition table`; the fix is the
+same. With LibreEcho running and ADB connected, convert only the partition
+table with the
+[Kaeru migration kit](../../tools/radar-kaeru-migration/README.md), dry run
+first:
+
+```sh
+./migrate.sh -s SERIAL --gpt-fix --dry-run
+./migrate.sh -s SERIAL --gpt-fix --verify
+```
+
+The second command converts the table and leaves the unit in fastboot. Then
+reinstall with `--reinstall`, the board's `--target` and a new `--install-id`
+(the kit prints the exact command):
+
+- **Echo 2nd Gen (`radar_puffin`):** `--verify` expects `product=RADAR`. If the
+  unit is still on the old boot chain, the kit refuses `--gpt-fix`; run the
+  full [Kaeru migration](#echo-2nd-gen-on-the-old-boot-chain-kaeru-migration)
+  instead.
+- **Echo Dot (`biscuit`):** `--verify` expects `product=BISCUIT`. The kit only
+  accepts a Dot already on the Kaeru chain with the reviewed `_x` table, and
+  never runs the full boot-chain migration on a Dot. See
+  [Echo Dot already on the Kaeru chain](../../tools/radar-kaeru-migration/README.md#echo-dot-already-on-the-kaeru-chain-with-an-_x-table).
 
 ### The device is locked and no Amonet ZIP was provided
 

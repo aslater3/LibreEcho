@@ -29,24 +29,33 @@
 # Chain-version gate before touching expdb per standing rule (2026-09-24):
 # never erase/write expdb without first identifying the chain on the device.
 #
-# Usage: ./migrate.sh -s SERIAL [--dry-run] [--verify] [--gpt-fix] [--gpt-restore] [--no-gpt-fix]
+# Echo Dot (target_id=biscuit, issue #378): ONLY --gpt-fix (and its --dry-run, --verify,
+# --gpt-restore) on a Dot whose expdb already holds a verified LK -> kaeru chain, whose
+# p10/p11 are still boot_a_x/boot_b_x, and whose whole table is the reviewed Dot `_x`
+# table (/proc/partitions here, every GPT entry in gpt-fix.py --board=biscuit). The chain
+# migration (preloader/LK/TEE/expdb writes) is radar_puffin only and refuses on a Dot.
+#
+# Usage: ./migrate.sh -s SERIAL [--dry-run] [--verify] [--gpt-fix] [--gpt-restore] [--no-gpt-fix] [--target=biscuit]
 #   --dry-run     : gates + backups only, no writes, no reboot
 #   --verify      : in a write run: after the guarded reboot, wait for kaeru fastboot and
-#                   check product=RADAR and unlocked. On its own, against a unit already in
-#                   fastboot: the same read-only check (never reboots anything).
+#                   check product=RADAR (Echo Dot: BISCUIT) and unlocked. On its own, against
+#                   a unit already in fastboot: the same read-only check (never reboots
+#                   anything); add --target=biscuit to expect an Echo Dot there.
 #   --gpt-fix     : ONLY convert the `_x` GPT to the plain layout. For a unit whose chain
 #                   is already kaeru (expdb magic) but which still has `_x` (i.e. migrated
 #                   with an older copy of this kit). Run with --dry-run first. Ends with the
 #                   same guarded reboot into kaeru fastboot.
 #   --gpt-restore : write the saved original GPT (backup/gpt-*-orig.bin) back.
 #   --no-gpt-fix  : full migration without the GPT step (old behaviour; leaves `_x`).
+#   --target=T    : radar_puffin or biscuit. Must match /etc/libreecho/target when on ADB.
 set -u
 cd "$(dirname "$0")"
 
 [ "${1:-}" = "-s" ] || { echo "usage: -s SERIAL [--dry-run] [--verify]"; exit 1; }
 S="${2:?usage: -s SERIAL}"
-DRY=""; VERIFY=""; GPTFIX=""; GPTRESTORE=""; NOGPT=""
-for a in "$@"; do case "$a" in --dry-run) DRY=1;; --verify) VERIFY=1;; --gpt-fix) GPTFIX=1;; --gpt-restore) GPTRESTORE=1;; --no-gpt-fix) NOGPT=1;; esac; done
+DRY=""; VERIFY=""; GPTFIX=""; GPTRESTORE=""; NOGPT=""; TARGET_ARG=""; BOARD=""
+for a in "$@"; do case "$a" in --dry-run) DRY=1;; --verify) VERIFY=1;; --gpt-fix) GPTFIX=1;; --gpt-restore) GPTRESTORE=1;; --no-gpt-fix) NOGPT=1;; --target=*) TARGET_ARG=${a#--target=};; esac; done
+case "$TARGET_ARG" in ""|radar_puffin|biscuit) : ;; *) echo "unknown --target '$TARGET_ARG' (radar_puffin or biscuit)"; exit 1 ;; esac
 
 mkdir -p logs backup
 LOGF="logs/run-${S}-$(date +%Y%m%d-%H%M%S).log"
@@ -108,10 +117,12 @@ preflight_image(){
     *) die "cannot confirm the image profile (/etc/libreecho/image-profile = '$(v profile)'); only OTA-profile release images are supported" ;;
   esac
   case "$(v target)" in
-    1:radar_puffin) echo "   image target: radar_puffin" ;;
-    absent) echo "   image target: no /etc/libreecho/target (pre-0.14 image). Those images were built for radar_puffin only, as LibreEcho's own init assumes; the radar _x geometry gate below still applies." ;;
-    *) die "image target is not radar_puffin (/etc/libreecho/target: '$(v target)'); this kit is for the Echo 2nd Gen (radar_puffin) only" ;;
+    1:radar_puffin) BOARD=radar_puffin; echo "   image target: radar_puffin" ;;
+    1:biscuit) BOARD=biscuit; echo "   image target: biscuit (Echo Dot): only --gpt-fix on a unit already on the Kaeru chain with the legacy _x table" ;;
+    absent) BOARD=radar_puffin; echo "   image target: no /etc/libreecho/target (pre-0.14 image). Those images were built for radar_puffin only, as LibreEcho's own init assumes; the radar _x geometry gate below still applies." ;;
+    *) die "image target is not radar_puffin or biscuit (/etc/libreecho/target: '$(v target)'); this kit is for the Echo 2nd Gen (radar_puffin) and, for --gpt-fix only, the Echo Dot (biscuit)" ;;
   esac
+  [ -z "$TARGET_ARG" ] || [ "$TARGET_ARG" = "$BOARD" ] || die "--target=$TARGET_ARG does not match this unit's image target ($BOARD)"
   case "$(v request)" in
     none|dir) : ;;
     *) die "/tmp/reboot.request already exists and is not the kit's guard directory ($(v request)): a reboot request is pending on this unit. Do not continue: unplug and replug its power (do not use adb reboot), wait for LibreEcho, then run the dry run again." ;;
@@ -146,22 +157,23 @@ backup_part(){ # $1=tag  $2=device node (under /dev)  $3=host file
 next_steps(){
   echo "NEXT STEP (unit is now in kaeru fastboot — keep it there):"
   echo "  run the one-shot installer from fastboot with a NEW install id, for example:"
-  echo "    ./run-one-shot.sh \"\$TAG\" --reinstall --target radar_puffin --install-id <new-name> --fastboot-serial $S --execute-hardware"
+  echo "    ./run-one-shot.sh \"\$TAG\" --reinstall --target ${BOARD:-radar_puffin} --install-id <new-name> --fastboot-serial $S --execute-hardware"
   echo "  The installer sees the unit already in fastboot and does not reboot it first."
   echo "  Do NOT boot the old LibreEcho on this unit and do NOT use adb's reboot-to-bootloader or reboot-to-fastboot commands on it:"
   echo "  the old OS writes FASTBOOT_PLEASE over the kaeru payload in expdb and the unit stops booting (issue #325)."
 }
 
 fastboot_check(){ # read-only; never reboots
-  local p u
+  local p u want
+  case "${BOARD:-radar_puffin}" in biscuit) want=BISCUIT ;; *) want=RADAR ;; esac
   for g in product unlock_status lk_build_desc pl_build_desc; do
     echo "-- getvar $g"; bounded 20 fastboot -s "$S" getvar "$g" 2>&1 || true
   done
   p=$(bounded 20 fastboot -s "$S" getvar product 2>&1 | sed -n 's/^product: *//p' | head -n1)
   u=$(bounded 20 fastboot -s "$S" getvar unlock_status 2>&1 | sed -n 's/^unlock_status: *//p' | head -n1 | tr 'A-Z' 'a-z')
-  [ "$p" = RADAR ] || die "product is '${p:-none}', not RADAR (see Recovery in README.md; do not boot the old OS)"
+  [ "$p" = "$want" ] || die "product is '${p:-none}', not $want (see Recovery in README.md; do not boot the old OS)"
   case "$u" in true|unlocked|yes|1) : ;; *) die "bootloader reports unlock_status '${u:-none}', not unlocked" ;; esac
-  echo "VERIFY OK: product=RADAR, unlocked. The unit stays in fastboot."
+  echo "VERIFY OK: product=$want, unlocked. The unit stays in fastboot."
   log "verify_ok" ""
 }
 
@@ -228,6 +240,7 @@ adb --version 2>&1 | head -1
 if [ -n "$VERIFY" ] && [ -z "$GPTFIX$GPTRESTORE" ] && ! adb -s "$S" get-state 2>/dev/null | grep -q device; then
   bounded 10 fastboot devices 2>/dev/null | grep -q "^$S[[:space:]]" || die "$S is neither on ADB nor in fastboot"
   echo "== read-only fastboot check (nothing is written, nothing is rebooted)"
+  BOARD=${TARGET_ARG:-radar_puffin}
   fastboot_check; next_steps; exit 0
 fi
 
@@ -271,8 +284,8 @@ gpt_step(){
   for t in primary backup; do
     [ "$(sha gpt-work/$t.bin)" = "$(A "sha256sum /data/.kaeru/gpt-$t.bin" | cut -d' ' -f1)" ] || die "GPT $t pull hash mismatch"
   done
-  python3 gpt-fix.py gpt-work/primary.bin gpt-work/backup.bin gpt-work/primary.new gpt-work/backup.new --show; rc=$?
-  [ $rc -eq 3 ] && { echo "GPT already plain - nothing to do."; log "gpt_already_plain" ""; return 0; }
+  python3 gpt-fix.py gpt-work/primary.bin gpt-work/backup.bin gpt-work/primary.new gpt-work/backup.new --show "--board=$BOARD"; rc=$?
+  [ $rc -eq 3 ] && [ "$BOARD" != biscuit ] && { echo "GPT already plain - nothing to do."; log "gpt_already_plain" ""; return 0; }
   [ $rc -eq 0 ] || die "gpt-fix.py refused (see above); nothing was written"
   [ -f backup/gpt-primary-orig.bin ] || { cp gpt-work/primary.bin backup/gpt-primary-orig.bin; cp gpt-work/backup.bin backup/gpt-backup-orig.bin; }
   ( cd backup && sha256sum gpt-*-orig.bin > GPT-MANIFEST.sha256 )
@@ -282,9 +295,57 @@ gpt_step(){
   echo "GPT converted."
 }
 
+# ---- Echo Dot gate (issue #378). Read-only; runs before any write and before any other
+# mode. A Dot only gets the GPT step, and only when it is already on the Kaeru chain.
+BISCUIT_GEO="3817472 mmcblk0
+1024 mmcblk0p1
+1024 mmcblk0p2
+1024 mmcblk0p3
+5120 mmcblk0p4
+1024 mmcblk0p5
+5120 mmcblk0p6
+10240 mmcblk0p7
+512 mmcblk0p8
+16384 mmcblk0p9
+16384 mmcblk0p10
+16384 mmcblk0p11
+16384 mmcblk0p12
+786432 mmcblk0p13
+786432 mmcblk0p14
+802816 mmcblk0p15
+1068544 mmcblk0p16
+112640 mmcblk0p17
+112640 mmcblk0p18"
+if [ "$BOARD" = biscuit ]; then
+  if [ -n "$NOGPT" ] || [ -z "$GPTFIX$GPTRESTORE$VERIFY" ]; then
+    die "this is an Echo Dot (target_id=biscuit). The boot-chain migration (preloader, LK, TEE and expdb writes) is for the Echo 2nd Gen (radar_puffin) only and never runs on a Dot; nothing was written. On a Dot this kit only converts the legacy _x partition table of a unit already on the Kaeru chain: ./migrate.sh -s $S --gpt-fix --dry-run"
+  fi
+  expdb_chain_ok || die "Echo Dot: expdb does not hold a verified LK -> kaeru chain. The Dot GPT step is only for a Dot already on the Kaeru chain (on any other chain the _x table must stay); nothing was written."
+  echo "expdb holds a verified LK -> kaeru chain (Echo Dot)"; log "biscuit_gate_chain_verified" ""
+  if [ -z "$GPTRESTORE" ]; then
+    geo=$(A "grep -E ' mmcblk0(p[0-9]+)?\$' /proc/partitions | tr -s ' ' | cut -d' ' -f4,5")
+    want=$BISCUIT_GEO
+    case "$geo" in *"
+1076736 mmcblk0p16
+"*) want=$(printf '%s\n' "$BISCUIT_GEO" | sed 's/^1068544 mmcblk0p16$/1076736 mmcblk0p16/') ;; esac
+    [ "$geo" = "$want" ] || { echo "geometry mismatch (KiB):"; echo "have:"; echo "$geo"; echo "want:"; echo "$want"; die "layout is not the reviewed Echo Dot _x table; nothing was written" ; }
+    if [ -n "$GPTFIX" ]; then
+      part_node boot_a_x mmcblk0p10; part_node boot_b_x mmcblk0p11
+    fi
+  fi
+  [ "$(A 'blockdev --getsz /dev/mmcblk0')" = 7634944 ] || die "Echo Dot: mmcblk0 is not the reviewed 7634944-sector disk; nothing was written"
+fi
+
 if [ -n "$GPTRESTORE" ]; then
   [ -f backup/gpt-primary-orig.bin ] && [ -f backup/gpt-backup-orig.bin ] || die "no saved GPT in backup/"
   ( cd backup && sha256sum -c GPT-MANIFEST.sha256 >/dev/null ) || die "saved GPT fails backup/GPT-MANIFEST.sha256"
+  if [ "$BOARD" = biscuit ]; then
+    # Only ever put back a saved table that is itself the reviewed Echo Dot `_x` table.
+    grep -q "^$(sha gpt-fix.py)" MANIFEST.sha256 || die "gpt-fix.py is not in the pinned MANIFEST.sha256"
+    mkdir -p gpt-work
+    python3 gpt-fix.py backup/gpt-primary-orig.bin backup/gpt-backup-orig.bin gpt-work/restore-check-p.bin gpt-work/restore-check-b.bin --board=biscuit \
+      || die "the saved GPT in backup/ is not the reviewed Echo Dot _x table; refusing to restore it"
+  fi
   [ -n "$DRY" ] && { echo "DRY RUN: would restore saved GPT."; exit 0; }
   guard_reboot_window
   backup_part p8 "$MISC_NODE" "backup/p8-$(date +%Y%m%d-%H%M%S).img"
@@ -297,6 +358,16 @@ fi
 expdb_hex=$(A "dd if=/dev/$EXPDB_NODE bs=64 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'")
 marker_hex=$(printf 'FASTBOOT_PLEASE' | od -An -tx1 | tr -d ' \\n')
 KAERU_OFF=$(pinned_kaeru_offset)
+if [ "$BOARD" = biscuit ]; then
+  # Chain already verified by the Echo Dot gate; the radar LK header size in the case
+  # below is not assumed for the Dot's payload.
+  if [ -z "$GPTFIX" ]; then
+    echo "This Echo Dot already has the kaeru chain and is running LibreEcho. Nothing was rebooted."
+    echo "If its partition table is still _x, run: ./migrate.sh -s $S --gpt-fix --dry-run, then ./migrate.sh -s $S --gpt-fix --verify"
+    exit 0
+  fi
+  expdb_hex=biscuit-verified
+fi
 clobbered(){
   echo "expdb head: ${expdb_hex:0:64}"
   echo "expdb holds a CLOBBERED kaeru chain: the kaeru header is still at offset $KAERU_OFF but the LK header at offset 0 is gone."
@@ -304,6 +375,7 @@ clobbered(){
   die "clobbered kaeru chain — nothing written. Do NOT reboot or power off this unit; contact LibreEcho support (issue #325). If it already loops in USBDL ('Failed to load LK'), follow Recovery in README.md."
 }
 case "$expdb_hex" in
+  biscuit-verified) : ;;
   8816885840*) expdb_chain_ok || die "expdb starts with an MTK header but is not a valid LK -> kaeru chain; refusing to touch it"
      echo "expdb already holds a kaeru payload (magic 88 16 88 58 40, LK -> kaeru chain OK) — chain ALREADY converted."
      if [ -z "$GPTFIX" ] && [ -n "$VERIFY" ]; then
@@ -352,6 +424,9 @@ if [ -n "$GPTFIX" ]; then
   safe_finish kaeru
   echo ALLDONE; echo "SUPPORT SUMMARY: serial $S gpt-fix complete. log: $LOGF"; exit 0
 fi
+
+# ---- the chain migration is radar_puffin only (never on an Echo Dot)
+[ "$BOARD" = radar_puffin ] || die "the boot-chain migration is for the Echo 2nd Gen (radar_puffin) only; nothing was written"
 
 # ---- reboot guard BEFORE the first write of a real run (backups below write /data)
 [ -n "$DRY" ] || guard_reboot_window

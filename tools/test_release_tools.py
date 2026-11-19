@@ -134,8 +134,14 @@ class OneShotFastbootTests(unittest.TestCase):
                 INSTALLER.USERDATA_BYTES,
             )
 
-    def _getvar_fixture(self, sizes):
+    def _getvar_fixture(self, sizes, kaeru: str = "stock", calls: list | None = None):
         def run(argv, timeout, *, check=True):
+            if calls is not None:
+                calls.append(list(argv))
+            if argv[-2:] == ["oem", "kaeru-version"]:
+                return {"stock": subprocess.CompletedProcess(argv, 1, "", "FAILED (remote: 'unknown command')\n"),
+                        "kaeru": subprocess.CompletedProcess(argv, 0, "", "(bootloader) kaeru-v2\nOKAY\n"),
+                        "silent": subprocess.CompletedProcess(argv, 0, "", "")}[kaeru]
             name = argv[-1].split(":", 1)[1]
             value = sizes.get(name, "")
             return subprocess.CompletedProcess(
@@ -148,14 +154,38 @@ class OneShotFastbootTests(unittest.TestCase):
 
     def test_payload_geometry_legacy_amonet_layout_unchanged(self) -> None:
         sizes = {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "6e00000", "boot_b": "6e00000"}
-        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
-            self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "amonet")
+        for target in (None, "radar_puffin", "biscuit"):
+            with self.subTest(target=target), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+                self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL", target), "amonet")
 
     def test_payload_geometry_accepts_pinned_kaeru_layout(self) -> None:
         # Measured on a Kaeru v2 Radar: no _x stores; boot_a/boot_b are the 16 MiB stores.
         sizes = {"boot_a": "1000000", "boot_b": "1000000"}
-        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes)):
+        calls: list = []
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes, "kaeru", calls)):
             self.assertEqual(INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL"), "pinned")
+        self.assertFalse(any("oem" in c for c in calls), calls)  # the pinned path is not probed
+
+    def test_payload_geometry_refuses_kaeru_on_legacy_x_layout(self) -> None:
+        # Issue #378: Kaeru chain + legacy `_x` GPT. Kaeru has no `_x` redirect, so
+        # flash boot_a would land in the p17 wrapper. Refuse with the board's kit command.
+        sizes = {"boot_a_x": "1000000", "boot_b_x": "1000000", "boot_a": "6e00000", "boot_b": "6e00000"}
+        for target, board in (("radar_puffin", "Echo 2nd Gen (radar_puffin)"), ("biscuit", "Echo Dot (biscuit)")):
+            calls: list = []
+            with self.subTest(target=target), \
+                 mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes, "kaeru", calls)):
+                with self.assertRaises(INSTALLER.InstallerError) as raised:
+                    INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL", target)
+                message = str(raised.exception)
+                self.assertTrue(message.startswith(f"{board} runs the Kaeru chain"), message)
+                for text in ("Nothing was written", "migrate.sh -s SERIAL --gpt-fix --dry-run",
+                             "migrate.sh -s SERIAL --gpt-fix --verify", "--reinstall", "Echo Dot (biscuit)"):
+                    self.assertIn(text, message)
+                self.assertFalse(any("flash" in c for c in calls), calls)
+        with mock.patch.object(INSTALLER, "_run_command", side_effect=self._getvar_fixture(sizes, "silent")):
+            with self.assertRaisesRegex(INSTALLER.InstallerError, "could not be determined.*nothing was written"):
+                INSTALLER._verify_fastboot_payload_geometry("fastboot", "SERIAL", "biscuit")
 
     def test_payload_geometry_rejects_mixed_or_wrapper_layouts(self) -> None:
         for sizes in (
@@ -196,6 +226,9 @@ class OneShotFastbootTests(unittest.TestCase):
                 message = str(raised.exception)
                 self.assertTrue(message.startswith(f"{partname} readback hash mismatch"), message)
                 self.assertEqual("--gpt-fix" in message, hint, message)
+                if hint:  # names the Dot as supported (not the kit's full migration, which refuses it)
+                    for text in ("--gpt-fix --dry-run", "Echo Dot (biscuit)", "never run the kit's full boot-chain migration"):
+                        self.assertIn(text, message)
 
     def test_radar_kaeru_gpt_fix_converts_legacy_x_layout(self) -> None:
         import struct, zlib
@@ -458,6 +491,20 @@ RADAR_X_LAYOUT = (
     ("boot_a", 7183360, 225280), ("boot_b", 7408640, 225280),
 )
 RADAR_DISK_SECTORS = 7634944
+# Echo Dot already on the Kaeru chain with the legacy `_x` table (issue #378): the
+# field table has exactly the radar `_x` shape. The second variant carries the other
+# legacy userdata size (2153472); its starts are synthetic (system_a moved down by
+# 32768 sectors so the wrappers still fit the 3817472 KiB disk).
+BISCUIT_X_LAYOUT = RADAR_X_LAYOUT
+_DOWN = 32768
+BISCUIT_X_LAYOUT_UD2153472 = tuple(
+    (n, s if s < 294912 else s - _DOWN, 2153472 if n == "userdata" else c) for n, s, c in RADAR_X_LAYOUT[:16]
+) + (("boot_a", 5013504 + 2153472, 225280), ("boot_b", 5013504 + 2153472 + 225280, 225280))
+
+
+def plain_rows(rows):
+    """What gpt-fix.py makes of an `_x` table: stores renamed, wrappers dropped."""
+    return tuple((n[:-2] if n.endswith("_x") else n, s, c) for n, s, c in rows if n not in ("boot_a", "boot_b"))
 
 
 def radar_gpt_images(rows, disk: int = RADAR_DISK_SECTORS) -> tuple[bytes, bytes]:
@@ -528,7 +575,9 @@ elif args[:1] == ["devices"]:
     if infastboot:
         print("TEST\tfastboot")
 elif args[:1] == ["getvar"] and infastboot:
-    value = {"product": "RADAR", "unlock_status": "true"}.get(args[1], "fake")
+    product_file = os.path.join(F, "product")
+    product = open(product_file).read().strip() if os.path.exists(product_file) else "RADAR"
+    value = {"product": product, "unlock_status": "true"}.get(args[1], "fake")
     sys.stderr.write(f"{args[1]}: {value}\nFinished. Total time: 0.001s\n")
 else:
     sys.exit(1)
@@ -550,14 +599,15 @@ class RadarKaeruMigrationKitTests(unittest.TestCase):
 
     def make_device(self, tmp: Path, *, expdb: bytes | None = None, profile: str | None = "ota",
                     target: str | None = None, request: str | None = None, dmesg: str = "",
-                    kallsyms: str = "c0008000 T stext\n", gpt_plain: bool = False) -> Path:
+                    kallsyms: str = "c0008000 T stext\n", gpt_plain: bool = False,
+                    rows=None, product: str | None = None) -> Path:
         dev = tmp / "device"
         for sub in ("dev", "sys/block/mmcblk0boot0", "proc", "tmp", "data", "etc/libreecho", "devbin"):
             (dev / sub).mkdir(parents=True, exist_ok=True)
         (dev / "dev" / "null").symlink_to("/dev/null")
         sizes = {3: 1 << 20, 4: 5 << 20, 5: 1 << 20, 6: 5 << 20, 7: 10 << 20, 8: 1025 * 512}
         names = {3: "lk_a", 4: "tee1", 5: "lk_b", 6: "tee2", 7: "expdb", 8: "misc",
-                 10: "boot_a" if gpt_plain else "boot_a_x"}
+                 10: "boot_a" if gpt_plain else "boot_a_x", 11: "boot_b" if gpt_plain else "boot_b_x"}
         for number, size in sizes.items():
             (dev / "dev" / f"mmcblk0p{number}").write_bytes(b"\0" * size)
         (dev / "dev" / "mmcblk0p3").write_bytes(b"\0" * 64 + b"biscuit-lk-build\0".ljust((1 << 20) - 64, b"\0"))
@@ -571,18 +621,19 @@ class RadarKaeruMigrationKitTests(unittest.TestCase):
             (dev / "sys/class/block" / f"mmcblk0p{number}" / "uevent").write_text(
                 f"MAJOR=179\nMINOR={number}\nPARTN={number}\nPARTNAME={name}\n")
         (dev / "sys/block/mmcblk0boot0/force_ro").write_text("1\n")
-        rows = RADAR_X_LAYOUT[:16] if gpt_plain else RADAR_X_LAYOUT
+        rows = tuple(RADAR_X_LAYOUT if rows is None else rows)
         if gpt_plain:
-            rows = tuple((n[:-2] if n.endswith("_x") else n, s, c) for n, s, c in rows)
+            rows = plain_rows(rows)
         primary, backup = radar_gpt_images(rows)
         with open(dev / "dev" / "mmcblk0", "wb") as disk:
             disk.truncate(RADAR_DISK_SECTORS * 512)
             disk.write(primary)
             disk.seek((RADAR_DISK_SECTORS - 33) * 512)
             disk.write(backup)
-        geometry = {3: 1024, 4: 5120, 5: 1024, 6: 5120, 7: 10240, 10: 16384, 11: 16384, 16: 1068544}
         (dev / "proc" / "partitions").write_text(
-            "major minor  #blocks  name\n\n" + "".join(f" 179 {n} {kib} mmcblk0p{n}\n" for n, kib in geometry.items()))
+            "major minor  #blocks  name\n\n" + f" 179        0    {RADAR_DISK_SECTORS // 2} mmcblk0\n"
+            + "".join(f" 179 {n} {c // 2} mmcblk0p{n}\n" for n, (_, _, c) in enumerate(rows, 1))
+            + " 179       32       4096 mmcblk0boot0\n")
         (dev / "proc" / "kallsyms").write_text(kallsyms)
         (dev / "dmesg").write_text(dmesg)
         (dev / "init").write_text("printf FASTBOOT_PLEASE > \"$EXPDB\"\n" * 4)
@@ -595,6 +646,8 @@ class RadarKaeruMigrationKitTests(unittest.TestCase):
         for name, body in FAKE_DEVBIN.items():
             (dev / "devbin" / name).write_text(body)
             (dev / "devbin" / name).chmod(0o755)
+        if product is not None:
+            (dev / "product").write_text(product + "\n")
         return dev
 
     def run_kit(self, tmp: Path, device: Path, *flags: str) -> subprocess.CompletedProcess:
@@ -710,7 +763,8 @@ class RadarKaeruMigrationKitTests(unittest.TestCase):
             "request file": ({"request": "file"}, (), "reboot request is pending"),
             "development profile": ({"profile": "development"}, (), "DEVELOPMENT-profile"),
             "missing profile": ({"profile": None}, (), "cannot confirm the image profile"),
-            "dot target": ({"target": "target_id=biscuit\n"}, (), "not radar_puffin"),
+            "dot target, full migration": ({"target": "target_id=biscuit\n"}, (), "Echo 2nd Gen (radar_puffin) only"),
+            "unknown target": ({"target": "target_id=other\n"}, (), "not radar_puffin or biscuit"),
             "kernel writer (dmesg)": ({"dmesg": "[ 0.5] echo-marker: FASTBOOT_PLEASE written\n"}, (), "echo-marker"),
             "kernel writer (symbol)": ({"kallsyms": "c0f00000 t echo_fastboot_marker_init\n"}, (), "echo-marker"),
             "clobbered kaeru": ({"expdb": clobbered}, (), "CLOBBERED kaeru chain"),
@@ -764,6 +818,182 @@ class RadarKaeruMigrationKitTests(unittest.TestCase):
             self.assertEqual([e for e in self.adb_log(device) if e[:1] == ["shell"]], [])
             self.assertFalse((device / "events").exists())
             self.assert_no_forbidden_reboot(device)
+
+    # ---- Echo Dot (biscuit) already on the Kaeru chain with the legacy `_x` table (#378)
+
+    @staticmethod
+    def disk_gpt(device: Path) -> tuple[bytes, bytes]:
+        data = (device / "dev" / "mmcblk0").read_bytes()
+        return data[:34 * 512], data[-33 * 512:]
+
+    @staticmethod
+    def chain_bytes(device: Path) -> dict[str, bytes]:
+        return {name: (device / "dev" / name).read_bytes()
+                for name in ("mmcblk0p3", "mmcblk0p4", "mmcblk0p5", "mmcblk0p6", "mmcblk0p7", "mmcblk0boot0")}
+
+    def biscuit_device(self, tmp: Path, **kwargs) -> Path:
+        kaeru = (KAERU_KIT / "stage" / "radar-kaeru.bin").read_bytes()
+        args = {"expdb": kaeru, "target": "target_id=biscuit\n", "product": "BISCUIT", **kwargs}
+        return self.make_device(tmp, **args)
+
+    def test_biscuit_gpt_fix_converts_x_table_to_pinned_layout(self) -> None:
+        for rows in (BISCUIT_X_LAYOUT, BISCUIT_X_LAYOUT_UD2153472):
+            userdata = next(r for r in rows if r[0] == "userdata")
+            with self.subTest(userdata=userdata[2]), tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                device = self.biscuit_device(tmp, rows=rows)
+                original = self.disk_gpt(device)
+                chain = self.chain_bytes(device)
+                misc_before = (device / "dev" / "mmcblk0p8").read_bytes()
+
+                dry = self.run_kit(tmp, device, "--gpt-fix", "--dry-run")
+                self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+                self.assertIn("image target: biscuit", dry.stdout)
+                self.assertIn("verified LK -> kaeru chain (Echo Dot)", dry.stdout)
+                self.assertIn("DRY RUN: GPT conversion validated", dry.stdout)
+                self.assertEqual(self.disk_gpt(device), original)
+                self.assertFalse((device / "tmp" / "reboot.request").exists())
+                self.assertFalse((device / "events").exists())
+                self.assertEqual((tmp / "kit" / "backup" / "gpt-primary-orig.bin").read_bytes(), original[0])
+
+                done = self.run_kit(tmp, device, "--gpt-fix", "--verify")
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                for text in ("reboot guard in place", "GPT-FIX OK", "primary GPT written + readback OK",
+                             "expdb re-verified", "misc force-fastboot marker written",
+                             "VERIFY OK: product=BISCUIT, unlocked", "--reinstall --target biscuit", "ALLDONE"):
+                    self.assertIn(text, done.stdout)
+                # The pinned layout: stores renamed in place, wrappers gone, userdata unchanged.
+                self.assertEqual(self.disk_gpt(device), radar_gpt_images(plain_rows(rows)))
+                self.assertIn(userdata, plain_rows(rows))
+                # The boot chain and the misc BCB are never touched on a Dot.
+                self.assertEqual(self.chain_bytes(device), chain)
+                misc_after = (device / "dev" / "mmcblk0p8").read_bytes()
+                self.assertEqual(misc_after[:16], b"FASTBOOT_PLEASE\0")
+                self.assertEqual(misc_after[16:], misc_before[16:])
+                self.assertEqual((device / "events").read_text(), "reboot -f\n")
+                entries = self.adb_log(device)
+                self.assertFalse(any(self.shell(f"stage/{name}")(e) or e[:1] == ["push"] and name in e[1]
+                                     for e in entries for name in ("lk.bin", "preloader.img", "tz.img",
+                                                                    "tee-payload.bin", "radar-kaeru.bin")))
+                self.assert_no_forbidden_reboot(device)
+
+                # --gpt-restore puts the saved Dot `_x` table back through the same guarded path.
+                (device / "fastboot-mode").unlink()
+                (device / "events").unlink()
+                (device / "tmp" / "reboot.request").rmdir()
+                restored = self.run_kit(tmp, device, "--gpt-restore")
+                self.assertEqual(restored.returncode, 0, restored.stdout + restored.stderr)
+                self.assertIn("GPT restored.", restored.stdout)
+                self.assertEqual(self.disk_gpt(device), original)
+                self.assertEqual((device / "events").read_text(), "reboot -f\n")
+                self.assert_no_forbidden_reboot(device)
+
+    def test_biscuit_refusals_write_nothing(self) -> None:
+        kaeru = (KAERU_KIT / "stage" / "radar-kaeru.bin").read_bytes()
+        persist_odd = tuple((n, s, 16384 if n == "persist" else c) for n, s, c in BISCUIT_X_LAYOUT)
+        userdata_odd = tuple((n, s, 2145280 if n == "userdata" else c) for n, s, c in BISCUIT_X_LAYOUT)
+        migration_only = "Echo 2nd Gen (radar_puffin) only"
+        no_chain = "does not hold a verified LK -> kaeru chain"
+        bad_table = "not the reviewed Echo Dot _x table"
+        cases = {
+            "full migration": ({}, (), migration_only),
+            "full migration dry run": ({}, ("--dry-run",), migration_only),
+            "chain-only migration": ({}, ("--no-gpt-fix",), migration_only),
+            "no-gpt-fix with gpt-fix": ({}, ("--gpt-fix", "--no-gpt-fix"), migration_only),
+            "old chain, zeroed expdb": ({"expdb": b""}, ("--gpt-fix",), no_chain),
+            "old chain, marker": ({"expdb": b"FASTBOOT_PLEASE\0"}, ("--gpt-fix", "--dry-run"), no_chain),
+            "clobbered chain": ({"expdb": b"FASTBOOT_PLEASE" + kaeru[15:]}, ("--gpt-fix",), no_chain),
+            "old chain, verify": ({"expdb": b""}, ("--verify",), no_chain),
+            "old chain, gpt-restore": ({"expdb": b""}, ("--gpt-restore",), no_chain),
+            "plain table": ({"gpt_plain": True}, ("--gpt-fix",), bad_table),
+            "wrong partition size": ({"rows": persist_odd}, ("--gpt-fix",), bad_table),
+            "wrong userdata size": ({"rows": userdata_odd}, ("--gpt-fix", "--dry-run"), bad_table),
+            "target mismatch": ({}, ("--gpt-fix", "--target=radar_puffin"), "does not match"),
+            "no saved GPT": ({}, ("--gpt-restore",), "no saved GPT"),
+        }
+        for name, (device_args, flags, message) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                device = self.biscuit_device(tmp, **device_args)
+                original = self.disk_gpt(device)
+                result = self.run_kit(tmp, device, *flags)
+                self.assertIn(message, result.stdout)
+                self.assert_nothing_written(device, result)
+                self.assertEqual(self.disk_gpt(device), original)
+                self.assertFalse((tmp / "kit" / "backup" / "p3.img").exists())
+
+    def test_biscuit_gpt_entry_mismatch_refuses_before_any_gpt_write(self) -> None:
+        # /proc/partitions matches, but a GPT entry does not (gpt-fix.py --board=biscuit).
+        for rows in (
+            tuple(("recovery2" if n == "recovery" else n, s, c) for n, s, c in BISCUIT_X_LAYOUT),
+            tuple((n, s - 2048 if n == "boot_b" else s, c) for n, s, c in BISCUIT_X_LAYOUT),  # overlap
+        ):
+            with self.subTest(rows=rows[11][0] + str(rows[17][1])), tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                device = self.biscuit_device(tmp, rows=rows)
+                original = self.disk_gpt(device)
+                misc_before = (device / "dev" / "mmcblk0p8").read_bytes()
+                result = self.run_kit(tmp, device, "--gpt-fix", "--verify")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("GPT-FIX REFUSED", result.stdout)
+                self.assertIn("nothing was written", result.stdout)
+                self.assertEqual(self.disk_gpt(device), original)
+                self.assertEqual((device / "dev" / "mmcblk0p8").read_bytes(), misc_before)
+                self.assertFalse((device / "events").exists())
+                self.assertEqual([e for e in self.adb_log(device) if self.shell("of=/dev/mmcblk0")(e)], [])
+                self.assert_no_forbidden_reboot(device)
+
+    def test_biscuit_verify_is_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp = Path(temporary)
+            device = self.biscuit_device(tmp)
+            on_adb = self.run_kit(tmp, device, "--verify")
+            self.assertEqual(on_adb.returncode, 0, on_adb.stdout + on_adb.stderr)
+            self.assertIn("--gpt-fix --dry-run", on_adb.stdout)
+            self.assertEqual([e for e in self.adb_log(device) if self.is_write(e)], [])
+            (device / "fastboot-mode").write_text("")
+            self.assertIn("not RADAR", self.run_kit(tmp, device, "--verify").stdout)
+            dot = self.run_kit(tmp, device, "--verify", "--target=biscuit")
+            self.assertEqual(dot.returncode, 0, dot.stdout + dot.stderr)
+            self.assertIn("VERIFY OK: product=BISCUIT", dot.stdout)
+            self.assertIn("--target biscuit", dot.stdout)
+            self.assertFalse((device / "events").exists())
+            self.assert_no_forbidden_reboot(device)
+
+    def test_gpt_fix_py_biscuit_table_gate(self) -> None:
+        def run(rows, *flags, disk=RADAR_DISK_SECTORS):
+            with tempfile.TemporaryDirectory() as temporary:
+                tmp = Path(temporary)
+                primary, backup = radar_gpt_images(rows, disk)
+                (tmp / "p").write_bytes(primary); (tmp / "b").write_bytes(backup)
+                done = subprocess.run([sys.executable, str(KAERU_KIT / "gpt-fix.py"), str(tmp / "p"), str(tmp / "b"),
+                                       str(tmp / "op"), str(tmp / "ob"), *flags], capture_output=True, text=True, timeout=60)
+                out = ((tmp / "op").read_bytes(), (tmp / "ob").read_bytes()) if (tmp / "op").exists() else None
+                return done.returncode, done.stdout, out
+        for rows in (BISCUIT_X_LAYOUT, BISCUIT_X_LAYOUT_UD2153472):
+            rc, out, written = run(rows, "--board=biscuit")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(written, radar_gpt_images(plain_rows(rows)))
+        refused = {
+            "plain": plain_rows(BISCUIT_X_LAYOUT),
+            "extra p19": BISCUIT_X_LAYOUT + (("extra", 7633920, 512),),
+            "renamed": tuple(("vendor" if n == "cache" else n, s, c) for n, s, c in BISCUIT_X_LAYOUT),
+            "wrapper size": tuple((n, s, 225279 if n == "boot_b" else c) for n, s, c in BISCUIT_X_LAYOUT),
+            "outside disk": BISCUIT_X_LAYOUT[:16] + (("boot_a", 7183360, 225280), ("boot_b", 7420000, 225280)),
+        }
+        for name, rows in refused.items():
+            with self.subTest(name):
+                rc, out, written = run(rows, "--board=biscuit")
+                self.assertEqual(rc, 2, out)
+                self.assertIn("GPT-FIX REFUSED", out)
+                self.assertIsNone(written)
+        rc, out, _ = run(BISCUIT_X_LAYOUT, "--board=biscuit", disk=RADAR_DISK_SECTORS + 2048)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("not the reviewed Echo Dot disk", out)
+        self.assertEqual(run(BISCUIT_X_LAYOUT, "--board=other")[0], 2)
+        # The radar gate itself is unchanged: an extra entry is not its concern.
+        self.assertEqual(run(BISCUIT_X_LAYOUT + (("extra", 7633920, 512),))[0], 0)
+        self.assertEqual(run(plain_rows(BISCUIT_X_LAYOUT))[0], 3)
 
     def test_kit_text_never_uses_adb_or_fastboot_reboot(self) -> None:
         script = (KAERU_KIT / "migrate.sh").read_text(encoding="utf-8")
@@ -1473,6 +1703,8 @@ class OneShotContinuationTests(unittest.TestCase):
         self.bad_boot = False
         self.bad_manifest = False
         self.device = "SERIAL"
+        self.product = "RADAR"
+        self.kaeru = False  # True: `oem kaeru-version` answers like a Kaeru LK
         self.staging_present = False
         self.current_feature = ""
         self.stack = contextlib.ExitStack()
@@ -1515,11 +1747,13 @@ class OneShotContinuationTests(unittest.TestCase):
         elif argv == ["fake-adb", "devices"]:
             output = f"List of devices attached\n{self.device}\tdevice\n"
         elif argv[-2:] == ["oem", "kaeru-version"]:
+            if self.kaeru:
+                return subprocess.CompletedProcess(argv, 0, "", "(bootloader) kaeru-v2\nOKAY\n")
             # Stock bootloader rejects the Kaeru probe; this is the expected unconverted state.
             return subprocess.CompletedProcess(argv, 1, "", "FAILunknown command\n")
         elif "getvar" in argv:
             if argv[-1] == "product":
-                output = "product: RADAR\n"
+                output = f"product: {self.product}\n"
             elif argv[-1] == "unlock_status":
                 output = f"unlock_status: {'true' if self.unlocked else 'false'}\n"
             elif argv[-1] in {"partition-size:boot_a", "partition-size:boot_b"}:
@@ -1563,6 +1797,53 @@ class OneShotContinuationTests(unittest.TestCase):
         self.tools.assert_not_called()
         self.amonet.assert_not_called()
         self.raw_run.assert_not_called()
+
+    def test_kaeru_on_legacy_x_layout_refuses_before_format_or_flash(self):
+        # Issue #378: an unlocked unit whose `_x` stores sit behind a Kaeru LK.
+        self.unlocked = True
+        self.kaeru = True
+        self.state_path.unlink(missing_ok=True)
+        with self.assertRaises(INSTALLER.InstallerError) as raised:
+            INSTALLER.one_shot(self.release, None, cache_root=self.cache, state_root=self.state_root,
+                               install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
+                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True,
+                               open_browser=False, target="radar_puffin")
+        message = str(raised.exception)
+        self.assertIn("Echo 2nd Gen (radar_puffin) runs the Kaeru chain", message)
+        self.assertIn("migrate.sh -s SERIAL --gpt-fix --dry-run", message)
+        self.assertFalse(any("flash" in c or "erase" in c or "reboot" in c for c in self.calls), self.calls)
+        self.format.assert_not_called()
+        self.amonet.assert_not_called()
+        # The same unit through continue-one-shot: the saved board reaches the gate (the
+        # biscuit wording itself is covered by the geometry test; this fixture bundle is radar).
+        self.save_state(phase="AMONET_HANDOFF", board="radar_puffin", userdata_formatted=False)
+        self.calls.clear()
+        with mock.patch.object(INSTALLER, "_verify_fastboot_payload_geometry",
+                               wraps=INSTALLER._verify_fastboot_payload_geometry) as gate:
+            with self.assertRaises(INSTALLER.InstallerError) as raised:
+                self.continuation()
+        gate.assert_called_once_with("fake-fastboot", "SERIAL", "radar_puffin")
+        message = str(raised.exception)
+        self.assertIn("Echo 2nd Gen (radar_puffin) runs the Kaeru chain", message)
+        self.assertIn("migrate.sh -s SERIAL --gpt-fix --dry-run", message)
+        self.assertFalse(any("flash" in c or "erase" in c for c in self.calls), self.calls)
+        self.format.assert_not_called()
+        self.assertEqual(INSTALLER._read_state(self.state_path)["phase"], "AMONET_HANDOFF")
+
+    def test_legacy_x_layout_on_stock_lk_still_formats_and_flashes(self):
+        # The legacy redirect path is unchanged: the probe is refused, so boot_a/boot_b are flashed.
+        self.unlocked = True
+        self.state_path.unlink(missing_ok=True)
+        with self.assertRaisesRegex(INSTALLER.InstallerError, "port is occupied"):
+            self.forward_fails = True
+            INSTALLER.one_shot(self.release, None, cache_root=self.cache, state_root=self.state_root,
+                               install_id="test", release_tag=self.tag, fastboot_bin="fake-fastboot",
+                               adb_bin="fake-adb", fastboot_serial="auto", execute_hardware=True,
+                               open_browser=False, target="radar_puffin")
+        self.format.assert_called_once()
+        self.assertEqual([c[c.index("flash") + 1] for c in self.calls if "flash" in c], ["boot_a", "boot_b"])
+        probe = next(i for i, c in enumerate(self.calls) if c[-2:] == ["oem", "kaeru-version"])
+        self.assertLess(probe, next(i for i, c in enumerate(self.calls) if "flash" in c))
 
     def test_completed_staging_and_completed_forward_are_readonly_resumable(self):
         shutil.rmtree(self.release)
