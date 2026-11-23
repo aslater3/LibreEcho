@@ -44,6 +44,7 @@ jobs:
             --find-links build/inputs/reviewed/python-wheels \
             -r build/inputs/reviewed/python-wheels/requirements.txt
       - name: Verify immutable release and advance v3 only
+        id: advance
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
@@ -58,6 +59,31 @@ jobs:
           python3 build/ci/publish_dev_pointer.py --advance-pointer true \
             --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --head "$head" --assets release-assets --target "$TARGET"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+      # Announce only after the pointer has been advanced and read back; a
+      # Discord failure must never fail or roll back a completed advancement.
+      - name: Announce dev build on Discord
+        if: success() && steps.advance.outputs.head != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_DEV_BUILD_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TARGET: ${{ inputs.target }}
+          HEAD_SHA: ${{ steps.advance.outputs.head }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
+            echo "::notice::DISCORD_DEV_BUILD_WEBHOOK_URL not set; skipping announcement"
+            exit 0
+          fi
+          url="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"
+          jq -n --arg url "$url" --arg target "$TARGET" --arg short "${HEAD_SHA:0:7}" \
+            '{content: "New Dev Build published, available here for testing: \($url)\nBoard: \($target) · Commit: `\($short)`",
+              allowed_mentions: {parse: []}}' |
+            curl -fsS --retry 3 -o /dev/null -H 'Content-Type: application/json' \
+              --data-binary @- "$DISCORD_WEBHOOK_URL"
+          echo "discord_announcement=SENT tag=$RELEASE_TAG target=$TARGET"
 
   route-publication:
     if: >-
