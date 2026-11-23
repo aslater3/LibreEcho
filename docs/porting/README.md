@@ -380,9 +380,15 @@ after that.
 Product host checks:
 
 ```sh
-python3 build/ci/validate-targets.py --targets radar_puffin,biscuit,<target_id>
+python3 build/ci/validate-targets.py --targets radar_puffin,biscuit
+python3 build/ci/validate-targets.py --targets <target_id>
 python3 -B -m unittest tools.test_initial_installer_publication tools.test_fastbrick_gate
 ```
+
+One build run compiles a single kernel, so a dispatch target list must share
+arch, defconfig and DTB; `validate-targets.py` refuses a set that differs and
+names the conflicting targets and fields. A target with a different kernel
+gets its own run.
 
 The full set of maintained Product suites is listed in the `Run maintained
 Product pipeline suites` step of `build-release.yml`. They need PyNaCl and a

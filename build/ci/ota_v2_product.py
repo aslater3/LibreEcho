@@ -19,8 +19,14 @@ from target_registry import DEFAULT, KNOWN_TARGETS, load_target, asset_prefix, d
 FEATURES = ("airplay2", "tts", "wakeword", "stt", "assistant")
 SERVICE_PROFILES = frozenset({"diagnostic", "production"})
 FEATURE_POLICIES = frozenset({"exclude", "preserve", "redistributable", "community-noncommercial"})
-CANONICAL_PARSER_RELATIVE = "tools/mt8163-arm32/ota/feature_manifest.py"
 CANONICAL_PARSER_SCHEMA = "libreecho-ota-v2-feature-manifest-v1"
+
+
+def canonical_parser_relative(target: str = DEFAULT) -> str:
+    """Platform's canonical v2 parser lives under the target's tools profile."""
+    return f"tools/{load_target(target)['platform']['tools_profile']}/ota/feature_manifest.py"
+
+
 DAEMONS = {
     "airplay2": "usr/local/sbin/libreecho-audio-engine",
     "tts": "usr/local/sbin/libreecho-ttsd",
@@ -269,7 +275,7 @@ def load_feature_contract(run: Path, candidate: dict[str, str]) -> tuple[dict[st
     return plan, inventory, asset_dir, assets
 
 
-def _canonical_parser() -> Any | None:
+def _canonical_parser(target: str = DEFAULT) -> Any | None:
     """Load Platform's canonical parser when the pinned source is available.
 
     Product release preparation also runs from a Product-only checkout, so the
@@ -284,7 +290,7 @@ def _canonical_parser() -> Any | None:
         roots.append(Path(configured))
     roots.append(Path(__file__).resolve().parents[3] / "platform")
     for root in roots:
-        parser_path = root / CANONICAL_PARSER_RELATIVE
+        parser_path = root / canonical_parser_relative(target)
         if parser_path.is_symlink() or not parser_path.is_file():
             continue
         spec = importlib_util.spec_from_file_location("libreecho_canonical_feature_manifest", parser_path)
@@ -312,9 +318,10 @@ def _canonical_parser() -> Any | None:
     return None
 
 
-def _parse_complete_v2_manifest(raw: bytes) -> dict[str, Any]:
+def _parse_complete_v2_manifest(raw: bytes, target: str = DEFAULT) -> dict[str, Any]:
     """Parse the signed wire format and enforce the complete v2 contract."""
-    parser = _canonical_parser()
+    load_target(target)
+    parser = _canonical_parser(target)
     if parser is not None:
         try:
             parser.parse_manifest(raw)
@@ -385,7 +392,7 @@ def _parse_complete_v2_manifest(raw: bytes) -> dict[str, Any]:
     result["features"] = records
     if (result["format"] != "libreecho-ota-v2" or result["manifest_version"] != 1
             or result["minimum_updater_schema"] != 2 or result["board"] not in KNOWN_TARGETS
-            or result["soc"] != "mt8163" or result["architecture"] != "armv7"
+            or result["soc"] != load_target(result["board"])["soc"] or result["architecture"] != "armv7"
             or result["image_profile"] != "ota" or result["transaction_type"] != "system"
             or result["update_channel"] not in {"dev", "stable"}
             or result["feature_asset_base"] != "github-release-channel"
@@ -534,7 +541,8 @@ def validate_control_tar(
         fail("OTA manifest version is unsupported")
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+~-]{0,95}", fields["version"]) is None:
         fail("OTA manifest version is malformed")
-    if fields["board"] != expected_target or fields["soc"] != "mt8163" or fields["architecture"] != "armv7":
+    if (fields["board"] != expected_target or fields["soc"] != load_target(expected_target)["soc"]
+            or fields["architecture"] != "armv7"):
         fail("OTA manifest target identity mismatch")
     if fields["boot_filename"] != "boot.img" or fields["boot_size"] != str(len(boot)):
         fail("OTA manifest boot identity mismatch")
@@ -565,7 +573,7 @@ def validate_control_tar(
     if expected_format == "v2":
         assert feature_plan is not None and feature_inventory is not None
         assert feature_asset_dir is not None and expected_channel is not None
-        manifest = _parse_complete_v2_manifest(raw)
+        manifest = _parse_complete_v2_manifest(raw, expected_target)
         if manifest["version"] != release:
             fail("OTA release identity mismatch")
         _bind_control_to_feature_contract(

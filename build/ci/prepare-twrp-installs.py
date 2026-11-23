@@ -31,7 +31,7 @@ def build_installs(assets, artifact_root):
             # Dev tags are encoded in the target-qualified build basename.
             paths = [p for p in assets.glob('*-build.json') if json.loads(p.read_text())['board'] == target]
             stem = paths[0].name.removeprefix('libreecho-').removesuffix('-build.json')
-            tag = stem if target == DEFAULT else 'radar-puffin-' + stem.removeprefix('biscuit-')
+            tag = stem if target == DEFAULT else 'radar-puffin-' + stem.removeprefix(descriptor['release_slug'] + '-')
         prefix = asset_prefix(tag, target)
         sums = assets / (prefix + '-SHA256SUMS')
         names = []

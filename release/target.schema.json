@@ -22,18 +22,32 @@
       "const": "libreecho-target-v1"
     },
     "soc": {
-      "const": "mt8163"
-    },
-    "arch": {
-      "const": "arm32"
-    },
-    "layout_profiles": {
-      "const": [
-        "amonet",
-        "pinned"
+      "enum": [
+        "mt8163",
+        "mt8167"
       ]
     },
+    "arch": {
+      "description": "Kernel architecture of the target: this pins what the device's kernel runs (arm32 or arm64). It is not the userspace ABI; every target's userspace and OTA manifests stay armv7/armhf.",
+      "enum": [
+        "arm32",
+        "arm64"
+      ]
+    },
+    "layout_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "amonet",
+          "pinned",
+          "kaeru"
+        ]
+      }
+    },
     "features": {
+      "description": "The product-wide feature contract shared by every target, not a per-target list of hardware radios.",
       "const": [
         "airplay2",
         "assistant",
@@ -125,6 +139,18 @@
       "then": {
         "type": "object",
         "properties": {
+          "soc": {
+            "const": "mt8163"
+          },
+          "arch": {
+            "const": "arm32"
+          },
+          "layout_profiles": {
+            "const": [
+              "amonet",
+              "pinned"
+            ]
+          },
           "release_slug": {
             "const": "radar-puffin"
           },
@@ -136,9 +162,26 @@
               "RADAR"
             ]
           },
+          "kernel": {
+            "type": "object",
+            "properties": {
+              "defconfig": {
+                "const": "mt8163_arm32_defconfig"
+              },
+              "dtb": {
+                "const": "libreecho-radar-puffin.dtb"
+              }
+            }
+          },
           "platform": {
             "type": "object",
             "properties": {
+              "tools_profile": {
+                "const": "mt8163-arm32"
+              },
+              "dtb_verifier": {
+                "const": "radar_puffin"
+              },
               "hw_profile": {
                 "const": "radar_puffin@1"
               }
@@ -159,6 +202,18 @@
       "then": {
         "type": "object",
         "properties": {
+          "soc": {
+            "const": "mt8163"
+          },
+          "arch": {
+            "const": "arm32"
+          },
+          "layout_profiles": {
+            "const": [
+              "amonet",
+              "pinned"
+            ]
+          },
           "release_slug": {
             "const": "biscuit"
           },
@@ -170,9 +225,26 @@
               "BISCUIT"
             ]
           },
+          "kernel": {
+            "type": "object",
+            "properties": {
+              "defconfig": {
+                "const": "mt8163_arm32_defconfig"
+              },
+              "dtb": {
+                "const": "libreecho-radar-puffin.dtb"
+              }
+            }
+          },
           "platform": {
             "type": "object",
             "properties": {
+              "tools_profile": {
+                "const": "mt8163-arm32"
+              },
+              "dtb_verifier": {
+                "const": "radar_puffin"
+              },
               "hw_profile": {
                 "const": "biscuit@0"
               }

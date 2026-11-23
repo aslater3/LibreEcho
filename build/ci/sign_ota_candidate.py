@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ota_v2_product import (
-    CANONICAL_PARSER_RELATIVE, CANONICAL_PARSER_SCHEMA, digest,
+    CANONICAL_PARSER_SCHEMA, canonical_parser_relative, digest,
     expected_public_key_sha256, load_feature_contract,
 )
 
@@ -215,7 +215,7 @@ def _check_product_runtime_binding(binding: Any) -> None:
             raise HandoffError("Product signing runtime identity changed")
 
 
-def _platform_identity(platform_source: Path, platform_tool: Path) -> dict[str, Any]:
+def _platform_identity(platform_source: Path, platform_tool: Path, target: str = DEFAULT) -> dict[str, Any]:
     if platform_source.is_symlink() or not platform_source.is_dir():
         raise HandoffError("Platform source is unavailable or unsafe")
     tool = platform_tool.absolute()
@@ -252,13 +252,13 @@ def _platform_identity(platform_source: Path, platform_tool: Path) -> dict[str, 
         "tool": tool_record, "dependencies": dependency_records,
         "canonical_parser": {
             "schema": CANONICAL_PARSER_SCHEMA,
-            "relative_path": CANONICAL_PARSER_RELATIVE,
+            "relative_path": canonical_parser_relative(target),
             "record": _record(parser),
         },
     }
 
 
-def _check_platform_binding(data: dict[str, Any], supplied_tool: Path) -> None:
+def _check_platform_binding(data: dict[str, Any], supplied_tool: Path, target: str = DEFAULT) -> None:
     binding = data.get("platform_source")
     tool_record = data.get("platform_tool")
     dependencies = data.get("platform_dependencies")
@@ -293,7 +293,7 @@ def _check_platform_binding(data: dict[str, Any], supplied_tool: Path) -> None:
         if (not isinstance(parser_binding, dict)
                 or set(parser_binding) != {"schema", "relative_path", "record"}
                 or parser_binding.get("schema") != CANONICAL_PARSER_SCHEMA
-                or parser_binding.get("relative_path") != CANONICAL_PARSER_RELATIVE):
+                or parser_binding.get("relative_path") != canonical_parser_relative(target)):
             raise HandoffError("canonical v2 parser provenance is malformed")
         record = parser_binding.get("record")
         if not isinstance(record, dict) or _record(Path(record.get("path", ""))) != record:
@@ -384,7 +384,7 @@ def validate_handoff(path: Path, expected_release: str = EXPECTED_RELEASE) -> di
     platform_tool = data.get("platform_tool")
     if not isinstance(platform_tool, dict) or not isinstance(platform_tool.get("path"), str):
         raise HandoffError("signing handoff Platform tool identity is malformed")
-    _check_platform_binding(data, Path(platform_tool["path"]))
+    _check_platform_binding(data, Path(platform_tool["path"]), target)
     _check_product_runtime_binding(data["product_runtime"])
     if {item.get("name") for item in data["product_runtime"]["packages"]} != {"PyNaCl", "cffi", "pycparser"}:
         raise HandoffError("Product signing package closure is incomplete")
@@ -435,7 +435,7 @@ def create_handoff(run: Path, release: str, source_commit: str, update_channel: 
         "feature_plan": _record(plan), "feature_asset_inventory": _record(inventory),
         "assets": assets,
     }
-    identity = _platform_identity(platform_source, platform_tool)
+    identity = _platform_identity(platform_source, platform_tool, target)
     data["platform_source"] = {
         "path": identity["path"], "commit": identity["commit"],
         "diff_sha256": identity["diff_sha256"],

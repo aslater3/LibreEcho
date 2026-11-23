@@ -180,7 +180,7 @@ def prepare_complete_initial_install(
         "schema": "libreecho-initial-install-v1",
         "release": release_tag,
         "board": target,
-        "soc": "mt8163",
+        "soc": load_target(target)["soc"],
         "image_profile": "ota",
         "service_profile": "production",
         "boot": records[f"{prefix}-boot.img"],
