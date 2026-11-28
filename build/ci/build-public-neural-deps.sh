@@ -253,7 +253,12 @@ rm -rf "$FLITE_SOURCE/build" "$FLITE_SOURCE/bin" "$OUT/flite-root"
     CC="${CROSS}gcc" AR="${CROSS}ar" RANLIB="${CROSS}ranlib" \
     CFLAGS="--sysroot=$ARMHF_ROOT -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -ffunction-sections -fdata-sections"
   sed -i -e 's/^AUDIOLIBS.*/AUDIOLIBS =/' config/config
-  make -j"$JOBS"
+  # main/Makefile generates flite_voice_list.c as a side effect of linking
+  # bin/flite and relies on `.NOTPARALLEL: $(ALL)` to serialize that. GNU
+  # make 4.4 reads .NOTPARALLEL prerequisites differently and runs them in
+  # parallel, so a parallel build fails with "No rule to make target
+  # 'flite_voice_list.c'". Build Flite serially.
+  make -j1
 )
 [[ -d "$FLITE_SOURCE/build/arm-linux-gnueabihf/lib" ]] || \
   fail "Flite cross build produced no library directory"
