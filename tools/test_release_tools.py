@@ -1245,7 +1245,7 @@ class ComponentGateTests(unittest.TestCase):
         by_name = {item["name"]: item for item in document["packages"]}
         self.assertEqual(by_name["LibreEcho product source"]["versionInfo"], commits["product"])
         self.assertEqual(
-            by_name["Linux 6.1 kernel, MT8163 product drivers, and embedded firmware lineage"]["versionInfo"],
+            by_name["Linux 6.18 kernel, MT8163 product drivers, and embedded firmware lineage"]["versionInfo"],
             commits["kernel"],
         )
         self.assertEqual(

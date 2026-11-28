@@ -25,8 +25,8 @@
       ]
     },
     {
-      "id": "linux-6.1",
-      "name": "Linux 6.1 kernel, MT8163 product drivers, and embedded firmware lineage",
+      "id": "linux-6.18",
+      "name": "Linux 6.18 kernel, MT8163 product drivers, and embedded firmware lineage",
       "version": "provenance:kernel",
       "license": "GPL-2.0-only",
       "release_status": "cleared",

@@ -14,7 +14,7 @@
       "properties": {
         "board": {"const": "radar_puffin"},
         "architecture": {"const": "armv7"},
-        "kernel_line": {"const": "linux-6.1"}
+        "kernel_line": {"const": "linux-6.18"}
       }
     },
     "sources": {

@@ -116,7 +116,7 @@ defconfig and a DTB:
 ```json
 "biscuit": {
   "defconfig": "mt8163_arm32_defconfig",
-  "dtb": "libreecho-radar-puffin.dtb"
+  "dtb": "mediatek/libreecho-radar-puffin.dtb"
 }
 ```
 
@@ -125,14 +125,14 @@ both files exist. It builds one CI lane for each distinct defconfig and DTB
 pair, so a target that shares the Radar pair costs no extra kernel build.
 
 **Reuse the Radar DTB if you can.** The Echo Dot 2nd Gen runs the Radar device
-tree (`arch/arm/boot/dts/libreecho-radar-puffin.dts`) unchanged: the boards
+tree (`arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts`) unchanged: the boards
 share the SoC, PMIC, codecs, LED driver and button wiring. Its speaker
 differences are runtime settings (Step 4), not device tree changes. Compare
 your model's stock device tree with the Radar DTS node by node. If every node
 LibreEcho uses matches, reuse the Radar DTB and add only the table entry.
 
 **If something differs, add a new DTS** (for example
-`arch/arm/boot/dts/libreecho-<target>.dts`), point the table entry at it and
+`arch/arm/boot/dts/mediatek/libreecho-<target>.dts`), point the table entry at it and
 add its contract tests. These are the nodes that matter, with the Radar values
 as a reference:
 
@@ -331,7 +331,7 @@ only in the PR that records its hardware acceptance.
   "schema": "libreecho-target-v1",
   "soc": "mt8163",
   "arch": "arm32",
-  "kernel": {"defconfig": "mt8163_arm32_defconfig", "dtb": "libreecho-radar-puffin.dtb"},
+  "kernel": {"defconfig": "mt8163_arm32_defconfig", "dtb": "mediatek/libreecho-radar-puffin.dtb"},
   "layout_profiles": ["amonet", "pinned"],
   "features": ["airplay2", "assistant", "stt", "tts", "wakeword"],
   "hardware_accepted": true,

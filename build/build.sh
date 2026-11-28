@@ -401,6 +401,10 @@ IFS=, read -r -a selected_targets <<< "$TARGETS"
 TARGET="${selected_targets[0]}"
 target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
 eval "$target_values" # only schema-validated identifiers/digests; no user strings
+# KERNEL_DTB_NAME is the kernel make target relative to arch/arm/boot/dts
+# (Linux 6.18: mediatek/libreecho-radar-puffin.dtb). Runs, image packaging
+# and combined-release parity use the bare file name.
+KERNEL_DTB_FILE="${KERNEL_DTB_NAME##*/}"
 TOOLS_DIR="$TOOLING_SRC/tools/$TOOLS_PROFILE"
 platform_args() {
   local output
@@ -880,7 +884,7 @@ make -s -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
   LD="${CROSS}ld.bfd" olddefconfig
 
 # The 3.18 kernel carries the MediaTek controller and Android gadget under
-# vendor symbols.  Current 6.1 uses the upstream MUSB controller and configfs
+# vendor symbols.  Linux 6.1 and 6.18 use the upstream MUSB controller and configfs
 # gadget path.  Keep the contract explicit for both generations.
 require_config() {
   local symbol="$1"
@@ -956,7 +960,7 @@ if (( recovery_marker_kconfig )); then
   fi
 fi
 # The Amazon MT8163 machine moved from the vendor 3.18 symbol to the
-# 6.1 SPI/topology symbols.  Require both the machine and its transport.
+# 6.1/6.18 SPI/topology symbols.  Require both the machine and its transport.
 require_any_config y MT_SND_SOC_8163_AMZN SND_SOC_MT8163_RADAR_PUFFIN
 require_any_config y MT_SND_SOC_8163_AMZN SND_SOC_AMZN_MT8163_SPI_AUDIO
 require_config SND_SOC_8_MICS y
@@ -972,7 +976,7 @@ if grep -q '^CONFIG_MT_SND_SOC_8163_AMZN_SPEAKER=y' "$KERNEL_OUT/.config"; then
   exit 1
 fi
 
-# The Radar-Puffin 6.1 machine driver must clear the mute bit in the actual
+# The Radar-Puffin 6.1/6.18 machine driver must clear the mute bit in the actual
 # headphone-driver gain registers. Page-1 registers 18/19 are line-out
 # gains; accepting those aliases would produce a bootable, enumerated ALSA
 # card that remains acoustically silent.
@@ -1023,7 +1027,7 @@ if [[ -f "$radar_machine_source" && -f "$radar_codec_header" &&
     exit 1
   }
   python3 "$radar_volume_contract"
-  # The accepted Linux 6.1 transport is duplicated stereo: the mono
+  # The accepted Linux 6.1/6.18 transport is duplicated stereo: the mono
   # programme is duplicated by userspace into L/R, and both physical HP
   # drivers must be unmuted.  The former MonoRight marker is obsolete and
   # would reject the production source that implements this policy.
@@ -1151,7 +1155,7 @@ else
   cp -- "$ZIMAGE_BUILD" "$RUN/zImage"
   cp -- "$SYSMAP_BUILD" "$RUN/System.map"
 fi
-cp -- "$KERNEL_DTB" "$RUN/$KERNEL_DTB_NAME"
+cp -- "$KERNEL_DTB" "$RUN/$KERNEL_DTB_FILE"
 cp -- "$KERNEL_OUT/.config" "$RUN/kernel.config"
 kernel_config_sha="$(sha256sum "$RUN/kernel.config" | awk '{print $1}')"
 echo "kernel_config_sha256=$kernel_config_sha"
@@ -2305,13 +2309,14 @@ TARGET=$1
 export LIBREECHO_TARGET="$TARGET"
 target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
 eval "$target_values"
+KERNEL_DTB_FILE="${KERNEL_DTB_NAME##*/}"
 run_id="$SHARED_RUN_ID"
 [[ "$TARGET" == "${selected_targets[0]}" ]] || run_id="$SHARED_RUN_ID-$TARGET"
 RUN="$RUNS/$run_id"
 COMPONENTS_MANIFEST="$RUN/components.json"
 BUILDER="$TOOLS_DIR/build_recovery_image.py"
 VERIFIER="$TOOLS_DIR/verify_recovery_image.py"
-IMAGE_DTB="$RUN/$KERNEL_DTB_NAME"
+IMAGE_DTB="$RUN/$KERNEL_DTB_FILE"
 IMAGE_DTB_SHA256="$dtbsha"
 echo "radar_puffin_dtb_sha256=$IMAGE_DTB_SHA256"
 echo "=== packaging canonical ARM32 recovery image ==="

@@ -110,6 +110,26 @@ class DescriptorTests(unittest.TestCase):
         self.assertIs(radar['hardware_accepted'], True)
         self.assertIs(biscuit['hardware_accepted'], True)
 
+    def test_kernel_dtb_make_target_and_run_file_name(self):
+        # Linux 6.18 builds the ARM DTB from arch/arm/boot/dts/mediatek/. The
+        # descriptor names that make target; runs, image packaging and the
+        # combined-release parity list use only the bare file name.
+        for target in KNOWN_TARGETS:
+            self.assertEqual(load_target(target)['kernel']['dtb'], 'mediatek/libreecho-radar-puffin.dtb')
+        build = (ROOT / 'build/build.sh').read_text()
+        self.assertIn('zImage "$KERNEL_DTB_NAME"', build)
+        self.assertIn('KERNEL_DTB="$KERNEL_OUT/arch/arm/boot/dts/$KERNEL_DTB_NAME"', build)
+        self.assertEqual(build.count('KERNEL_DTB_FILE="${KERNEL_DTB_NAME##*/}"'), 2)
+        self.assertIn('cp -- "$KERNEL_DTB" "$RUN/$KERNEL_DTB_FILE"', build)
+        self.assertIn('IMAGE_DTB="$RUN/$KERNEL_DTB_FILE"', build)
+        self.assertNotIn('"$RUN/$KERNEL_DTB_NAME"', build)
+        source = (CI / 'combined_release.py').read_text()
+        self.assertIn('"libreecho-radar-puffin.dtb"]', source)
+        shell = subprocess.run(['bash', '-c', 'KERNEL_DTB_NAME=mediatek/libreecho-radar-puffin.dtb; '
+                                'KERNEL_DTB_FILE="${KERNEL_DTB_NAME##*/}"; printf %s "$KERNEL_DTB_FILE"'],
+                               capture_output=True, text=True, timeout=10)
+        self.assertEqual(shell.stdout, 'libreecho-radar-puffin.dtb')
+
     def test_unknown_or_duplicate_targets_refused(self):
         for value in ('unknown', '', 'radar_puffin,radar_puffin', 'radar_puffin, biscuit', 'radar_puffin,../biscuit'):
             with self.subTest(value=value), self.assertRaises(ValueError): parse_targets(value)
