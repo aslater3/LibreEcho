@@ -430,8 +430,25 @@ jobs:
             libasound2-dev:armhf libasound2-data avahi-daemon:armhf \
             libavahi-client-dev:armhf libavahi-common-dev:armhf \
             libdbus-1-dev:armhf dbus-daemon:armhf
+          # The cross compilers are amd64 packages.  Resolve them from a fresh
+          # index of our own: the runner image's index goes stale, and a
+          # superseded version is no longer served (404).
+          host_root="$RUNNER_TEMP/host-apt"
+          mkdir -p "$host_root/lists/partial"
+          printf '%s\n' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main universe' \
+            'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main universe' \
+            'deb [arch=amd64] http://security.ubuntu.com/ubuntu noble-security main universe' \
+            > "$RUNNER_TEMP/host.sources.list"
+          host_opts=(
+            -o Dir::Etc::sourcelist="$RUNNER_TEMP/host.sources.list"
+            -o Dir::Etc::sourceparts=-
+            -o Dir::State::lists="$host_root/lists"
+            -o APT::Architecture=amd64
+          )
+          apt-get "${host_opts[@]}" update
           cd "$RUNNER_TEMP"
-          apt-get download \
+          apt-get download "${host_opts[@]}" \
             gcc-13-arm-linux-gnueabihf-base gcc-13-cross-base \
             cpp-13-arm-linux-gnueabihf gcc-13-arm-linux-gnueabihf \
             g++-13-arm-linux-gnueabihf libgcc-13-dev-armhf-cross \
