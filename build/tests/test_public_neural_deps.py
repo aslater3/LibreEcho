@@ -57,6 +57,14 @@ class PublicNeuralDependencyTests(unittest.TestCase):
         self.assertIn('"$ESPEAK_DATA/phontab"', SCRIPT)
         self.assertIn('"$ESPEAK_DATA/phonindex"', SCRIPT)
 
+    def test_flite_builds_serially(self):
+        # Flite's main/Makefile races on flite_voice_list.c under GNU make
+        # 4.4 .NOTPARALLEL semantics, so its build must stay -j1.
+        start = SCRIPT.index('cd "$FLITE_SOURCE"')
+        flite_block = SCRIPT[start:SCRIPT.index("\n)\n", start)]
+        self.assertRegex(flite_block, r"(?m)^  make -j1$")
+        self.assertNotIn('make -j"$JOBS"', flite_block)
+
     def test_tts_voice_metadata_is_sherpa_piper_compatible(self):
         metadata = json.loads(
             (ROOT / "build/inputs/tts-voice-metadata.json").read_text()
