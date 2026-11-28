@@ -46,6 +46,18 @@ class CandidateSelectionTests(unittest.TestCase):
         self.assertEqual(self.selection(GITHUB_HEAD_REF='feature/example-product',
                                         PR_HEAD_REPOSITORY='fork/LibreEcho'), ['release/0.14.0'] * 3)
 
+    def test_linux_618_lane_selects_only_the_linux_candidate(self):
+        lane = dict(GITHUB_BASE_REF='release/0.15.0', GITHUB_HEAD_REF='feature/linux-6.18-0.15')
+        self.assertEqual(self.selection(**lane),
+                         ['release/0.15.0', 'feature/linux-6.18-0.15', 'release/0.15.0'])
+        self.assertEqual(self.selection(**lane, PR_HEAD_REPOSITORY='fork/LibreEcho'), ['release/0.15.0'] * 3)
+        self.assertEqual(self.selection(GITHUB_BASE_REF='release/0.14.7', GITHUB_HEAD_REF='feature/linux-6.18-0.15'),
+                         ['release/0.14.7'] * 3)
+        for event in ('push', 'workflow_dispatch'):
+            self.assertEqual(self.selection(GITHUB_EVENT_NAME=event, GITHUB_HEAD_REF='feature/linux-6.18-0.15',
+                GITHUB_REF='refs/heads/release/0.15.0', GITHUB_REF_NAME='release/0.15.0'),
+                ['release/0.15.0'] * 3)
+
     def test_release_dispatch_and_push_never_use_fix_refs(self):
         for event in ('push', 'workflow_dispatch'):
             self.assertEqual(self.selection(GITHUB_EVENT_NAME=event,

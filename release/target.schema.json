@@ -84,7 +84,7 @@
           "const": "mt8163_arm32_defconfig"
         },
         "dtb": {
-          "const": "libreecho-radar-puffin.dtb"
+          "const": "mediatek/libreecho-radar-puffin.dtb"
         }
       }
     },

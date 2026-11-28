@@ -18,7 +18,7 @@ complete notices and component inventory.
   are recorded in `release/CORE-RUNTIME-SOURCE-OFFER.md`. libopusfile is built
   without HTTP/URL or TLS entry points.
 
-- **Linux 6.1 and MT8163 product drivers** — GPL-2.0-only. Exact corresponding
+- **Linux 6.18 and MT8163 product drivers** — GPL-2.0-only. Exact corresponding
   source is released from
   <https://github.com/aslater3/LibreEcho-Linux>.
 - **LibreEcho Platform/initramfs tooling** — GPL-2.0-only. Exact corresponding

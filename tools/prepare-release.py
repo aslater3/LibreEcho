@@ -221,7 +221,7 @@ def main() -> None:
         "schema_version": 1,
         "release_id": args.release_id,
         "release_scope": args.release_scope,
-        "platform": {"board": "radar_puffin", "architecture": "armv7", "kernel_line": "linux-6.1"},
+        "platform": {"board": "radar_puffin", "architecture": "armv7", "kernel_line": "linux-6.18"},
         "sources": {
             "product": source("https://github.com/aslater3/LibreEcho", args.product_commit),
             "kernel": source("https://github.com/aslater3/LibreEcho-Linux", args.kernel_commit),

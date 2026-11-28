@@ -11,7 +11,7 @@ from pathlib import Path
 REPOSITORIES = {
     "Product": "aslater3/LibreEcho",
     "Platform": "aslater3/LibreEcho-Platform",
-    "Linux 6.1": "aslater3/LibreEcho-Linux",
+    "Linux 6.18": "aslater3/LibreEcho-Linux",
     "UI": "aslater3/LibreEcho-UI",
 }
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -87,13 +87,13 @@ def render(version: str, heads: dict[str, str], bases: dict[str, str | None], ch
         f"# LibreEcho radar-puffin v{version}",
         "",
         "This is the LibreEcho stable/product release for the Amazon Echo 2nd Gen "
-        "(`radar_puffin`, ARMv7, Linux 6.1).",
+        "(`radar_puffin`, ARMv7, Linux 6.18).",
         "",
         "## Release identity",
         "",
         "- Release channel: `stable`",
         "- Release classification: normal GitHub release",
-        "- Product, Platform, Linux 6.1, and UI identities are bound to the exact "
+        "- Product, Platform, Linux 6.18, and UI identities are bound to the exact "
         "stable build artifact.",
         "",
         "## Cross-repository included changes",
@@ -175,7 +175,7 @@ def main() -> int:
     heads = {
         "Product": args.product_head,
         "Platform": args.platform_head,
-        "Linux 6.1": args.linux_head,
+        "Linux 6.18": args.linux_head,
         "UI": args.ui_head,
     }
     previous = latest_product_tag(args.version)

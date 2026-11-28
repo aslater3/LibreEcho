@@ -4,7 +4,7 @@
   "arch": "arm32",
   "kernel": {
     "defconfig": "mt8163_arm32_defconfig",
-    "dtb": "libreecho-radar-puffin.dtb"
+    "dtb": "mediatek/libreecho-radar-puffin.dtb"
   },
   "layout_profiles": [
     "amonet",

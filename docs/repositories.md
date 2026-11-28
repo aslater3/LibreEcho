@@ -9,7 +9,7 @@ boundaries.
 | --- | --- |
 | `LibreEcho` | Product documentation, support, roadmap, cross-component issues, release notes, and signed OTA release assets |
 | `LibreEcho-Platform` | ARM32 product tooling, initramfs, feature packaging, OTA verification, and release workflow; historical 3.18 compatibility remains here |
-| `LibreEcho-Linux` | MT8163 Linux 6.1 kernel on upstream stable history, with kernel-side platform changes and the in-tree connectivity stack |
+| `LibreEcho-Linux` | MT8163 Linux kernel on upstream stable history (Linux 6.18 LTS from 0.15; 6.1 for the 0.14 line), with kernel-side platform changes and the in-tree connectivity stack |
 | `LibreEcho-Linux-6.1` | Archived. Kernel source for releases up to 0.14.4; replaced by `LibreEcho-Linux` |
 | `LibreEcho-UI` | Web control centre, HTTP API, service daemons, and UI tests |
 

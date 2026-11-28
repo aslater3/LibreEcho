@@ -16,7 +16,7 @@
 </div>
 
 LibreEcho replaces the software on an Amazon Echo with an open, local-first
-voice assistant. It runs a standalone Linux 6.1 kernel on the MediaTek MT8163,
+voice assistant. It runs a standalone Linux 6.18 LTS kernel on the MediaTek MT8163,
 is set up and managed from a web control centre on your own network, and
 updates through signed releases that fall back safely if an update fails. Your
 voice, settings and home stay on the device (see
@@ -231,7 +231,7 @@ Echo Dot 2nd Gen as the worked example.
 | --- | --- |
 | [`LibreEcho`](https://github.com/aslater3/LibreEcho) | Product site, hosted image CI, documentation, support, roadmap, issues, release notes, and OTA distribution |
 | [`LibreEcho-Platform`](https://github.com/aslater3/LibreEcho-Platform) | ARM32 product tooling, initramfs, feature packaging, and OTA verification/build inputs; the historical 3.18 tree remains here for compatibility |
-| [`LibreEcho-Linux`](https://github.com/aslater3/LibreEcho-Linux) | MT8163 Linux 6.1 kernel on upstream stable history, with kernel-side platform changes and the in-tree connectivity stack. Replaces the archived [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1), which holds the source for releases up to 0.14.4 |
+| [`LibreEcho-Linux`](https://github.com/aslater3/LibreEcho-Linux) | MT8163 Linux kernel on upstream stable history (Linux 6.18 LTS from 0.15; 6.1 for the 0.14 line), with kernel-side platform changes and the in-tree connectivity stack. Replaces the archived [`LibreEcho-Linux-6.1`](https://github.com/aslater3/LibreEcho-Linux-6.1), which holds the source for releases up to 0.14.4 |
 | [`LibreEcho-UI`](https://github.com/aslater3/LibreEcho-UI) | Web control centre, HTTP API, service daemons, and UI tests |
 
 See [the repository boundary guide](docs/repositories.md) for where a change belongs.

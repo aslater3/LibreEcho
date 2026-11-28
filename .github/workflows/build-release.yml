@@ -214,6 +214,14 @@ jobs:
               linux_ref="$GITHUB_HEAD_REF"
               ui_ref="$GITHUB_HEAD_REF"
             elif [[ "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" &&
+                    "$GITHUB_BASE_REF" == release/0.15.0 &&
+                    "$GITHUB_HEAD_REF" == feature/linux-6.18-0.15 ]]; then
+              # Linux 6.18 move (#394): the Product half must land together
+              # with LibreEcho-Linux#20 on the same branch name, so build the
+              # PR against that Linux candidate. Platform and UI stay on the
+              # release branch.
+              linux_ref="$GITHUB_HEAD_REF"
+            elif [[ "$PR_HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" &&
                     "$GITHUB_HEAD_REF" == feature/*-product ]]; then
               candidate_stem="${GITHUB_HEAD_REF%-product}"
               platform_ref="${candidate_stem}-platform"
