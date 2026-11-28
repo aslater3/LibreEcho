@@ -56,7 +56,7 @@ def validate_plan(plan, target=DEFAULT):
     if not isinstance(plan, dict) or set(plan) != expected or plan.get('schema') != SCHEMA:
         fail('invalid v3 target plan schema')
     fixed = {'format': 'libreecho-ota-v3', 'manifest_version': 1, 'board': target,
-             'soc': 'mt8163', 'architecture': 'armv7', 'image_profile': 'ota',
+             'soc': load_target(target)['soc'], 'architecture': 'armv7', 'image_profile': 'ota',
              'transaction_type': 'system', 'service_profile': 'production',
              'commit_policy': 'after-slot-confirm', 'minimum_updater_schema': 3,
              'boot_filename': 'boot.img', 'boot_size': 16777216}

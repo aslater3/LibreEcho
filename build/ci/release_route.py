@@ -4,9 +4,9 @@ import json
 import re
 from pathlib import Path
 if __package__:
-    from .target_registry import parse_targets
+    from .target_registry import hardware_accepted, parse_targets
 else:
-    from target_registry import parse_targets
+    from target_registry import hardware_accepted, parse_targets
 
 
 def route(request, branch, event):
@@ -37,6 +37,8 @@ def route(request, branch, event):
     if purpose == 'prd':
         if not release or event != 'workflow_dispatch':
             raise ValueError('stable publication requires manual release branch')
+        if not all(hardware_accepted(target) for target in targets):
+            raise ValueError('stable publication requires hardware-accepted targets')
         version = release.group(1)
         if request.get('version') != version or request.get('release_tag') != 'radar-puffin-v' + version:
             raise ValueError('stable identity mismatch')

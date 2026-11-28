@@ -1115,7 +1115,6 @@ class InstallerPublicationTests(unittest.TestCase):
         # passing (release plumbing that derives from the registry, SBOM and
         # migration tooling) are listed here instead.
         incidental = {
-            "build/ci/prepare-twrp-installs.py",
             "build/ci/promotion_parity.py",
             "build/ci/release_completeness.py",
             "release/components.json",

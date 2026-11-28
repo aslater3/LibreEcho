@@ -93,7 +93,7 @@ def initial_install_manifest(
         "schema": "libreecho-initial-install-v1",
         "release": release_tag,
         "board": target,
-        "soc": "mt8163",
+        "soc": load_target(target)["soc"],
         "image_profile": "ota",
         "service_profile": "production",
         "boot": asset_record(boot),
@@ -148,6 +148,8 @@ def main() -> int:
             args.target = next(iter(selected))
     target = args.target
     load_target(target)
+    if not hardware_accepted(target):
+        fail(f"target is not hardware-accepted: {target}")
     from combined_release import prepare_if_combined
     combined = prepare_if_combined(args, Path(__file__))
     if combined is not None:

@@ -11,6 +11,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT = "radar_puffin"
 KNOWN_TARGETS = (DEFAULT, "biscuit")
+# Canonical per-target identity the schema allOf blocks pin: release slug,
+# boot-chain products, hardware profile. Kept next to the registry because the
+# descriptor loader validates itself and cannot read the schema twice.
+IDENTITY = {
+    "radar_puffin": ("radar-puffin", ["RADAR"], "radar_puffin@1"),
+    "biscuit": ("biscuit", ["BISCUIT"], "biscuit@0"),
+}
 
 
 def _validate(value, schema, label="target"):
@@ -59,8 +66,7 @@ def validate_descriptor(value, target=None):
     identity = value["target_id"]
     if identity not in KNOWN_TARGETS or (target is not None and identity != target):
         raise ValueError("unknown or mismatched target")
-    expected = {"radar_puffin": ("radar-puffin", ["RADAR"], "radar_puffin@1"),
-                "biscuit": ("biscuit", ["BISCUIT"], "biscuit@0")}[identity]
+    expected = IDENTITY[identity]
     if (value["release_slug"], value["fastboot_products"], value["platform"]["hw_profile"]) != expected:
         raise ValueError("target profile identity mismatch")
     if not isinstance(value["hardware_accepted"], bool):
@@ -82,6 +88,11 @@ def hardware_accepted(target=DEFAULT):
     return load_target(target)["hardware_accepted"] is True
 
 
+def accepted_targets():
+    """Targets whose descriptor allows a stable, publicly offered release."""
+    return tuple(target for target in KNOWN_TARGETS if hardware_accepted(target))
+
+
 def descriptor_sha256(target=DEFAULT):
     return hashlib.sha256(json.dumps(load_target(target), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -93,6 +104,40 @@ def parse_targets(value):
     for target in targets:
         load_target(target)
     return targets
+
+
+KERNEL_BUILD_FIELDS = ("arch", "kernel.defconfig", "kernel.dtb")
+
+
+def kernel_build_identity(target=DEFAULT) -> tuple:
+    """Kernel build inputs a target descriptor pins.
+
+    The kernel source commit and toolchain come from the run, not the
+    descriptor, so equal identities mean one kernel build serves every target.
+    """
+    descriptor = load_target(target)
+    return (descriptor["arch"], descriptor["kernel"]["defconfig"], descriptor["kernel"]["dtb"])
+
+
+def require_shared_kernel(targets) -> None:
+    """Refuse a target set that needs more than the one kernel a run compiles.
+
+    build/build.sh compiles one image and the first target's DTB, then reuses
+    both for every target in the set, so a differing field means later targets
+    would be packaged with the wrong kernel.
+    """
+    identities = [(target, kernel_build_identity(target)) for target in targets]
+    anchor_target, anchor = identities[0]
+    conflicts = []
+    for target, identity in identities[1:]:
+        differing = [f"{field} ({anchor_value} vs {value})"
+                     for field, anchor_value, value in zip(KERNEL_BUILD_FIELDS, anchor, identity)
+                     if anchor_value != value]
+        if differing:
+            conflicts.append(f"{target} and {anchor_target} differ in " + ", ".join(differing))
+    if conflicts:
+        raise ValueError(f"target set spans different kernel builds: {'; '.join(conflicts)}; "
+                         "one build run compiles one kernel")
 
 
 def asset_prefix(tag, target=DEFAULT):

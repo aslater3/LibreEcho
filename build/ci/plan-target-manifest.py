@@ -49,7 +49,7 @@ def plan(catalog_path, boot, *, target, release, version, update_channel, config
         sources[pname], sources[mname] = source, msource
     boot_sha, boot_size = digest(boot)
     result = {'schema': SCHEMA, 'format': 'libreecho-ota-v3', 'manifest_version': 1,
-              'board': target, 'soc': 'mt8163', 'architecture': 'armv7', 'image_profile': 'ota',
+              'board': target, 'soc': load_target(target)['soc'], 'architecture': 'armv7', 'image_profile': 'ota',
               'transaction_type': 'system', 'release': release, 'version': version,
               'update_channel': update_channel, 'service_profile': 'production',
               'commit_policy': 'after-slot-confirm', 'minimum_updater_schema': 3,

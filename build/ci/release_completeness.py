@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ota_v2_product import (ContractError, DAEMONS, FEATURES, digest, fail,
                             load_json, validate_control_tar, validate_plan)
-from target_registry import DEFAULT, KNOWN_TARGETS, load_target
+from target_registry import DEFAULT, KNOWN_TARGETS, accepted_targets, load_target
 
 SCHEMA = 'libreecho-release-completeness-v1'
 TARGETS = {target: load_target(target)['release_slug'] for target in KNOWN_TARGETS}
@@ -283,7 +283,7 @@ def check_run(run, builder, *, target=DEFAULT):
             sha, size = digest(path)
             return {'name': path.name, 'sha256': sha, 'size': size}
         manifest = dict(schema='libreecho-initial-install-v1', release='build-completeness-check',
-            board=target, soc='mt8163', image_profile='ota', service_profile='production',
+            board=target, soc=load_target(target)['soc'], image_profile='ota', service_profile='production',
             boot=record(flat / 'boot.img'), ota_public_key=record(flat / 'ota-public-key.hex'),
             features=install_features(plan, data, target=target), amonet={})
         (flat / 'manifest.json').write_text(json.dumps(manifest) + '\n')
@@ -381,9 +381,9 @@ def main():
             # inside a radar_puffin run and fail every single-target build.
             targets = [_candidate_target(args.run)]
         else:
-            # One combined release: iterate supported targets, not one release
-            # per target. Product-wide tags are untouched; no pointer changes.
-            targets = list(KNOWN_TARGETS)
+            # One combined release: iterate stable targets, not one release per
+            # target. An unaccepted target cannot contribute stable assets.
+            targets = list(accepted_targets())
         for target in targets:
             if args.command == 'record-recovery':
                 record_recovery(args.assets, target=target)

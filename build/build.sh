@@ -401,6 +401,20 @@ IFS=, read -r -a selected_targets <<< "$TARGETS"
 TARGET="${selected_targets[0]}"
 target_values="$(python3 -B "$PIPELINE/ci/validate-targets.py" --targets "$TARGET" --shell)"
 eval "$target_values" # only schema-validated identifiers/digests; no user strings
+case "$KERNEL_ARCH" in
+  arm) KERNEL_IMAGE_NAME=zImage; KERNEL_BOOT_SUBDIR=arch/arm/boot ;;
+  arm64) KERNEL_IMAGE_NAME=Image; KERNEL_BOOT_SUBDIR=arch/arm64/boot ;;
+  *) echo "ERROR: unsupported descriptor kernel arch: $KERNEL_ARCH" >&2; exit 1 ;;
+esac
+KERNEL_CROSS="$CROSS"
+# The build pins only the armhf cross, so a descriptor with an arm64 kernel
+# cannot be built yet. Upgrade path: add a pinned aarch64 cross to
+# prepare-public-inputs, select KERNEL_CROSS from it by arch, and give the
+# MT8163-only production checks below an arm64 branch.
+if [[ "$KERNEL_ARCH" != arm ]]; then
+  echo "ERROR: target $TARGET needs an $KERNEL_ARCH kernel cross toolchain; this build provisions only armhf" >&2
+  exit 1
+fi
 TOOLS_DIR="$TOOLING_SRC/tools/$TOOLS_PROFILE"
 platform_args() {
   local output
@@ -475,7 +489,7 @@ if [[ "$FEATURES_ENABLED" == 1 && "$SERVICE_PROFILE" == production ]]; then
     echo "ERROR: MT8163 audio FPGA firmware identity mismatch" >&2; exit 1
   }
   grep -qx 'CONFIG_SND_SOC_AMZN_MT8163_SPI_AUDIO=y' \
-    "$KERNEL_SRC/arch/arm/configs/$KERNEL_DEFCONFIG" || {
+    "$KERNEL_SRC/arch/$KERNEL_ARCH/configs/$KERNEL_DEFCONFIG" || {
     echo "ERROR: full-feature production build requires the verified MT8163 audio driver" >&2; exit 1
   }
 fi
@@ -858,8 +872,8 @@ if ((defconfig)) || [[ ! -f "$KERNEL_OUT/.config" ]]; then
   else
     echo "=== generating ARM32 defconfig (new build directory) ==="
   fi
-  make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-    LD="${CROSS}ld.bfd" "$KERNEL_DEFCONFIG"
+  make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH="$KERNEL_ARCH" CROSS_COMPILE="$KERNEL_CROSS" \
+    LD="${KERNEL_CROSS}ld.bfd" "$KERNEL_DEFCONFIG"
 fi
 
 recovery_marker_kconfig=0
@@ -876,8 +890,8 @@ if grep -Rqs --include='Kconfig*' 'config LIBREECHO_DEV_RECOVERY_MARKER' "$KERNE
       ;;
   esac
 fi
-make -s -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-  LD="${CROSS}ld.bfd" olddefconfig
+make -s -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH="$KERNEL_ARCH" CROSS_COMPILE="$KERNEL_CROSS" \
+  LD="${KERNEL_CROSS}ld.bfd" olddefconfig
 
 # The 3.18 kernel carries the MediaTek controller and Android gadget under
 # vendor symbols.  Current 6.1 uses the upstream MUSB controller and configfs
@@ -1047,7 +1061,7 @@ if grep -qxF 'CONFIG_USB_G_ANDROID=y' "$KERNEL_OUT/.config" &&
   exit 1
 fi
 
-echo "=== building ARM32 zImage and Radar-Puffin DTB (-j$JOBS) ==="
+echo "=== building $KERNEL_ARCH $KERNEL_IMAGE_NAME and $KERNEL_DTB_NAME (-j$JOBS) ==="
 # Pin the kernel's build identity (user, host, timestamp, build number) so
 # rebuilding the same commit with the same toolchain gives the same zImage.
 # Without this the version banner records the CI runner's hostname and the
@@ -1055,12 +1069,12 @@ echo "=== building ARM32 zImage and Radar-Puffin DTB (-j$JOBS) ==="
 kernel_build_epoch="$(git -C "$KERNEL_SRC" log -1 --format=%ct HEAD)"
 KBUILD_BUILD_USER=libreecho KBUILD_BUILD_HOST=libreecho KBUILD_BUILD_VERSION=1 \
 KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$kernel_build_epoch" '+%a %b %e %H:%M:%S UTC %Y')" \
-make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH=arm CROSS_COMPILE="$CROSS" \
-  LD="${CROSS}ld.bfd" -j"$JOBS" zImage "$KERNEL_DTB_NAME"
+make -C "$KERNEL_SRC" O="$KERNEL_OUT" ARCH="$KERNEL_ARCH" CROSS_COMPILE="$KERNEL_CROSS" \
+  LD="${KERNEL_CROSS}ld.bfd" -j"$JOBS" "$KERNEL_IMAGE_NAME" "$KERNEL_DTB_NAME"
 
-ZIMAGE_BUILD="$KERNEL_OUT/arch/arm/boot/zImage"
+ZIMAGE_BUILD="$KERNEL_OUT/$KERNEL_BOOT_SUBDIR/$KERNEL_IMAGE_NAME"
 SYSMAP_BUILD="$KERNEL_OUT/System.map"
-KERNEL_DTB="$KERNEL_OUT/arch/arm/boot/dts/$KERNEL_DTB_NAME"
+KERNEL_DTB="$KERNEL_OUT/$KERNEL_BOOT_SUBDIR/dts/$KERNEL_DTB_NAME"
 [[ -f "$ZIMAGE_BUILD" && -f "$SYSMAP_BUILD" && -f "$KERNEL_DTB" ]] || {
   echo "ERROR: kernel or DTB outputs missing" >&2; exit 1;
 }
@@ -1143,12 +1157,12 @@ if [[ -n "$KERNEL_ZIMAGE_OVERRIDE" || -n "$KERNEL_SYSTEM_MAP_OVERRIDE" ]]; then
   [[ "$(sha256sum "$KERNEL_SYSTEM_MAP_OVERRIDE" | awk '{print $1}')" == "$KERNEL_SYSTEM_MAP_OVERRIDE_SHA256" ]] || {
     echo "ERROR: kernel System.map parity override hash mismatch" >&2; exit 1
   }
-  cp -- "$KERNEL_ZIMAGE_OVERRIDE" "$RUN/zImage"
+  cp -- "$KERNEL_ZIMAGE_OVERRIDE" "$RUN/$KERNEL_IMAGE_NAME"
   cp -- "$KERNEL_SYSTEM_MAP_OVERRIDE" "$RUN/System.map"
   zsha="$KERNEL_ZIMAGE_OVERRIDE_SHA256"
   mapsha="$KERNEL_SYSTEM_MAP_OVERRIDE_SHA256"
 else
-  cp -- "$ZIMAGE_BUILD" "$RUN/zImage"
+  cp -- "$ZIMAGE_BUILD" "$RUN/$KERNEL_IMAGE_NAME"
   cp -- "$SYSMAP_BUILD" "$RUN/System.map"
 fi
 cp -- "$KERNEL_DTB" "$RUN/$KERNEL_DTB_NAME"
@@ -2345,7 +2359,7 @@ python3 -B "$BUILDER" "${TARGET_TOOL_ARGS[@]}" \
   --wpa-source-metadata "$RUN/wpa-supplicant-source.json" \
   --wifi-config "$IMAGE_WIFI_CONFIG" \
   "${ssh_builder_args[@]}" \
-  --zimage "$RUN/zImage" --expected-zimage-sha256 "$zsha" \
+  --zimage "$RUN/$KERNEL_IMAGE_NAME" --expected-zimage-sha256 "$zsha" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
   --dtb "$IMAGE_DTB" --expected-dtb-sha256 "$IMAGE_DTB_SHA256" \
   --output "$RUN/boot.img" \
@@ -2357,7 +2371,7 @@ echo "=== independent image verification ==="
 platform_args "$VERIFIER"
 python3 -B "$VERIFIER" "${TARGET_TOOL_ARGS[@]}" \
   --boot-envelope "$BOOT_ENVELOPE" \
-  --zimage "$RUN/zImage" --expected-zimage-sha256 "$zsha" \
+  --zimage "$RUN/$KERNEL_IMAGE_NAME" --expected-zimage-sha256 "$zsha" \
   --system-map "$RUN/System.map" --expected-system-map-sha256 "$mapsha" \
   --ramdisk "$RUN/boot.ramdisk.cpio.xz" --manifest "$RUN/manifest.json" \
   --boot-image "$RUN/boot.img" --expected-boot-sha256 "$bootsha" \
@@ -2601,7 +2615,7 @@ kernel_git_diff_sha256=$kernel_diffsha
 kernel_config=$RUN/kernel.config
 kernel_config_sha256=$kernel_config_sha
 expected_dtb_sha256=$IMAGE_DTB_SHA256
-zimage=$RUN/zImage
+zimage=$RUN/$KERNEL_IMAGE_NAME
 zimage_sha256=$zsha
 system_map=$RUN/System.map
 system_map_sha256=$mapsha
@@ -2809,7 +2823,7 @@ ssh_enabled=$SSH_ENABLED
 dropbear_sha256=$dropbear_sha
 dropbearkey_sha256=$dropbearkey_sha
 scp_sha256=$scp_sha
-zimage=$RUN/zImage
+zimage=$RUN/$KERNEL_IMAGE_NAME
 zimage_sha256=$zsha
 system_map=$RUN/System.map
 system_map_sha256=$mapsha
